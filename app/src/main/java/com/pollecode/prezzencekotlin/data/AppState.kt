@@ -102,6 +102,10 @@ class AppState(context: Context) {
         get() = prefs.getString("authToken", "") ?: ""
         set(value) = prefs.edit().putString("authToken", value).apply()
 
+    var authRefreshToken: String
+        get() = prefs.getString("authRefreshToken", "") ?: ""
+        set(value) = prefs.edit().putString("authRefreshToken", value).apply()
+
     var userId: String
         get() = prefs.getString("userId", "") ?: ""
         set(value) = prefs.edit().putString("userId", value).apply()

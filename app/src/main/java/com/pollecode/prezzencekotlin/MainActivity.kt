@@ -181,6 +181,7 @@ class MainActivity : ComponentActivity() {
 
     private fun saveAuthSession(session: com.pollecode.prezzencekotlin.data.AuthSession) {
         appState.authToken = session.accessToken
+        appState.authRefreshToken = session.refreshToken
         appState.userId = session.userId
         if (session.email.isNotBlank()) appState.userEmail = session.email
         if (session.fullName.isNotBlank()) appState.userFullName = session.fullName
@@ -3359,23 +3360,7 @@ class MainActivity : ComponentActivity() {
         }
         scope.launch {
             try {
-                val remote = backend.createSession(
-                    bearerToken = appState.authToken,
-                    role = appState.selectedRole,
-                    mode = appState.interviewMode,
-                    language = appState.language,
-                    interviewTrack = onboardingTrack,
-                    industry = onboardingIndustry,
-                    seniority = onboardingSeniority,
-                    difficulty = onboardingDifficulty,
-                    companyName = onboardingCompanyName,
-                    companyWebsite = onboardingCompanyWebsite,
-                    companyContext = onboardingCompanyContext,
-                    enableWebResearch = onboardingEnableWebResearch,
-                    includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                    interviewerStyle = onboardingInterviewerStyle,
-                    previewGender = onboardingPreviewGender,
-                )
+                val remote = tryCreateSession()
                 appState.activeSessionId = remote.sessionId.orEmpty()
                 if (!remote.questions.isNullOrEmpty()) {
                     appState.setGeneratedQuestions(remote.questions)
@@ -3385,9 +3370,45 @@ class MainActivity : ComponentActivity() {
                     setupStatus = "Camera and audio staged.",
                 )
             } catch (e: SessionCreateException) {
+                if (e.reason == SessionErrorReason.AUTH_FAILED && appState.authRefreshToken.isNotBlank()) {
+                    val refreshed = backend.refreshSession(appState.authRefreshToken)
+                    if (refreshed != null) {
+                        appState.authToken = refreshed.accessToken
+                        appState.authRefreshToken = refreshed.refreshToken
+                        try {
+                            val remote = tryCreateSession()
+                            appState.activeSessionId = remote.sessionId.orEmpty()
+                            if (!remote.questions.isNullOrEmpty()) {
+                                appState.setGeneratedQuestions(remote.questions)
+                            }
+                            showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
+                            return@launch
+                        } catch (_: SessionCreateException) { }
+                    }
+                }
                 showSessionCreateError(e.reason)
             }
         }
+    }
+
+    private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
+        return backend.createSession(
+            bearerToken = appState.authToken,
+            role = appState.selectedRole,
+            mode = appState.interviewMode,
+            language = appState.language,
+            interviewTrack = onboardingTrack,
+            industry = onboardingIndustry,
+            seniority = onboardingSeniority,
+            difficulty = onboardingDifficulty,
+            companyName = onboardingCompanyName,
+            companyWebsite = onboardingCompanyWebsite,
+            companyContext = onboardingCompanyContext,
+            enableWebResearch = onboardingEnableWebResearch,
+            includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
+            interviewerStyle = onboardingInterviewerStyle,
+            previewGender = onboardingPreviewGender,
+        )
     }
 
     private fun showLegacyRoomSetup() {
@@ -3417,29 +3438,29 @@ class MainActivity : ComponentActivity() {
         setScreen(column)
         scope.launch {
             try {
-                val remote = backend.createSession(
-                    bearerToken = appState.authToken,
-                    role = appState.selectedRole,
-                    mode = appState.interviewMode,
-                    language = appState.language,
-                    interviewTrack = onboardingTrack,
-                    industry = onboardingIndustry,
-                    seniority = onboardingSeniority,
-                    difficulty = onboardingDifficulty,
-                    companyName = onboardingCompanyName,
-                    companyWebsite = onboardingCompanyWebsite,
-                    companyContext = onboardingCompanyContext,
-                    enableWebResearch = onboardingEnableWebResearch,
-                    includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                    interviewerStyle = onboardingInterviewerStyle,
-                    previewGender = onboardingPreviewGender,
-                )
+                val remote = tryCreateSession()
                 appState.activeSessionId = remote.sessionId.orEmpty()
                 if (!remote.questions.isNullOrEmpty()) {
                     appState.setGeneratedQuestions(remote.questions)
                 }
                 showInterview(false)
             } catch (e: SessionCreateException) {
+                if (e.reason == SessionErrorReason.AUTH_FAILED && appState.authRefreshToken.isNotBlank()) {
+                    val refreshed = backend.refreshSession(appState.authRefreshToken)
+                    if (refreshed != null) {
+                        appState.authToken = refreshed.accessToken
+                        appState.authRefreshToken = refreshed.refreshToken
+                        try {
+                            val remote = tryCreateSession()
+                            appState.activeSessionId = remote.sessionId.orEmpty()
+                            if (!remote.questions.isNullOrEmpty()) {
+                                appState.setGeneratedQuestions(remote.questions)
+                            }
+                            showInterview(false)
+                            return@launch
+                        } catch (_: SessionCreateException) { }
+                    }
+                }
                 showSessionCreateError(e.reason)
             }
         }

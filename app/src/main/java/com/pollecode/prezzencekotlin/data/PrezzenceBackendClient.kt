@@ -75,6 +75,7 @@ class PrezzenceBackendClient {
                     email = user?.optString("email").orEmpty(),
                     fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
                     focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", ""),
                 ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
             }
         }.getOrNull()
@@ -105,6 +106,7 @@ class PrezzenceBackendClient {
                     email = user?.optString("email").orEmpty().ifBlank { email.trim() },
                     fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
                     focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", ""),
                 ).takeIf { it.accessToken.isNotBlank() }
             }
         }.getOrNull()
@@ -168,6 +170,35 @@ class PrezzenceBackendClient {
                     email = user.optString("email"),
                     fullName = user.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
                     focus = user.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
+    suspend fun refreshSession(refreshToken: String): AuthSession? = withContext(Dispatchers.IO) {
+        if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank() || refreshToken.isBlank()) return@withContext null
+        runCatching {
+            val body = JSONObject()
+                .put("refresh_token", refreshToken)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$supabaseUrl/auth/v1/token?grant_type=refresh_token")
+                .header("apikey", supabaseAnonKey)
+                .header("Authorization", "Bearer $supabaseAnonKey")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string().orEmpty())
+                val user = json.optJSONObject("user")
+                AuthSession(
+                    accessToken = json.optString("access_token"),
+                    userId = user?.optString("id").orEmpty(),
+                    email = user?.optString("email").orEmpty(),
+                    fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
+                    focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", refreshToken),
                 ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
             }
         }.getOrNull()
@@ -665,6 +696,7 @@ data class AuthSession(
     val email: String,
     val fullName: String = "",
     val focus: String = "",
+    val refreshToken: String = "",
 )
 
 data class BackendSession(
