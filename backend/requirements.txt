@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+httpx
+supabase
+python-dotenv
+python-jose[cryptography]
+upstash-redis
+pytest
+edge-tts
+miniaudio
+pytest-asyncio
+asyncpg
+python-multipart
+pypdf
