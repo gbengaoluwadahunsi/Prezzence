@@ -1,0 +1,2 @@
+-keep class ai.guiji.duix.** { *; }
+-keep class com.google.mediapipe.** { *; }

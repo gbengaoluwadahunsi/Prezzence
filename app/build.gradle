@@ -1,0 +1,145 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def envOrProp = { String name, String fallback = "" ->
+    (findProperty(name) ?: System.getenv(name) ?: fallback).toString()
+}
+
+def playApplicationId = envOrProp('PREZZENCE_PLAY_APPLICATION_ID', 'com.pollecode.prezzencekotlin')
+def prezzenceVersionCode = envOrProp('PREZZENCE_VERSION_CODE', '1').toInteger()
+def prezzenceVersionName = envOrProp('PREZZENCE_VERSION_NAME', '0.1.0')
+def prezzenceApiUrl = envOrProp('PREZZENCE_API_URL', 'https://prezzence-backend.onrender.com')
+def supabaseUrl = (findProperty('PREZZENCE_SUPABASE_URL') ?: System.getenv('EXPO_PUBLIC_SUPABASE_URL') ?: System.getenv('SUPABASE_URL') ?: "").toString()
+def supabaseAnonKey = (findProperty('PREZZENCE_SUPABASE_ANON_KEY') ?: System.getenv('EXPO_PUBLIC_SUPABASE_ANON_KEY') ?: System.getenv('SUPABASE_ANON_KEY') ?: "").toString()
+def releaseStoreFile = envOrProp('PREZZENCE_UPLOAD_STORE_FILE', '')
+def releaseStorePassword = envOrProp('PREZZENCE_UPLOAD_STORE_PASSWORD', '')
+def releaseKeyAlias = envOrProp('PREZZENCE_UPLOAD_KEY_ALIAS', '')
+def releaseKeyPassword = envOrProp('PREZZENCE_UPLOAD_KEY_PASSWORD', '')
+def prezzenceEnableWhisperCpp = envOrProp('PREZZENCE_ENABLE_WHISPER_CPP', 'false').toBoolean()
+def whisperModelName = envOrProp('PREZZENCE_WHISPER_MODEL_NAME', 'ggml-base.bin')
+def whisperModelUrl = envOrProp('PREZZENCE_WHISPER_MODEL_URL', 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin')
+def prezzenceSubscriptionProductId = envOrProp('PREZZENCE_SUBSCRIPTION_PRODUCT_ID', 'prezzence_pro')
+def releaseStorePath = releaseStoreFile ? file(releaseStoreFile) : null
+
+def escapeBuildConfig = { String value ->
+    value.replace('\\', '\\\\').replace('"', '\\"')
+}
+
+android {
+    namespace 'com.pollecode.prezzencekotlin'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId playApplicationId
+        minSdk 24
+        targetSdk 36
+        versionCode prezzenceVersionCode
+        versionName prezzenceVersionName
+        buildConfigField 'String', 'PREZZENCE_API_URL', "\"${escapeBuildConfig(prezzenceApiUrl)}\""
+        buildConfigField 'String', 'PREZZENCE_SUPABASE_URL', "\"${escapeBuildConfig(supabaseUrl)}\""
+        buildConfigField 'String', 'PREZZENCE_SUPABASE_ANON_KEY', "\"${escapeBuildConfig(supabaseAnonKey)}\""
+        buildConfigField 'boolean', 'PREZZENCE_ENABLE_WHISPER_CPP', prezzenceEnableWhisperCpp.toString()
+        buildConfigField 'String', 'PREZZENCE_WHISPER_MODEL_NAME', "\"${escapeBuildConfig(whisperModelName)}\""
+        buildConfigField 'String', 'PREZZENCE_WHISPER_MODEL_URL', "\"${escapeBuildConfig(whisperModelUrl)}\""
+        buildConfigField 'String', 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID', '"' + escapeBuildConfig(prezzenceSubscriptionProductId) + '"'
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags ''
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseStorePath != null) storeFile releaseStorePath
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        debug { minifyEnabled false }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            if (releaseStorePath != null && releaseStorePath.exists()) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions { jvmTarget = '17' }
+
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+}
+
+tasks.register('verifyPrezzenceReleaseEnv') {
+    group = 'verification'
+    description = 'Verifies Play Store, Supabase, backend, and signing inputs for a production Kotlin release.'
+    doLast {
+        def failures = []
+        if (playApplicationId != 'com.pollecode.prezzence') failures << "PREZZENCE_PLAY_APPLICATION_ID must be com.pollecode.prezzence for Play Store replacement builds. Current: ${playApplicationId}"
+        if (!prezzenceApiUrl.startsWith('https://')) failures << 'PREZZENCE_API_URL must be an HTTPS production backend URL.'
+        if (!supabaseUrl.startsWith('https://')) failures << 'PREZZENCE_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_URL is missing or not HTTPS.'
+        if (supabaseAnonKey.length() < 20) failures << 'PREZZENCE_SUPABASE_ANON_KEY / EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or too short.'
+        if (releaseStorePath == null || !releaseStorePath.exists()) failures << 'PREZZENCE_UPLOAD_STORE_FILE must point to the release keystore.'
+        if (!releaseStorePassword) failures << 'PREZZENCE_UPLOAD_STORE_PASSWORD is missing.'
+        if (!releaseKeyAlias) failures << 'PREZZENCE_UPLOAD_KEY_ALIAS is missing.'
+        if (!releaseKeyPassword) failures << 'PREZZENCE_UPLOAD_KEY_PASSWORD is missing.'
+        if (!prezzenceEnableWhisperCpp) failures << 'PREZZENCE_ENABLE_WHISPER_CPP must be true for a 100% Kotlin replacement release.'
+        if (prezzenceEnableWhisperCpp && !file('src/main/cpp/whisper').exists()) failures << 'whisper.cpp native sources are missing at app/src/main/cpp/whisper.'
+        if (prezzenceEnableWhisperCpp && !file('src/main/cpp/native_whisper.cpp').exists()) failures << 'Prezzence standalone whisper JNI wrapper is missing.'
+        if (prezzenceEnableWhisperCpp && !whisperModelUrl.startsWith('https://')) failures << 'PREZZENCE_WHISPER_MODEL_URL must be an HTTPS model URL.'
+        if (prezzenceEnableWhisperCpp && whisperModelName.toLowerCase().contains('.en.')) failures << 'PREZZENCE_WHISPER_MODEL_NAME must use a multilingual model, not an English-only .en.bin model.'
+        if (!prezzenceSubscriptionProductId.trim()) failures << 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID is missing.'
+        if (!failures.isEmpty()) throw new GradleException('Prezzence Kotlin release env is not ready:\n - ' + failures.join('\n - '))
+        println 'Prezzence Kotlin release env verified.'
+    }
+}
+
+dependencies {
+    implementation project(':duix-sdk')
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'androidx.activity:activity-ktx:1.9.3'
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation platform('androidx.compose:compose-bom:2024.10.01')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.camera:camera-camera2:1.4.1'
+    implementation 'androidx.camera:camera-lifecycle:1.4.1'
+    implementation 'androidx.camera:camera-view:1.4.1'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'com.google.mediapipe:tasks-vision:0.10.21'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.android.billingclient:billing:7.1.1'
+}
+
+
