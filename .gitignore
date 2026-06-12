@@ -10,6 +10,8 @@ frontend/android/release-apks/
 frontend/android/release-aab/
 frontend/android/app/build/
 frontend/android/app/src/main/assets/duix-models/*.zip
+marketing/node_modules/
+marketing/*.log
 backend/venv/
 **/__pycache__/
 *.pyc
