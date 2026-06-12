@@ -11,27 +11,7 @@ const PrezzenceIcon = ({ size = 32 }) => (
   </svg>
 );
 
-const PlayStoreBadge = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 564 168" height="50">
-    <rect width="564" height="168" rx="20" fill="#12121A" stroke="#2A2A3E" strokeWidth="1.5" />
-    <text x="42" y="52" fill="#8A8A9A" fontSize="12" fontFamily="Inter, sans-serif" fontWeight="500">GET IT ON</text>
-    <text x="42" y="78" fill="#FFF" fontSize="24" fontFamily="Inter, sans-serif" fontWeight="800">Google Play</text>
-    <path d="M20 24v120a20 20 0 0 0 20 20h16V4H40a20 20 0 0 0-20 20z" fill="#6C63FF" />
-    <path d="M44 48l24 36-24 36V48z" fill="#FFF" />
-    <circle cx="44" cy="84" r="4" fill="#FFF" />
-  </svg>
-);
 
-const AppStoreBadge = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 564 168" height="50">
-    <rect width="564" height="168" rx="20" fill="#12121A" stroke="#2A2A3E" strokeWidth="1.5" />
-    <text x="42" y="52" fill="#8A8A9A" fontSize="12" fontFamily="Inter, sans-serif" fontWeight="500">Download on the</text>
-    <text x="42" y="78" fill="#FFF" fontSize="24" fontFamily="Inter, sans-serif" fontWeight="800">App Store</text>
-    <path d="M20 24v120a20 20 0 0 0 20 20h16V4H40a20 20 0 0 0-20 20z" fill="#6C63FF" />
-    <path d="M44 48l24 36-24 36V48z" fill="#FFF" />
-    <circle cx="44" cy="84" r="4" fill="#FFF" />
-  </svg>
-);
 
 const features = [
   {
@@ -140,10 +120,10 @@ export default function App() {
             </p>
             <div className="store-buttons">
               <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-link">
-                <PlayStoreBadge />
+                <img src="/badge-playstore.png" alt="Get it on Google Play" height="48" />
               </a>
               <a href="https://apps.apple.com/app/prezzence" className="store-link">
-                <AppStoreBadge />
+                <img src="/badge-appstore.svg" alt="Download on the App Store" height="48" />
               </a>
             </div>
             <div className="hero-stats">
@@ -270,10 +250,10 @@ export default function App() {
           </p>
           <div className="store-buttons">
             <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-link">
-              <PlayStoreBadge />
-            </a>
+              <img src="/badge-playstore.png" alt="Get it on Google Play" height="48" />
+              </a>
             <a href="https://apps.apple.com/app/prezzence" className="store-link">
-              <AppStoreBadge />
+              <img src="/badge-appstore.svg" alt="Download on the App Store" height="48" />
             </a>
           </div>
         </div>
