@@ -16,3 +16,8 @@ render.log
 .cmake
 *.jks
 whisper/
+backend/static/duix-models/*.zip
+backend/venv/
+__pycache__/
+*.pyc
+.pytest_cache/

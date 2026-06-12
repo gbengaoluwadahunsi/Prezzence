@@ -52,6 +52,8 @@ import com.pollecode.prezzencekotlin.data.NotificationItem
 import com.pollecode.prezzencekotlin.data.PrezzenceBackendClient
 import com.pollecode.prezzencekotlin.data.ResumeProfile
 import com.pollecode.prezzencekotlin.data.PrezzenceDefaults
+import com.pollecode.prezzencekotlin.data.SessionCreateException
+import com.pollecode.prezzencekotlin.data.SessionErrorReason
 import com.pollecode.prezzencekotlin.data.SessionSummary
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
 import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
@@ -1379,6 +1381,59 @@ class MainActivity : ComponentActivity() {
         })
         column.addView(spacer(8))
         column.addView(primaryButton("Go back") { if (returnToHome) showHome() else finish() })
+        setScreen(scroll(column))
+    }
+
+    private fun showSessionCreateError(reason: SessionErrorReason) {
+        val (title, subtitle, badgeLabel, tips) = when (reason) {
+            SessionErrorReason.AUTH_FAILED -> arrayOf(
+                "Session expired",
+                "Your sign-in has expired or is invalid. Please sign in again.",
+                "AUTH EXPIRED",
+                arrayOf("Sign in again to continue", "Your progress is saved on this device"),
+            )
+            SessionErrorReason.SERVER_TIMEOUT -> arrayOf(
+                "Taking too long",
+                "The server is not responding. Please try again in a moment.",
+                "SERVER TIMEOUT",
+                arrayOf("Try again when your connection is stable", "Your unfinished session can be continued later"),
+            )
+            SessionErrorReason.NETWORK_UNAVAILABLE -> arrayOf(
+                "Connection problem",
+                "We could not connect. Check your connection and try again.",
+                "NETWORK UNAVAILABLE",
+                arrayOf("Switch Wi-Fi or mobile data, then try again", "Your unfinished session can be continued later"),
+            )
+            SessionErrorReason.SERVER_ERROR -> arrayOf(
+                "Something went wrong",
+                "Our server encountered an error. Please try again.",
+                "SERVER ERROR",
+                arrayOf("Try again in a few minutes", "Your progress is saved on this device"),
+            )
+            SessionErrorReason.UNKNOWN -> arrayOf(
+                "Something went wrong",
+                "An unexpected error occurred. Please try again.",
+                "ERROR",
+                arrayOf("Try again", "Your progress is saved on this device"),
+            )
+        }
+        val column = baseColumn()
+        column.addView(backButton { showHome() })
+        column.addView(title(title, 34))
+        column.addView(body(subtitle))
+        column.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(24), 0, dp(24))
+            layoutParams = blockParams()
+            addView(pill(badgeLabel, accent))
+        })
+        column.addView(label("WHAT YOU CAN DO"))
+        tips.forEach { tip ->
+            column.addView(settingsRow(tip, "", icon = SettingsIcon.QA) { showHome() })
+        }
+        column.addView(spacer(8))
+        column.addView(primaryButton("Go back") { showHome() })
         setScreen(scroll(column))
     }
 
@@ -3301,35 +3356,35 @@ class MainActivity : ComponentActivity() {
             return
         }
         scope.launch {
-            val remote = backend.createSession(
-                bearerToken = appState.authToken,
-                role = appState.selectedRole,
-                mode = appState.interviewMode,
-                language = appState.language,
-                interviewTrack = onboardingTrack,
-                industry = onboardingIndustry,
-                seniority = onboardingSeniority,
-                difficulty = onboardingDifficulty,
-                companyName = onboardingCompanyName,
-                companyWebsite = onboardingCompanyWebsite,
-                companyContext = onboardingCompanyContext,
-                enableWebResearch = onboardingEnableWebResearch,
-                includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                interviewerStyle = onboardingInterviewerStyle,
-                previewGender = onboardingPreviewGender,
-            )
-            if (remote == null) {
-                showNetworkError(returnToHome = true)
-                return@launch
+            try {
+                val remote = backend.createSession(
+                    bearerToken = appState.authToken,
+                    role = appState.selectedRole,
+                    mode = appState.interviewMode,
+                    language = appState.language,
+                    interviewTrack = onboardingTrack,
+                    industry = onboardingIndustry,
+                    seniority = onboardingSeniority,
+                    difficulty = onboardingDifficulty,
+                    companyName = onboardingCompanyName,
+                    companyWebsite = onboardingCompanyWebsite,
+                    companyContext = onboardingCompanyContext,
+                    enableWebResearch = onboardingEnableWebResearch,
+                    includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
+                    interviewerStyle = onboardingInterviewerStyle,
+                    previewGender = onboardingPreviewGender,
+                )
+                appState.activeSessionId = remote.sessionId.orEmpty()
+                if (!remote.questions.isNullOrEmpty()) {
+                    appState.setGeneratedQuestions(remote.questions)
+                }
+                showEnteringRoom(
+                    preparing = false,
+                    setupStatus = "Camera and audio staged.",
+                )
+            } catch (e: SessionCreateException) {
+                showSessionCreateError(e.reason)
             }
-            appState.activeSessionId = remote.sessionId.orEmpty()
-            if (!remote.questions.isNullOrEmpty()) {
-                appState.setGeneratedQuestions(remote.questions)
-            }
-            showEnteringRoom(
-                preparing = false,
-                setupStatus = "Camera and audio staged.",
-            )
         }
     }
 
@@ -3359,28 +3414,32 @@ class MainActivity : ComponentActivity() {
         column.addView(body("Setting up your questions."))
         setScreen(column)
         scope.launch {
-            val remote = backend.createSession(
-                bearerToken = appState.authToken,
-                role = appState.selectedRole,
-                mode = appState.interviewMode,
-                language = appState.language,
-                interviewTrack = onboardingTrack,
-                industry = onboardingIndustry,
-                seniority = onboardingSeniority,
-                difficulty = onboardingDifficulty,
-                companyName = onboardingCompanyName,
-                companyWebsite = onboardingCompanyWebsite,
-                companyContext = onboardingCompanyContext,
-                enableWebResearch = onboardingEnableWebResearch,
-                includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                interviewerStyle = onboardingInterviewerStyle,
-                previewGender = onboardingPreviewGender,
-            )
-            appState.activeSessionId = remote?.sessionId.orEmpty()
-            if (!remote?.questions.isNullOrEmpty()) {
-                appState.setGeneratedQuestions(remote!!.questions)
+            try {
+                val remote = backend.createSession(
+                    bearerToken = appState.authToken,
+                    role = appState.selectedRole,
+                    mode = appState.interviewMode,
+                    language = appState.language,
+                    interviewTrack = onboardingTrack,
+                    industry = onboardingIndustry,
+                    seniority = onboardingSeniority,
+                    difficulty = onboardingDifficulty,
+                    companyName = onboardingCompanyName,
+                    companyWebsite = onboardingCompanyWebsite,
+                    companyContext = onboardingCompanyContext,
+                    enableWebResearch = onboardingEnableWebResearch,
+                    includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
+                    interviewerStyle = onboardingInterviewerStyle,
+                    previewGender = onboardingPreviewGender,
+                )
+                appState.activeSessionId = remote.sessionId.orEmpty()
+                if (!remote.questions.isNullOrEmpty()) {
+                    appState.setGeneratedQuestions(remote.questions)
+                }
+                showInterview(false)
+            } catch (e: SessionCreateException) {
+                showSessionCreateError(e.reason)
             }
-            showInterview(false)
         }
     }
 

@@ -2634,7 +2634,11 @@ fun PrezzenceEnteringRoomScreen(
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        if (isPanel) "Your interviewers are ready." else "Your interviewer is ready.",
+                        if (preparing) {
+                            if (isPanel) "Your interviewers are getting ready." else "Getting ready"
+                        } else {
+                            if (isPanel) "Your interviewers are ready." else "Your interviewer is ready."
+                        },
                         color = TextPrimary,
                         fontSize = 27.sp,
                         lineHeight = 34.sp,
@@ -2728,21 +2732,6 @@ private fun EnteringSingleCard(interviewer: Pair<String, String>, preparing: Boo
                         ),
                     ),
             )
-            if (preparing) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(14.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xCC10101A))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                ) {
-                    CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Preparing room", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                }
-            }
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -2873,9 +2862,7 @@ private fun EnteringSetupPreview(setupStatus: String, preparing: Boolean) {
             Spacer(Modifier.height(3.dp))
             Text(setupStatus, color = TextPrimary, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
         }
-        if (preparing) {
-            CircularProgressIndicator(color = Color(0xFF00D68F), strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
-        } else {
+        if (!preparing) {
             CheckIcon(Modifier.size(22.dp), Color(0xFF00D68F))
         }
     }

@@ -228,9 +228,9 @@ class PrezzenceBackendClient {
         interviewerStyle: String = "Balanced",
         previewGender: String = "Female",
         length: String = "standard",
-    ): BackendSession? = withContext(Dispatchers.IO) {
-        if (bearerToken.isNullOrBlank()) return@withContext null
-        runCatching {
+    ): BackendSession = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank()) throw SessionCreateException(SessionErrorReason.AUTH_FAILED, "No auth token available")
+        try {
             val panelIds = panelPersonaIds(mode, interviewerStyle, previewGender)
             val panel = JSONArray().apply {
                 panelIds.forEachIndexed { index, id ->
@@ -262,15 +262,36 @@ class PrezzenceBackendClient {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    val bodyText = response.body?.string().orEmpty()
+                    throw when (code) {
+                        401, 403 -> SessionCreateException(SessionErrorReason.AUTH_FAILED, "Auth rejected ($code): $bodyText")
+                        402 -> SessionCreateException(SessionErrorReason.AUTH_FAILED, "Payment required: $bodyText")
+                        408, 504 -> SessionCreateException(SessionErrorReason.SERVER_TIMEOUT, "Server timeout ($code)")
+                        in 500..599 -> SessionCreateException(SessionErrorReason.SERVER_ERROR, "Server error ($code): $bodyText")
+                        else -> SessionCreateException(SessionErrorReason.UNKNOWN, "Unexpected status $code: $bodyText")
+                    }
+                }
                 val json = JSONObject(response.body?.string().orEmpty())
+                val sessionId = json.optString("session_id")
+                if (sessionId.isBlank()) throw SessionCreateException(SessionErrorReason.SERVER_ERROR, "Empty session_id in response")
                 BackendSession(
-                    sessionId = json.optString("session_id"),
+                    sessionId = sessionId,
                     questions = json.optJSONArray("questions").toInterviewQuestions(role, panelIds),
                 )
-                    .takeIf { it.sessionId.isNotBlank() }
             }
-        }.getOrNull()
+        } catch (e: SessionCreateException) {
+            throw e
+        } catch (e: java.net.ConnectException) {
+            throw SessionCreateException(SessionErrorReason.NETWORK_UNAVAILABLE, "Connection refused")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw SessionCreateException(SessionErrorReason.SERVER_TIMEOUT, "Socket timeout")
+        } catch (e: java.net.UnknownHostException) {
+            throw SessionCreateException(SessionErrorReason.NETWORK_UNAVAILABLE, "DNS resolution failed")
+        } catch (e: Exception) {
+            throw SessionCreateException(SessionErrorReason.UNKNOWN, e.message ?: "Unknown error")
+        }
     }
 
     private fun panelPersonaIds(
@@ -633,6 +654,10 @@ class PrezzenceBackendClient {
         }
     }
 }
+
+enum class SessionErrorReason { NETWORK_UNAVAILABLE, SERVER_TIMEOUT, AUTH_FAILED, SERVER_ERROR, UNKNOWN }
+
+class SessionCreateException(val reason: SessionErrorReason, message: String? = null) : Exception(message)
 
 data class AuthSession(
     val accessToken: String,
