@@ -1,3 +1,18 @@
+backend/.env
+frontend/.env
+frontend/.expo/
+frontend/dist/
+frontend/node_modules/
+frontend/ios/
+frontend/android/*.jks
+frontend/android/app/*.jks
+frontend/android/release-apks/
+frontend/android/release-aab/
+frontend/android/app/build/
+frontend/android/app/src/main/assets/duix-models/*.zip
+backend/venv/
+**/__pycache__/
+*.pyc
 *.iml
 .gradle
 build/
@@ -10,7 +25,6 @@ local.properties
 captures/
 *.keystore
 !debug.keystore
-*.hprof
 render.log
 .externalNativeBuild
 .cmake
