@@ -3129,24 +3129,6 @@ fun PrezzenceInterviewRoomScreen(
 
                             Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
                         }
-                    } else {
-                        val transcriptText = transcript.ifBlank { error }
-                        if (transcriptText.isNotBlank()) {
-                            Text(
-                                transcriptText,
-                                color = TextSecondary,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(Color.White.copy(alpha = 0.06f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-                                    .padding(12.dp),
-                            )
-                        }
                     }
                 }
 
