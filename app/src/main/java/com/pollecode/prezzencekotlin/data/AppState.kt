@@ -16,6 +16,10 @@ class AppState(context: Context) {
         get() = prefs.getBoolean("onboardingComplete", false)
         set(value) = prefs.edit().putBoolean("onboardingComplete", value).apply()
 
+    var duixModelsPreloaded: Boolean
+        get() = prefs.getBoolean("duixModelsPreloaded", false)
+        set(value) = prefs.edit().putBoolean("duixModelsPreloaded", value).apply()
+
     var cameraCoachEnabled: Boolean
         get() = prefs.getBoolean("cameraCoachEnabled", true)
         set(value) = prefs.edit().putBoolean("cameraCoachEnabled", value).apply()

@@ -649,29 +649,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyTrackDefaults(track: String) {
-        val currentRole = appState.selectedRole
-        val roleIsStock = currentRole.isBlank() || currentRole in PrezzenceDefaults.roles
-        if (roleIsStock) {
-            appState.selectedRole = when (track.lowercase()) {
-                "promotion" -> "Senior Manager"
-                "pitch" -> "Product or startup pitch"
-                "leadership" -> "Team leadership scenario"
-                "behavioral" -> "Behavioral interview stories"
-                "technical" -> "Software Engineer"
-                else -> PrezzenceDefaults.roles.first()
-            }
+        // Always apply role defaults when track changes (not just for stock roles)
+        appState.selectedRole = when (track.lowercase()) {
+            "promotion" -> "Senior Manager"
+            "pitch" -> "Product or startup pitch"
+            "leadership" -> "Team leadership scenario"
+            "behavioral" -> "Behavioral interview stories"
+            "technical" -> "Software Engineer"
+            else -> "Software Engineer"  // Default role for job track
         }
-        if (onboardingIndustry.isBlank() || onboardingIndustry == "Customer Service") {
-            onboardingIndustry = when (track.lowercase()) {
-                "promotion" -> "Current function or team"
-                "pitch" -> "Investors or customers"
-                "leadership" -> "Operations or people leadership"
-                "behavioral" -> "Leadership, conflict, ownership"
-                "technical" -> "Kotlin, cloud, data, ML"
-                else -> "Customer Service"
-            }
+        
+        // Always apply industry defaults when track changes
+        onboardingIndustry = when (track.lowercase()) {
+            "promotion" -> "Current function or team"
+            "pitch" -> "Investors or customers"
+            "leadership" -> "Operations or people leadership"
+            "behavioral" -> "Leadership, conflict, ownership"
+            "technical" -> "Kotlin, cloud, data, ML"
+            else -> "Tech"  // Default industry for job track
         }
-        if (track.equals("technical", ignoreCase = true)) onboardingIncludeTechnical = true
+        
+        // Set technical flag for technical track
+        onboardingIncludeTechnical = track.equals("technical", ignoreCase = true)
     }
 
     private fun showOnboardingRole() {
@@ -764,6 +763,23 @@ class MainActivity : ComponentActivity() {
         val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
             appState.currentQuestionIndex < questions.size
 
+        // Preload DUIX models for all personas on first app launch
+        // This downloads models (~50MB) to device storage when user first signs in
+        if (appState.duixModelsPreloaded) {
+            // Models already preloaded, skip
+        } else {
+            appState.duixModelsPreloaded = true
+            scope.launch {
+                try {
+                    // Preload all 3 personas: Sofia, Lily, Oliver
+                    val preloadNames = listOf("Sofia", "Lily", "Oliver")
+                    com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView.preloadModelFiles(this@MainActivity, preloadNames)
+                } catch (e: Exception) {
+                    // Model preload failed - they'll be downloaded on-demand when needed
+                }
+            }
+        }
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 androidx.compose.material3.MaterialTheme {
@@ -3304,44 +3320,8 @@ class MainActivity : ComponentActivity() {
         questionSpeechCache.clear()
         openingIntroductionSpoken = false
         suppressNativeAvatarForEntry = false
-        preloadAvatarModelsThenShowInterview()
-    }
-
-    private fun preloadAvatarModelsThenShowInterview() {
-        val modelNames = if (appState.interviewMode == InterviewMode.PANEL) {
-            PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle).map { it.modelName }
-        } else {
-            listOf(appState.interviewerFor().modelName)
-        }.distinct()
-        val hasMissingModel = modelNames.any { !NativeDuixAvatarView.isModelCached(this, it) }
-        if (!hasMissingModel) {
-            val column = baseColumn().apply { gravity = Gravity.CENTER }
-            column.addView(title("Preparing interviewer", 28))
-            column.addView(body("Loading the interviewer voice before the room opens."))
-            setScreen(column)
-            scope.launch {
-                prepareCurrentQuestionSpeech()
-                showInterview(false)
-            }
-            return
-        }
-
-        val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Preparing interviewers", 28))
-        column.addView(body("Loading avatar models before the first question."))
-        setScreen(column)
-        scope.launch {
-            val preloadError = runCatching {
-                withContext(Dispatchers.IO) {
-                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames)
-                }
-                prepareCurrentQuestionSpeech()
-            }.exceptionOrNull()
-            if (preloadError != null) {
-                showAppToast("Avatar is still preparing. The room will continue loading.", ToastKind.WARNING)
-            }
-            showInterview(false)
-        }
+        showInterview(false)
+        scope.launch { prepareCurrentQuestionSpeech() }
     }
 
     /** Shows network error screen when a backend call fails during critical flows. */
@@ -4027,6 +4007,9 @@ class MainActivity : ComponentActivity() {
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
+                }
+                override fun onModelError(modelName: String, message: String?) {
+                    showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)
