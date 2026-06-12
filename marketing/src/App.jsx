@@ -63,21 +63,21 @@ const tracks = [
 
 const personas = [
   {
-    name: "Sofia",
-    title: "Executive Coach",
-    img: "/personas/sofia.jpg",
-    desc: "A warm and experienced coach who challenges you with thoughtful follow-up questions.",
+    name: "Sophia",
+    title: "Domain Expert",
+    img: "/personas/sophia.jpg",
+    desc: "An insightful interviewer who asks deep, relevant questions to test your expertise.",
   },
   {
-    name: "Oliver",
+    name: "Jonas",
     title: "Hiring Manager",
-    img: "/personas/oliver.jpg",
+    img: "/personas/jonas.jpg",
     desc: "A direct and professional interviewer focused on your qualifications and fit.",
   },
   {
-    name: "Lily",
+    name: "Maya",
     title: "Peer Reviewer",
-    img: "/personas/lily.jpg",
+    img: "/personas/maya.jpg",
     desc: "A friendly collaborator who helps you refine your stories and delivery.",
   },
 ];

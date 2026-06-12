@@ -49,9 +49,9 @@
 .hero {
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 120px 24px 80px;
+  padding: 140px 24px 60px;
   position: relative;
   overflow: hidden;
 }
@@ -178,6 +178,7 @@
   opacity: 0.9;
 }
 
+.store-link img,
 .store-link svg {
   height: 48px;
   width: auto;
@@ -525,6 +526,10 @@
 
 /* ─── Responsive ─── */
 @media (max-width: 960px) {
+  .hero {
+    padding: 120px 20px 60px;
+  }
+
   .hero-content {
     flex-direction: column;
     text-align: center;
