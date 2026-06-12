@@ -1,5 +1,38 @@
 import "./App.css";
 
+const PrezzenceIcon = ({ size = 32 }) => (
+  <svg viewBox="0 0 108 108" width={size} height={size} style={{ flexShrink: 0 }}>
+    <rect width="108" height="108" rx="24" fill="#08070D" />
+    <circle cx="54" cy="54" r="46" fill="#131626" />
+    <circle cx="54" cy="54" r="34" fill="#1AD8A6" fillOpacity="0.92" />
+    <circle cx="54" cy="54" r="21" fill="#6B5BFF" />
+    <circle cx="54" cy="54" r="9" fill="#38BDF8" />
+    <path d="M31,25 A39,39 0 0,1 75,25 A44,44 0 0,0 31,25" fill="#FFFFFF" fillOpacity="0.28" />
+  </svg>
+);
+
+const PlayStoreBadge = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 564 168" height="50">
+    <rect width="564" height="168" rx="20" fill="#12121A" stroke="#2A2A3E" strokeWidth="1.5" />
+    <text x="42" y="52" fill="#8A8A9A" fontSize="12" fontFamily="Inter, sans-serif" fontWeight="500">GET IT ON</text>
+    <text x="42" y="78" fill="#FFF" fontSize="24" fontFamily="Inter, sans-serif" fontWeight="800">Google Play</text>
+    <path d="M20 24v120a20 20 0 0 0 20 20h16V4H40a20 20 0 0 0-20 20z" fill="#6C63FF" />
+    <path d="M44 48l24 36-24 36V48z" fill="#FFF" />
+    <circle cx="44" cy="84" r="4" fill="#FFF" />
+  </svg>
+);
+
+const AppStoreBadge = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 564 168" height="50">
+    <rect width="564" height="168" rx="20" fill="#12121A" stroke="#2A2A3E" strokeWidth="1.5" />
+    <text x="42" y="52" fill="#8A8A9A" fontSize="12" fontFamily="Inter, sans-serif" fontWeight="500">Download on the</text>
+    <text x="42" y="78" fill="#FFF" fontSize="24" fontFamily="Inter, sans-serif" fontWeight="800">App Store</text>
+    <path d="M20 24v120a20 20 0 0 0 20 20h16V4H40a20 20 0 0 0-20 20z" fill="#6C63FF" />
+    <path d="M44 48l24 36-24 36V48z" fill="#FFF" />
+    <circle cx="44" cy="84" r="4" fill="#FFF" />
+  </svg>
+);
+
 const features = [
   {
     icon: "\u{1F916}",
@@ -74,7 +107,7 @@ export default function App() {
     <>
       <nav className="nav">
         <a href="/" className="nav-logo">
-          <div className="nav-logo-icon">P</div>
+          <PrezzenceIcon size={32} />
           Prezzence
         </a>
         <ul className="nav-links">
@@ -82,7 +115,6 @@ export default function App() {
           <li><a href="#personas">Interviewers</a></li>
           <li><a href="#tracks">Tracks</a></li>
           <li><a href="#how">How It Works</a></li>
-          <li><a href="https://prezzence.app/download" className="nav-cta">Get Started</a></li>
         </ul>
       </nav>
 
@@ -96,7 +128,7 @@ export default function App() {
           <div className="hero-text">
             <div className="hero-badge">
               <span className="hero-badge-dot" />
-              Now available on Android
+              AI-Powered Interview Practice
             </div>
             <h1>
               Master your next<br />
@@ -106,12 +138,12 @@ export default function App() {
               Practice interviews with lifelike 3D AI interviewers. Get instant
               feedback, track your progress, and build confidence before the real thing.
             </p>
-            <div className="hero-buttons">
-              <a href="https://prezzence.app/download" className="btn-primary">
-                Download Now &rarr;
+            <div className="store-buttons">
+              <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-link">
+                <PlayStoreBadge />
               </a>
-              <a href="#features" className="btn-secondary">
-                Learn More
+              <a href="https://apps.apple.com/app/prezzence" className="store-link">
+                <AppStoreBadge />
               </a>
             </div>
             <div className="hero-stats">
@@ -130,7 +162,10 @@ export default function App() {
             </div>
           </div>
           <div className="hero-image">
-            <img src="/screens/home.png" alt="Prezzence app screenshot" />
+            <div className="phone-mockup">
+              <div className="phone-notch" />
+              <img src="/screens/home.png" alt="Prezzence app screenshot" />
+            </div>
           </div>
         </div>
       </section>
@@ -231,21 +266,34 @@ export default function App() {
         <div className="cta-content">
           <h2>Ready to ace your next interview?</h2>
           <p>
-            Join thousands of professionals who prepare with Prezzence.
+            Download Prezzence and start practicing with AI today.
           </p>
-          <div className="cta-buttons">
-            <a href="https://prezzence.app/download" className="btn-primary">
-              Download Now &rarr;
+          <div className="store-buttons">
+            <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-link">
+              <PlayStoreBadge />
             </a>
-            <a href="#features" className="btn-secondary">
-              Explore Features
+            <a href="https://apps.apple.com/app/prezzence" className="store-link">
+              <AppStoreBadge />
             </a>
           </div>
         </div>
       </section>
 
       <footer className="footer">
-        <p>&copy; {new Date().getFullYear()} Prezzence. All rights reserved.</p>
+        <div className="footer-inner">
+          <div className="footer-brand">
+            <a href="/" className="nav-logo" style={{ justifyContent: "center" }}>
+              <PrezzenceIcon size={28} />
+              Prezzence
+            </a>
+          </div>
+          <p className="footer-duix">
+            AI avatars powered by <strong>DUIX</strong>
+          </p>
+          <p className="footer-copy">
+            &copy; {new Date().getFullYear()} Prezzence. All rights reserved.
+          </p>
+        </div>
       </footer>
     </>
   );
