@@ -577,6 +577,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
     companion object {
         private const val BASE_MODEL_NAME = "gj_dh_res"
+        
+        // Progress callback for model downloads: (modelName, progressPercent)
+        var progressCallback: ((String, Int) -> Unit)? = null
 
         fun isModelCached(context: Context, name: String): Boolean {
             val modelName = normalizeModelNameStatic(name)
@@ -585,14 +588,46 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 avatarModelLooksReadyStatic(File(root, modelName))
         }
 
-        fun preloadModelFiles(context: Context, names: List<String>) {
+        fun preloadModelFiles(context: Context, names: List<String>, onProgress: ((String, Int) -> Unit)? = null) {
             val client = OkHttpClient.Builder()
-                .connectTimeout(20, TimeUnit.SECONDS)
-                .readTimeout(90, TimeUnit.SECONDS)
+                .connectTimeout(30, TimeUnit.SECONDS)  // Increased from 20s
+                .readTimeout(120, TimeUnit.SECONDS)     // Increased from 90s for large downloads
+                .writeTimeout(30, TimeUnit.SECONDS)
                 .build()
-            names.map { normalizeModelNameStatic(it) }
-                .distinct()
-                .forEach { ensureModelFilesAvailable(context, it, client) }
+            
+            progressCallback = onProgress
+            val modelNames = names.map { normalizeModelNameStatic(it) }.distinct()
+            val totalModels = modelNames.size + 1  // +1 for base model
+            var completedModels = 0
+            
+            // Always ensure base model first
+            try {
+                onProgress?.invoke("Base", 10)
+                ensureModelFilesAvailable(context, BASE_MODEL_NAME, client)
+                completedModels++
+                val progress = (completedModels * 100) / totalModels
+                onProgress?.invoke("Base", progress)
+                Log.i("PrezzenceDuix", "Successfully preloaded base model")
+            } catch (e: Exception) {
+                Log.e("PrezzenceDuix", "Failed to preload base model: ${e.message}", e)
+            }
+            
+            modelNames.forEach { modelName ->
+                try {
+                    onProgress?.invoke(modelName, (completedModels * 100) / totalModels + 5)
+                    ensureModelFilesAvailable(context, modelName, client)
+                    completedModels++
+                    val progress = (completedModels * 100) / totalModels
+                    onProgress?.invoke(modelName, progress)
+                    Log.i("PrezzenceDuix", "Successfully preloaded model: $modelName")
+                } catch (e: Exception) {
+                    Log.e("PrezzenceDuix", "Failed to preload model $modelName: ${e.message}", e)
+                    // Continue with other models even if one fails
+                }
+            }
+            
+            // Final 100% signal
+            onProgress?.invoke("Complete", 100)
         }
 
         private fun ensureModelFilesAvailable(
