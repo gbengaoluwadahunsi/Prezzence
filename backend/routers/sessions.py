@@ -109,6 +109,23 @@ def _format_resume_context(profile: dict | None) -> str:
     )
 
 
+def _generate_coaching_message(score: int, transcript: str, question: str) -> str:
+    """
+    Generate personalized coaching feedback based on answer quality score.
+    This message is spoken by the avatar to guide the user through their answer improvement journey.
+    """
+    if score < 20:
+        return "Let me help you refocus. Tell me one specific example where you handled this situation, and what was the result."
+    elif score < 40:
+        return "Good start! Now add one concrete detail—what exactly did you do, and what happened as a result?"
+    elif score < 60:
+        return "You're on the right track. Make it even stronger by explaining the situation, your specific action, and the result you achieved."
+    elif score < 80:
+        return "Solid answer! To make it even more impactful, consider adding a specific metric or quantifiable outcome."
+    else:
+        return "Excellent answer! You've got a clear structure with specific details. That's exactly what interviewers want to hear."
+
+
 async def _submit_answer_payload(
     session_id: str,
     current_user: dict,
@@ -284,6 +301,11 @@ async def _submit_answer_payload(
         "analysis": {
             **analysis,
             "transcript": transcript_text,
+            "coaching_message": _generate_coaching_message(
+                score=int(analysis.get("score", 0) or 0),
+                transcript=transcript_text,
+                question=question_text,
+            ),
         },
     }
 
