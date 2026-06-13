@@ -3291,19 +3291,51 @@ class MainActivity : ComponentActivity() {
         } else {
             listOf(appState.interviewerFor())
         }
+        
+        // Check if avatar models are ready
+        val allModelsReady = interviewers.all { interviewer ->
+            NativeDuixAvatarView.isModelCached(this, interviewer.modelName)
+        }
+        
+        // If models aren't ready and we're not already preparing, start preparing
+        val actuallyPreparing = preparing || !allModelsReady
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceEnteringRoomScreen(
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
-                    preparing = preparing,
-                    setupStatus = setupStatus,
+                    preparing = actuallyPreparing,
+                    setupStatus = if (allModelsReady) setupStatus else "Downloading avatar models...",
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
                 )
             }
         })
-        if (preparing) prepareBackendSessionForEntering()
+        
+        // Start backend session preparation if needed
+        if (preparing) {
+            prepareBackendSessionForEntering()
+        }
+        
+        // If models aren't ready, download them in background
+        if (!allModelsReady) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val modelNames = interviewers.map { it.modelName }.distinct()
+                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames)
+                    // Refresh the screen once models are ready
+                    withContext(Dispatchers.Main) {
+                        showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
+                    }
+                } catch (e: Exception) {
+                    // Models failed to download, but allow user to proceed anyway
+                    withContext(Dispatchers.Main) {
+                        showEnteringRoom(preparing = false, setupStatus = "Ready to start (avatar may load during interview).")
+                    }
+                }
+            }
+        }
     }
 
     private fun beginInterviewFromEntering() {

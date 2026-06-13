@@ -3055,7 +3055,8 @@ fun PrezzenceInterviewRoomScreen(
                                 if (answering) {
                                     Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
                                 } else {
-                                    Modifier.aspectRatio(4f / 3f) // Match entering room aspect ratio
+                                    // Increased height: 5:4 aspect ratio (taller than 4:3)
+                                    Modifier.aspectRatio(4f / 5f)
                                 }
                             )
                             .clip(RoundedCornerShape(stageRadius))
@@ -3103,23 +3104,7 @@ fun PrezzenceInterviewRoomScreen(
                     StatusStrip(if (answering) "YOU ARE SPEAKING" else "INTERVIEWER SPEAKING")
 
                     if (!answering) {
-                        // Display question text prominently
-                        if (questionText.isNotBlank()) {
-                            Text(
-                                questionText,
-                                color = TextPrimary,
-                                fontSize = if (compactHeight) 16.sp else 18.sp,
-                                lineHeight = if (compactHeight) 24.sp else 27.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color.White.copy(alpha = 0.05f))
-                                    .border(1.dp, Accent.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                    .padding(16.dp),
-                            )
-                        }
-                        
+                        // No question text display - avatar speaks the question
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactHeight) 9.dp else 12.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 InterviewSmallButton("Pause", "pause", Modifier.weight(1f), onPause, compact = compactWidth)
