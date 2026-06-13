@@ -114,6 +114,21 @@ app.include_router(duix.router)
 async def debug_routes():
     return [{"path": route.path, "name": route.name} for route in app.routes]
 
+@app.get("/api/version")
+async def api_version():
+    """Returns current API version and deployment info."""
+    return {
+        "version": "1.0.1",
+        "build": "2026-06-13-avatar-fix",
+        "environment": os.getenv("ENVIRONMENT", "production"),
+        "features": [
+            "coaching_messages",
+            "backend_scoring",
+            "avatar_models",
+            "tts_synthesis"
+        ]
+    }
+
 @app.get("/api/test-direct")
 async def test_direct():
     return {"message": "Direct API route working"}
