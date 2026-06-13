@@ -3350,9 +3350,30 @@ class MainActivity : ComponentActivity() {
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        showAppToast("Avatar model failed to download. Using fallback.", ToastKind.WARNING)
-                        showInterview(false)
-                        scope.launch { prepareCurrentQuestionSpeech() }
+                        // Show detailed error message to help debug model download issues
+                        val errorMsg = when {
+                            e.message?.contains("unzip", ignoreCase = true) == true -> "Avatar model unzip failed. Clear app data and retry."
+                            e.message?.contains("download", ignoreCase = true) == true -> "Avatar model download failed. Check your connection."
+                            e.message?.contains("validation", ignoreCase = true) == true -> "Avatar model validation failed. Files may be corrupted."
+                            else -> "Avatar setup failed: ${e.message?.take(60) ?: "unknown error"}"
+                        }
+                        
+                        // Show error screen instead of just toast for critical failures
+                        val column = baseColumn().apply { gravity = Gravity.CENTER }
+                        column.addView(title("Avatar Setup Issue", 24))
+                        column.addView(spacer(12))
+                        column.addView(body(errorMsg).apply { 
+                            gravity = Gravity.CENTER
+                            setPadding(dp(32), 0, dp(32), 0)
+                        })
+                        column.addView(spacer(24))
+                        column.addView(primaryButton("Continue Anyway") {
+                            showInterview(false)
+                            scope.launch { prepareCurrentQuestionSpeech() }
+                        })
+                        column.addView(spacer(12))
+                        column.addView(secondaryButton("Go Back") { showEnteringRoom(preparing = false) })
+                        setScreen(column)
                     }
                 }
             }

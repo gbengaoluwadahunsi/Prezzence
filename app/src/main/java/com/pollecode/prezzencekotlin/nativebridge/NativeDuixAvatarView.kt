@@ -642,9 +642,13 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             val zip = File(root, "$name.zip")
             
             // Download with validation
+            Log.i("PrezzenceDuix", "Downloading model $name from ${apiBaseStatic()}$name.zip")
             val request = Request.Builder().url(apiBaseStatic() + "$name.zip").build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IllegalStateException("Model download failed: ${response.code}")
+                if (!response.isSuccessful) {
+                    Log.e("PrezzenceDuix", "Model download failed: HTTP ${response.code}")
+                    throw IllegalStateException("Model download failed: ${response.code}")
+                }
                 response.body?.byteStream()?.use { input ->
                     FileOutputStream(zip).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Model download returned empty body")
@@ -653,8 +657,10 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             // Validate downloaded file
             if (!zip.exists() || zip.length() < 1000) {
                 zip.delete()
+                Log.e("PrezzenceDuix", "Model download incomplete: ${zip.length()} bytes for $name")
                 throw IllegalStateException("Model download incomplete: ${zip.length()} bytes")
             }
+            Log.i("PrezzenceDuix", "Model $name downloaded: ${zip.length()} bytes")
             
             // Clear destination before unzip
             destination.deleteRecursively()
@@ -662,13 +668,17 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             
             // Unzip with error handling
             try {
+                Log.i("PrezzenceDuix", "Unzipping model $name to ${destination.absolutePath}")
                 val ok = ZipUtil.unzip(zip.absolutePath, root.absolutePath, null)
                 if (!ok) {
+                    Log.e("PrezzenceDuix", "ZipUtil.unzip returned false for $name")
                     throw IllegalStateException("ZipUtil.unzip returned false")
                 }
+                Log.i("PrezzenceDuix", "Model $name unzipped successfully")
             } catch (e: Exception) {
                 zip.delete()
                 destination.deleteRecursively()
+                Log.e("PrezzenceDuix", "Model unzip failed for $name: ${e.message}", e)
                 throw IllegalStateException("Model unzip failed: ${e.message}", e)
             }
             
@@ -686,8 +696,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             
             if (!isValid) {
                 destination.deleteRecursively()
+                val files = destination.listFiles()?.joinToString(", ") { it.name } ?: "none"
+                Log.e("PrezzenceDuix", "Model validation failed for $name. Files found: $files")
                 throw IllegalStateException("Model unzip validation failed - missing expected files in $name")
             }
+            Log.i("PrezzenceDuix", "Model $name validated successfully")
         }
 
         private fun repairSingleNestedDirectoryStatic(destination: File, expectedName: String) {
