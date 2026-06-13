@@ -147,7 +147,6 @@ class MainActivity : ComponentActivity() {
     private var unreadNotifications: Int = 0
     private var practiceRemoteSessions: List<PracticeSessionItem> = emptyList()
     private var coachingMessage: String = ""
-    private var avatarDownloadProgress: Int = 0
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) uploadResumeDocument(uri)
@@ -3307,8 +3306,7 @@ class MainActivity : ComponentActivity() {
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
                     preparing = actuallyPreparing,
-                    setupStatus = if (allModelsReady) setupStatus else "Downloading avatar models...",
-                    downloadProgress = if (actuallyPreparing) avatarDownloadProgress else 100,
+                    setupStatus = setupStatus,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
                 )
@@ -3320,29 +3318,15 @@ class MainActivity : ComponentActivity() {
             prepareBackendSessionForEntering()
         }
         
-        // If models aren't ready, download them in background
+        // If models aren't ready, download them silently in background
         if (!allModelsReady) {
-            avatarDownloadProgress = 0
             scope.launch(Dispatchers.IO) {
                 try {
                     val modelNames = interviewers.map { it.modelName }.distinct()
-                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames) { modelName, progress ->
-                        // Update progress and refresh UI
-                        avatarDownloadProgress = progress
-                        android.util.Log.d("PrezzenceDuix", "Download progress: $modelName -> $progress%")
-                        if (progress > 0 && progress < 100) {
-                            // Only refresh screen if still preparing (user hasn't navigated away)
-                            runCatching {
-                                scope.launch(Dispatchers.Main) {
-                                    if (activeTab != PrezzenceTab.HOME) {
-                                        showEnteringRoom(preparing = true, setupStatus = "Downloading avatar models...")
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Download models silently without showing progress to user
+                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames)
                     
-                    // Refresh the screen once models are ready (100% progress reached)
+                    // Refresh the screen once models are ready
                     withContext(Dispatchers.Main) {
                         showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
                     }
@@ -3350,7 +3334,7 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.e("PrezzenceDuix", "Model download failed: ${e.message}", e)
                     // Models failed to download, but allow user to proceed anyway
                     withContext(Dispatchers.Main) {
-                        showEnteringRoom(preparing = false, setupStatus = "Ready to start (avatar may load during interview).")
+                        showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
                     }
                 }
             }

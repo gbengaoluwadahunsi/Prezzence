@@ -2601,7 +2601,6 @@ fun PrezzenceEnteringRoomScreen(
     interviewers: List<Pair<String, String>>,
     preparing: Boolean,
     setupStatus: String,
-    downloadProgress: Int = 0,
     onBack: () -> Unit,
     onJoin: () -> Unit,
 ) {
@@ -2648,30 +2647,19 @@ fun PrezzenceEnteringRoomScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     
-                    // Show progress during download, status otherwise
-                    if (preparing && downloadProgress > 0 && downloadProgress < 100) {
-                        Text(
-                            "Avatar model loading: $downloadProgress%",
-                            color = Color(0xFFA5A6BA),
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        Text(
-                            if (preparing) {
-                                "Preparing your questions and interview room."
-                            } else if (isPanel) {
-                                "${displayInterviewers.size} interviewers are ready."
-                            } else {
-                                "1 interviewer is ready."
-                            },
-                            color = Color(0xFFA5A6BA),
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+                    Text(
+                        if (preparing) {
+                            "Preparing your questions and interview room."
+                        } else if (isPanel) {
+                            "${displayInterviewers.size} interviewers are ready."
+                        } else {
+                            "1 interviewer is ready."
+                        },
+                        color = Color(0xFFA5A6BA),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(28.dp))
 
                     if (isPanel) {
@@ -2680,30 +2668,7 @@ fun PrezzenceEnteringRoomScreen(
                         EnteringSingleCard(displayInterviewers.first(), preparing)
                     }
                     
-                    // Show progress bar during download
-                    if (preparing && downloadProgress > 0 && downloadProgress < 100) {
-                        Spacer(Modifier.height(22.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color(0xFF2A2A3E)),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(downloadProgress / 100f)
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(Accent, Color(0xFF00D68F))
-                                        )
-                                    )
-                            )
-                        }
-                    } else {
-                        Spacer(Modifier.height(22.dp))
-                    }
+                    Spacer(Modifier.height(22.dp))
 
                     Spacer(Modifier.height(22.dp))
                     EnteringSetupPreview(setupStatus = setupStatus, preparing = preparing)
