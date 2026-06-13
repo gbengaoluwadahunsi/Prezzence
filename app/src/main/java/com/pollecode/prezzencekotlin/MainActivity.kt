@@ -3292,20 +3292,13 @@ class MainActivity : ComponentActivity() {
             listOf(appState.interviewerFor())
         }
         
-        // Check if avatar models are ready
-        val allModelsReady = interviewers.all { interviewer ->
-            NativeDuixAvatarView.isModelCached(this, interviewer.modelName)
-        }
-        
-        // If models aren't ready and we're not already preparing, start preparing
-        val actuallyPreparing = preparing || !allModelsReady
-        
+        // Don't wait for models - they load on-demand during interview
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceEnteringRoomScreen(
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
-                    preparing = actuallyPreparing,
+                    preparing = preparing,
                     setupStatus = setupStatus,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
@@ -3316,28 +3309,6 @@ class MainActivity : ComponentActivity() {
         // Start backend session preparation if needed
         if (preparing) {
             prepareBackendSessionForEntering()
-        }
-        
-        // If models aren't ready, download them silently in background
-        if (!allModelsReady) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val modelNames = interviewers.map { it.modelName }.distinct()
-                    // Download models silently without showing progress to user
-                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames)
-                    
-                    // Refresh the screen once models are ready
-                    withContext(Dispatchers.Main) {
-                        showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("PrezzenceDuix", "Model download failed: ${e.message}", e)
-                    // Models failed to download, but allow user to proceed anyway
-                    withContext(Dispatchers.Main) {
-                        showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
-                    }
-                }
-            }
         }
     }
 

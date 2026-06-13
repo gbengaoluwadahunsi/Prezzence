@@ -586,31 +586,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         }
 
         fun preloadModelFiles(context: Context, names: List<String>) {
-            val client = OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)  // Increased from 20s
-                .readTimeout(120, TimeUnit.SECONDS)     // Increased from 90s for large downloads
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .build()
-            
-            val modelNames = names.map { normalizeModelNameStatic(it) }.distinct()
-            
-            // Always ensure base model first
-            try {
-                ensureModelFilesAvailable(context, BASE_MODEL_NAME, client)
-                Log.i("PrezzenceDuix", "Successfully preloaded base model")
-            } catch (e: Exception) {
-                Log.e("PrezzenceDuix", "Failed to preload base model: ${e.message}", e)
-            }
-            
-            modelNames.forEach { modelName ->
-                try {
-                    ensureModelFilesAvailable(context, modelName, client)
-                    Log.i("PrezzenceDuix", "Successfully preloaded model: $modelName")
-                } catch (e: Exception) {
-                    Log.e("PrezzenceDuix", "Failed to preload model $modelName: ${e.message}", e)
-                    // Continue with other models even if one fails
-                }
-            }
+            // Models will load on-demand during interview if not cached
+            // This function is kept for backward compatibility but doesn't block
+            Log.i("PrezzenceDuix", "Model preload called (models load on-demand during interview)")
         }
 
         private fun ensureModelFilesAvailable(
