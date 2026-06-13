@@ -3814,8 +3814,13 @@ class MainActivity : ComponentActivity() {
             )
             val result = if (localResult.score <= 15 && (remoteResult?.score ?: 0) > 20) {
                 localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
+            } else if (remoteResult != null) {
+                // Use backend result, but fallback to local coaching if backend didn't provide one
+                remoteResult.copy(
+                    coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
+                )
             } else {
-                remoteResult ?: localResult
+                localResult
             }
             // If both local and remote scoring failed, show timeout / save error
             if (result.score <= 5 && result.transcript.isBlank()) {

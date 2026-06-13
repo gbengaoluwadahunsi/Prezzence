@@ -572,7 +572,6 @@ class PrezzenceBackendClient {
     suspend fun scoreLocalTranscript(question: String, transcript: String): AnswerResult {
         val clean = transcript.trim()
         val localScore = localQualityScore(question, clean)
-        val coachingMsg = buildCoachingMessage(question, clean, localScore)
         return AnswerResult(
             transcript = clean,
             score = localScore,
@@ -585,7 +584,7 @@ class PrezzenceBackendClient {
             what = "A specific situation, the action you took, and the result.",
             how = "Answer directly, then use one clear example with a short result.",
             why = "This helps the interviewer hear proof instead of a general statement.",
-            coachingMessage = coachingMsg,
+            coachingMessage = buildCoachingMessage(question, clean, localScore),
         )
     }
 
