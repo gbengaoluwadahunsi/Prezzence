@@ -572,6 +572,7 @@ class PrezzenceBackendClient {
     suspend fun scoreLocalTranscript(question: String, transcript: String): AnswerResult {
         val clean = transcript.trim()
         val localScore = localQualityScore(question, clean)
+        val coachingMsg = buildCoachingMessage(question, clean, localScore)
         return AnswerResult(
             transcript = clean,
             score = localScore,
@@ -584,6 +585,7 @@ class PrezzenceBackendClient {
             what = "A specific situation, the action you took, and the result.",
             how = "Answer directly, then use one clear example with a short result.",
             why = "This helps the interviewer hear proof instead of a general statement.",
+            coachingMessage = coachingMsg,
         )
     }
 
@@ -622,6 +624,7 @@ class PrezzenceBackendClient {
                     what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
                     how = analysis.optJSONObject("coaching_breakdown")?.optString("how_to_structure", "") ?: "",
                     why = analysis.optJSONObject("coaching_breakdown")?.optString("why_it_works", "") ?: "",
+                    coachingMessage = analysis.optString("coaching_message", ""),
                 )
             }
         }.getOrNull()
@@ -675,6 +678,28 @@ class PrezzenceBackendClient {
         val structureScore = (structureWords.coerceAtMost(3) / 3.0 * 14).roundToInt()
         val actionScore = (personalActionWords.coerceAtMost(2) / 2.0 * 6).roundToInt()
         return (lengthScore + relevanceScore + evidenceScore + structureScore + actionScore).coerceIn(0, 100)
+    }
+
+    private fun buildCoachingMessage(question: String, transcript: String, score: Int): String {
+        val words = transcript.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        
+        return when {
+            score < 15 -> {
+                "Let's try that again. Start by briefly stating your relevant experience, then share one specific example where you handled this situation. What did you do, and what was the outcome?"
+            }
+            score < 35 -> {
+                "Good start! Now let's make it stronger. Add one concrete example with a clear situation, your specific action, and the result. This turns a general answer into a memorable one."
+            }
+            score < 55 -> {
+                "You're on the right track. I noticed your answer could benefit from more specific details. Can you share the exact result or outcome? Numbers, metrics, or tangible impact make your answer stick."
+            }
+            score < 75 -> {
+                "Nice work! Your answer has good structure. To take it to the next level, try tightening the beginning - jump straight into your example without too much setup. Keep the result memorable."
+            }
+            else -> {
+                "Excellent answer! You've got a clear structure with specific details. For even more impact, consider ending with how this experience prepares you for the role you're applying for."
+            }
+        }
     }
 
     private fun buildImprovedAnswer(question: String, transcript: String): String {

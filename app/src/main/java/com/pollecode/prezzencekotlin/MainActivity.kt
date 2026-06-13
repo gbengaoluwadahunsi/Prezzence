@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
     private var practiceRemoteSessions: List<PracticeSessionItem> = emptyList()
+    private var coachingMessage: String = ""
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) uploadResumeDocument(uri)
@@ -3484,6 +3485,7 @@ class MainActivity : ComponentActivity() {
                     onClarify = { clarifyCurrentQuestion() },
                     onAnswerNow = { ensurePermissionsThenAnswer() },
                     onFinish = { finishAnswer(question.text) },
+                    coachingMessage = coachingMessage,
                 )
             }
         })
@@ -3865,7 +3867,12 @@ class MainActivity : ComponentActivity() {
             what = "Situation, action, and result.",
             how = "Keep it short and concrete.",
             why = "Specific proof makes the answer easier to trust.",
+            coachingMessage = "Let's review how you did and find ways to make your answer even stronger.",
         )
+        
+        // Update coaching message for display
+        coachingMessage = result.coachingMessage
+        
         val column = baseColumn()
         column.addView(title("Answer result", 30))
         column.addView(scoreCard(result))

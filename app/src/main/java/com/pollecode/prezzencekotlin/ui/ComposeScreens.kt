@@ -2676,7 +2676,7 @@ fun PrezzenceEnteringRoomScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.92f))
+                    .background(Color.Black.copy(alpha = 0.98f))
                     .padding(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 34.dp),
             ) {
                 Box(
@@ -2728,7 +2728,7 @@ private fun EnteringSingleCard(interviewer: Pair<String, String>, preparing: Boo
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0x22000000), Color.Transparent, Color(0xAA050509)),
+                            listOf(Color(0x15000000), Color.Transparent, Color(0x55050509)),
                         ),
                     ),
             )
@@ -2791,7 +2791,7 @@ private fun EnteringPanelRow(interviewers: List<Pair<String, String>>, preparing
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x33000000)))),
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x20000000)))),
                     )
                     Box(
                         Modifier
@@ -3017,6 +3017,7 @@ fun PrezzenceInterviewRoomScreen(
     onClarify: () -> Unit,
     onAnswerNow: () -> Unit,
     onFinish: () -> Unit,
+    coachingMessage: String = "",
 ) {
     PrezzenceTheme {
         BoxWithConstraints(Modifier.fillMaxSize().background(Bg)) {
@@ -3107,8 +3108,8 @@ fun PrezzenceInterviewRoomScreen(
                             Text(
                                 questionText,
                                 color = TextPrimary,
-                                fontSize = 17.sp,
-                                lineHeight = 26.sp,
+                                fontSize = if (compactHeight) 16.sp else 18.sp,
+                                lineHeight = if (compactHeight) 24.sp else 27.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -3140,6 +3141,24 @@ fun PrezzenceInterviewRoomScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         RecorderBar(recordingDuration = recordingDuration, isRecording = isRecording)
+                        
+                        // Coaching feedback display
+                        if (coachingMessage.isNotBlank()) {
+                            Text(
+                                coachingMessage,
+                                color = Color(0xFF00D68F),
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF00D68F).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                    .padding(14.dp),
+                            )
+                        }
+                        
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             InterviewSmallButton("Pause", "pause", Modifier.weight(0.85f), onPause, height = 54, compact = compactWidth)
                             InterviewPrimaryButton("Finish", "check", onFinish, Modifier.weight(1.15f), Color(0xFFFF4757), compact = compactWidth)
@@ -3203,12 +3222,12 @@ private fun StatusStrip(text: String) {
         Modifier
             .height(24.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.12f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+        Text(text, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 

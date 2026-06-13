@@ -251,7 +251,8 @@ class AppState(context: Context) {
                 .put("improvedAnswer", ans.improvedAnswer)
                 .put("what", ans.what)
                 .put("how", ans.how)
-                .put("why", ans.why))
+                .put("why", ans.why)
+                .put("coachingMessage", ans.coachingMessage))
         }
         prefs.edit().putString("sessionAnswers_$sessionId", array.toString()).apply()
     }
@@ -270,6 +271,7 @@ class AppState(context: Context) {
                     what = item.optString("what", ""),
                     how = item.optString("how", ""),
                     why = item.optString("why", ""),
+                    coachingMessage = item.optString("coachingMessage", ""),
                 )
             }
         }.getOrDefault(emptyList())

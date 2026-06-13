@@ -37,6 +37,8 @@ data class AnswerResult(
     val what: String,
     val how: String,
     val why: String,
+    val coachingFeedback: String = "",
+    val coachingMessage: String = "",
 )
 
 data class SessionSummary(
