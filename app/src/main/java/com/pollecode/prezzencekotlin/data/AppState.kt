@@ -16,6 +16,10 @@ class AppState(context: Context) {
         get() = prefs.getBoolean("onboardingComplete", false)
         set(value) = prefs.edit().putBoolean("onboardingComplete", value).apply()
 
+    var duixModelsPreloaded: Boolean
+        get() = prefs.getBoolean("duixModelsPreloaded", false)
+        set(value) = prefs.edit().putBoolean("duixModelsPreloaded", value).apply()
+
     var cameraCoachEnabled: Boolean
         get() = prefs.getBoolean("cameraCoachEnabled", true)
         set(value) = prefs.edit().putBoolean("cameraCoachEnabled", value).apply()
@@ -101,6 +105,10 @@ class AppState(context: Context) {
     var authToken: String
         get() = prefs.getString("authToken", "") ?: ""
         set(value) = prefs.edit().putString("authToken", value).apply()
+
+    var authRefreshToken: String
+        get() = prefs.getString("authRefreshToken", "") ?: ""
+        set(value) = prefs.edit().putString("authRefreshToken", value).apply()
 
     var userId: String
         get() = prefs.getString("userId", "") ?: ""
@@ -243,7 +251,8 @@ class AppState(context: Context) {
                 .put("improvedAnswer", ans.improvedAnswer)
                 .put("what", ans.what)
                 .put("how", ans.how)
-                .put("why", ans.why))
+                .put("why", ans.why)
+                .put("coachingMessage", ans.coachingMessage))
         }
         prefs.edit().putString("sessionAnswers_$sessionId", array.toString()).apply()
     }
@@ -262,6 +271,7 @@ class AppState(context: Context) {
                     what = item.optString("what", ""),
                     how = item.optString("how", ""),
                     why = item.optString("why", ""),
+                    coachingMessage = item.optString("coachingMessage", ""),
                 )
             }
         }.getOrDefault(emptyList())

@@ -75,6 +75,7 @@ class PrezzenceBackendClient {
                     email = user?.optString("email").orEmpty(),
                     fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
                     focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", ""),
                 ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
             }
         }.getOrNull()
@@ -105,6 +106,7 @@ class PrezzenceBackendClient {
                     email = user?.optString("email").orEmpty().ifBlank { email.trim() },
                     fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
                     focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", ""),
                 ).takeIf { it.accessToken.isNotBlank() }
             }
         }.getOrNull()
@@ -173,6 +175,35 @@ class PrezzenceBackendClient {
         }.getOrNull()
     }
 
+    suspend fun refreshSession(refreshToken: String): AuthSession? = withContext(Dispatchers.IO) {
+        if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank() || refreshToken.isBlank()) return@withContext null
+        runCatching {
+            val body = JSONObject()
+                .put("refresh_token", refreshToken)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$supabaseUrl/auth/v1/token?grant_type=refresh_token")
+                .header("apikey", supabaseAnonKey)
+                .header("Authorization", "Bearer $supabaseAnonKey")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val json = JSONObject(response.body?.string().orEmpty())
+                val user = json.optJSONObject("user")
+                AuthSession(
+                    accessToken = json.optString("access_token"),
+                    userId = user?.optString("id").orEmpty(),
+                    email = user?.optString("email").orEmpty(),
+                    fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
+                    focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                    refreshToken = json.optString("refresh_token", refreshToken),
+                ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     suspend fun updatePassword(accessToken: String, password: String): Boolean = withContext(Dispatchers.IO) {
         if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank() || accessToken.isBlank() || password.isBlank()) return@withContext false
         runCatching {
@@ -228,9 +259,9 @@ class PrezzenceBackendClient {
         interviewerStyle: String = "Balanced",
         previewGender: String = "Female",
         length: String = "standard",
-    ): BackendSession? = withContext(Dispatchers.IO) {
-        if (bearerToken.isNullOrBlank()) return@withContext null
-        runCatching {
+    ): BackendSession = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank()) throw SessionCreateException(SessionErrorReason.AUTH_FAILED, "No auth token available")
+        try {
             val panelIds = panelPersonaIds(mode, interviewerStyle, previewGender)
             val panel = JSONArray().apply {
                 panelIds.forEachIndexed { index, id ->
@@ -262,15 +293,36 @@ class PrezzenceBackendClient {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    val bodyText = response.body?.string().orEmpty()
+                    throw when (code) {
+                        401, 403 -> SessionCreateException(SessionErrorReason.AUTH_FAILED, "Auth rejected ($code): $bodyText")
+                        402 -> SessionCreateException(SessionErrorReason.AUTH_FAILED, "Payment required: $bodyText")
+                        408, 504 -> SessionCreateException(SessionErrorReason.SERVER_TIMEOUT, "Server timeout ($code)")
+                        in 500..599 -> SessionCreateException(SessionErrorReason.SERVER_ERROR, "Server error ($code): $bodyText")
+                        else -> SessionCreateException(SessionErrorReason.UNKNOWN, "Unexpected status $code: $bodyText")
+                    }
+                }
                 val json = JSONObject(response.body?.string().orEmpty())
+                val sessionId = json.optString("session_id")
+                if (sessionId.isBlank()) throw SessionCreateException(SessionErrorReason.SERVER_ERROR, "Empty session_id in response")
                 BackendSession(
-                    sessionId = json.optString("session_id"),
+                    sessionId = sessionId,
                     questions = json.optJSONArray("questions").toInterviewQuestions(role, panelIds),
                 )
-                    .takeIf { it.sessionId.isNotBlank() }
             }
-        }.getOrNull()
+        } catch (e: SessionCreateException) {
+            throw e
+        } catch (e: java.net.ConnectException) {
+            throw SessionCreateException(SessionErrorReason.NETWORK_UNAVAILABLE, "Connection refused")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw SessionCreateException(SessionErrorReason.SERVER_TIMEOUT, "Socket timeout")
+        } catch (e: java.net.UnknownHostException) {
+            throw SessionCreateException(SessionErrorReason.NETWORK_UNAVAILABLE, "DNS resolution failed")
+        } catch (e: Exception) {
+            throw SessionCreateException(SessionErrorReason.UNKNOWN, e.message ?: "Unknown error")
+        }
     }
 
     private fun panelPersonaIds(
@@ -532,6 +584,7 @@ class PrezzenceBackendClient {
             what = "A specific situation, the action you took, and the result.",
             how = "Answer directly, then use one clear example with a short result.",
             why = "This helps the interviewer hear proof instead of a general statement.",
+            coachingMessage = buildCoachingMessage(question, clean, localScore),
         )
     }
 
@@ -570,6 +623,7 @@ class PrezzenceBackendClient {
                     what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
                     how = analysis.optJSONObject("coaching_breakdown")?.optString("how_to_structure", "") ?: "",
                     why = analysis.optJSONObject("coaching_breakdown")?.optString("why_it_works", "") ?: "",
+                    coachingMessage = analysis.optString("coaching_message", ""),
                 )
             }
         }.getOrNull()
@@ -625,6 +679,28 @@ class PrezzenceBackendClient {
         return (lengthScore + relevanceScore + evidenceScore + structureScore + actionScore).coerceIn(0, 100)
     }
 
+    private fun buildCoachingMessage(question: String, transcript: String, score: Int): String {
+        val words = transcript.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        
+        return when {
+            score < 15 -> {
+                "Let's try that again. Start by briefly stating your relevant experience, then share one specific example where you handled this situation. What did you do, and what was the outcome?"
+            }
+            score < 35 -> {
+                "Good start! Now let's make it stronger. Add one concrete example with a clear situation, your specific action, and the result. This turns a general answer into a memorable one."
+            }
+            score < 55 -> {
+                "You're on the right track. I noticed your answer could benefit from more specific details. Can you share the exact result or outcome? Numbers, metrics, or tangible impact make your answer stick."
+            }
+            score < 75 -> {
+                "Nice work! Your answer has good structure. To take it to the next level, try tightening the beginning - jump straight into your example without too much setup. Keep the result memorable."
+            }
+            else -> {
+                "Excellent answer! You've got a clear structure with specific details. For even more impact, consider ending with how this experience prepares you for the role you're applying for."
+            }
+        }
+    }
+
     private fun buildImprovedAnswer(question: String, transcript: String): String {
         return if (transcript.length < 24) {
             "I would answer this with one real example: the situation, what I personally did, and the result it created."
@@ -634,12 +710,17 @@ class PrezzenceBackendClient {
     }
 }
 
+enum class SessionErrorReason { NETWORK_UNAVAILABLE, SERVER_TIMEOUT, AUTH_FAILED, SERVER_ERROR, UNKNOWN }
+
+class SessionCreateException(val reason: SessionErrorReason, message: String? = null) : Exception(message)
+
 data class AuthSession(
     val accessToken: String,
     val userId: String,
     val email: String,
     val fullName: String = "",
     val focus: String = "",
+    val refreshToken: String = "",
 )
 
 data class BackendSession(

@@ -52,6 +52,8 @@ import com.pollecode.prezzencekotlin.data.NotificationItem
 import com.pollecode.prezzencekotlin.data.PrezzenceBackendClient
 import com.pollecode.prezzencekotlin.data.ResumeProfile
 import com.pollecode.prezzencekotlin.data.PrezzenceDefaults
+import com.pollecode.prezzencekotlin.data.SessionCreateException
+import com.pollecode.prezzencekotlin.data.SessionErrorReason
 import com.pollecode.prezzencekotlin.data.SessionSummary
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
 import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
@@ -144,6 +146,7 @@ class MainActivity : ComponentActivity() {
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
     private var practiceRemoteSessions: List<PracticeSessionItem> = emptyList()
+    private var coachingMessage: String = ""
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) uploadResumeDocument(uri)
@@ -179,6 +182,7 @@ class MainActivity : ComponentActivity() {
 
     private fun saveAuthSession(session: com.pollecode.prezzencekotlin.data.AuthSession) {
         appState.authToken = session.accessToken
+        appState.authRefreshToken = session.refreshToken
         appState.userId = session.userId
         if (session.email.isNotBlank()) appState.userEmail = session.email
         if (session.fullName.isNotBlank()) appState.userFullName = session.fullName
@@ -646,29 +650,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyTrackDefaults(track: String) {
-        val currentRole = appState.selectedRole
-        val roleIsStock = currentRole.isBlank() || currentRole in PrezzenceDefaults.roles
-        if (roleIsStock) {
-            appState.selectedRole = when (track.lowercase()) {
-                "promotion" -> "Senior Manager"
-                "pitch" -> "Product or startup pitch"
-                "leadership" -> "Team leadership scenario"
-                "behavioral" -> "Behavioral interview stories"
-                "technical" -> "Software Engineer"
-                else -> PrezzenceDefaults.roles.first()
-            }
+        // Always apply role defaults when track changes (not just for stock roles)
+        appState.selectedRole = when (track.lowercase()) {
+            "promotion" -> "Senior Manager"
+            "pitch" -> "Product or startup pitch"
+            "leadership" -> "Team leadership scenario"
+            "behavioral" -> "Behavioral interview stories"
+            "technical" -> "Software Engineer"
+            else -> "Software Engineer"  // Default role for job track
         }
-        if (onboardingIndustry.isBlank() || onboardingIndustry == "Customer Service") {
-            onboardingIndustry = when (track.lowercase()) {
-                "promotion" -> "Current function or team"
-                "pitch" -> "Investors or customers"
-                "leadership" -> "Operations or people leadership"
-                "behavioral" -> "Leadership, conflict, ownership"
-                "technical" -> "Kotlin, cloud, data, ML"
-                else -> "Customer Service"
-            }
+        
+        // Always apply industry defaults when track changes
+        onboardingIndustry = when (track.lowercase()) {
+            "promotion" -> "Current function or team"
+            "pitch" -> "Investors or customers"
+            "leadership" -> "Operations or people leadership"
+            "behavioral" -> "Leadership, conflict, ownership"
+            "technical" -> "Kotlin, cloud, data, ML"
+            else -> "Tech"  // Default industry for job track
         }
-        if (track.equals("technical", ignoreCase = true)) onboardingIncludeTechnical = true
+        
+        // Set technical flag for technical track
+        onboardingIncludeTechnical = track.equals("technical", ignoreCase = true)
     }
 
     private fun showOnboardingRole() {
@@ -761,6 +764,23 @@ class MainActivity : ComponentActivity() {
         val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
             appState.currentQuestionIndex < questions.size
 
+        // Preload DUIX models for all personas on first app launch
+        // This downloads models (~50MB) to device storage when user first signs in
+        if (appState.duixModelsPreloaded) {
+            // Models already preloaded, skip
+        } else {
+            appState.duixModelsPreloaded = true
+            scope.launch {
+                try {
+                    // Preload all 3 personas: Sofia, Lily, Oliver
+                    val preloadNames = listOf("Sofia", "Lily", "Oliver")
+                    com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView.preloadModelFiles(this@MainActivity, preloadNames)
+                } catch (e: Exception) {
+                    // Model preload failed - they'll be downloaded on-demand when needed
+                }
+            }
+        }
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 androidx.compose.material3.MaterialTheme {
@@ -1379,6 +1399,61 @@ class MainActivity : ComponentActivity() {
         })
         column.addView(spacer(8))
         column.addView(primaryButton("Go back") { if (returnToHome) showHome() else finish() })
+        setScreen(scroll(column))
+    }
+
+    private data class SessionErrorInfo(val title: String, val subtitle: String, val badgeLabel: String, val tips: List<String>)
+
+    private fun showSessionCreateError(reason: SessionErrorReason) {
+        val errorInfo = when (reason) {
+            SessionErrorReason.AUTH_FAILED -> SessionErrorInfo(
+                "Session expired",
+                "Your sign-in has expired or is invalid. Please sign in again.",
+                "AUTH EXPIRED",
+                listOf("Sign in again to continue", "Your progress is saved on this device"),
+            )
+            SessionErrorReason.SERVER_TIMEOUT -> SessionErrorInfo(
+                "Taking too long",
+                "The server is not responding. Please try again in a moment.",
+                "SERVER TIMEOUT",
+                listOf("Try again when your connection is stable", "Your unfinished session can be continued later"),
+            )
+            SessionErrorReason.NETWORK_UNAVAILABLE -> SessionErrorInfo(
+                "Connection problem",
+                "We could not connect. Check your connection and try again.",
+                "NETWORK UNAVAILABLE",
+                listOf("Switch Wi-Fi or mobile data, then try again", "Your unfinished session can be continued later"),
+            )
+            SessionErrorReason.SERVER_ERROR -> SessionErrorInfo(
+                "Something went wrong",
+                "Our server encountered an error. Please try again.",
+                "SERVER ERROR",
+                listOf("Try again in a few minutes", "Your progress is saved on this device"),
+            )
+            SessionErrorReason.UNKNOWN -> SessionErrorInfo(
+                "Something went wrong",
+                "An unexpected error occurred. Please try again.",
+                "ERROR",
+                listOf("Try again", "Your progress is saved on this device"),
+            )
+        }
+        val column = baseColumn()
+        column.addView(backButton { showHome() })
+        column.addView(title(errorInfo.title, 34))
+        column.addView(body(errorInfo.subtitle))
+        column.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(24), 0, dp(24))
+            layoutParams = blockParams()
+            addView(pill(errorInfo.badgeLabel, accent))
+        })
+        column.addView(label("WHAT YOU CAN DO"))
+        for (tip in errorInfo.tips) {
+            column.addView(settingsRow(tip, "", icon = SettingsIcon.QA) { showHome() })
+        }
+        column.addView(spacer(8))
+        column.addView(primaryButton("Go back") { showHome() })
         setScreen(scroll(column))
     }
 
@@ -3246,44 +3321,8 @@ class MainActivity : ComponentActivity() {
         questionSpeechCache.clear()
         openingIntroductionSpoken = false
         suppressNativeAvatarForEntry = false
-        preloadAvatarModelsThenShowInterview()
-    }
-
-    private fun preloadAvatarModelsThenShowInterview() {
-        val modelNames = if (appState.interviewMode == InterviewMode.PANEL) {
-            PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle).map { it.modelName }
-        } else {
-            listOf(appState.interviewerFor().modelName)
-        }.distinct()
-        val hasMissingModel = modelNames.any { !NativeDuixAvatarView.isModelCached(this, it) }
-        if (!hasMissingModel) {
-            val column = baseColumn().apply { gravity = Gravity.CENTER }
-            column.addView(title("Preparing interviewer", 28))
-            column.addView(body("Loading the interviewer voice before the room opens."))
-            setScreen(column)
-            scope.launch {
-                prepareCurrentQuestionSpeech()
-                showInterview(false)
-            }
-            return
-        }
-
-        val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Preparing interviewers", 28))
-        column.addView(body("Loading avatar models before the first question."))
-        setScreen(column)
-        scope.launch {
-            val preloadError = runCatching {
-                withContext(Dispatchers.IO) {
-                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, modelNames)
-                }
-                prepareCurrentQuestionSpeech()
-            }.exceptionOrNull()
-            if (preloadError != null) {
-                showAppToast("Avatar is still preparing. The room will continue loading.", ToastKind.WARNING)
-            }
-            showInterview(false)
-        }
+        showInterview(false)
+        scope.launch { prepareCurrentQuestionSpeech() }
     }
 
     /** Shows network error screen when a backend call fails during critical flows. */
@@ -3301,36 +3340,56 @@ class MainActivity : ComponentActivity() {
             return
         }
         scope.launch {
-            val remote = backend.createSession(
-                bearerToken = appState.authToken,
-                role = appState.selectedRole,
-                mode = appState.interviewMode,
-                language = appState.language,
-                interviewTrack = onboardingTrack,
-                industry = onboardingIndustry,
-                seniority = onboardingSeniority,
-                difficulty = onboardingDifficulty,
-                companyName = onboardingCompanyName,
-                companyWebsite = onboardingCompanyWebsite,
-                companyContext = onboardingCompanyContext,
-                enableWebResearch = onboardingEnableWebResearch,
-                includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                interviewerStyle = onboardingInterviewerStyle,
-                previewGender = onboardingPreviewGender,
-            )
-            if (remote == null) {
-                showNetworkError(returnToHome = true)
-                return@launch
+            try {
+                val remote = tryCreateSession()
+                appState.activeSessionId = remote.sessionId.orEmpty()
+                if (!remote.questions.isNullOrEmpty()) {
+                    appState.setGeneratedQuestions(remote.questions)
+                }
+                showEnteringRoom(
+                    preparing = false,
+                    setupStatus = "Camera and audio staged.",
+                )
+            } catch (e: SessionCreateException) {
+                if (e.reason == SessionErrorReason.AUTH_FAILED && appState.authRefreshToken.isNotBlank()) {
+                    val refreshed = backend.refreshSession(appState.authRefreshToken)
+                    if (refreshed != null) {
+                        appState.authToken = refreshed.accessToken
+                        appState.authRefreshToken = refreshed.refreshToken
+                        try {
+                            val remote = tryCreateSession()
+                            appState.activeSessionId = remote.sessionId.orEmpty()
+                            if (!remote.questions.isNullOrEmpty()) {
+                                appState.setGeneratedQuestions(remote.questions)
+                            }
+                            showEnteringRoom(preparing = false, setupStatus = "Camera and audio staged.")
+                            return@launch
+                        } catch (_: SessionCreateException) { }
+                    }
+                }
+                showSessionCreateError(e.reason)
             }
-            appState.activeSessionId = remote.sessionId.orEmpty()
-            if (!remote.questions.isNullOrEmpty()) {
-                appState.setGeneratedQuestions(remote.questions)
-            }
-            showEnteringRoom(
-                preparing = false,
-                setupStatus = "Camera and audio staged.",
-            )
         }
+    }
+
+    private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
+        return backend.createSession(
+            bearerToken = appState.authToken,
+            role = appState.selectedRole,
+            mode = appState.interviewMode,
+            language = appState.language,
+            interviewTrack = onboardingTrack,
+            industry = onboardingIndustry,
+            seniority = onboardingSeniority,
+            difficulty = onboardingDifficulty,
+            companyName = onboardingCompanyName,
+            companyWebsite = onboardingCompanyWebsite,
+            companyContext = onboardingCompanyContext,
+            enableWebResearch = onboardingEnableWebResearch,
+            includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
+            interviewerStyle = onboardingInterviewerStyle,
+            previewGender = onboardingPreviewGender,
+        )
     }
 
     private fun showLegacyRoomSetup() {
@@ -3359,28 +3418,32 @@ class MainActivity : ComponentActivity() {
         column.addView(body("Setting up your questions."))
         setScreen(column)
         scope.launch {
-            val remote = backend.createSession(
-                bearerToken = appState.authToken,
-                role = appState.selectedRole,
-                mode = appState.interviewMode,
-                language = appState.language,
-                interviewTrack = onboardingTrack,
-                industry = onboardingIndustry,
-                seniority = onboardingSeniority,
-                difficulty = onboardingDifficulty,
-                companyName = onboardingCompanyName,
-                companyWebsite = onboardingCompanyWebsite,
-                companyContext = onboardingCompanyContext,
-                enableWebResearch = onboardingEnableWebResearch,
-                includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
-                interviewerStyle = onboardingInterviewerStyle,
-                previewGender = onboardingPreviewGender,
-            )
-            appState.activeSessionId = remote?.sessionId.orEmpty()
-            if (!remote?.questions.isNullOrEmpty()) {
-                appState.setGeneratedQuestions(remote!!.questions)
+            try {
+                val remote = tryCreateSession()
+                appState.activeSessionId = remote.sessionId.orEmpty()
+                if (!remote.questions.isNullOrEmpty()) {
+                    appState.setGeneratedQuestions(remote.questions)
+                }
+                showInterview(false)
+            } catch (e: SessionCreateException) {
+                if (e.reason == SessionErrorReason.AUTH_FAILED && appState.authRefreshToken.isNotBlank()) {
+                    val refreshed = backend.refreshSession(appState.authRefreshToken)
+                    if (refreshed != null) {
+                        appState.authToken = refreshed.accessToken
+                        appState.authRefreshToken = refreshed.refreshToken
+                        try {
+                            val remote = tryCreateSession()
+                            appState.activeSessionId = remote.sessionId.orEmpty()
+                            if (!remote.questions.isNullOrEmpty()) {
+                                appState.setGeneratedQuestions(remote.questions)
+                            }
+                            showInterview(false)
+                            return@launch
+                        } catch (_: SessionCreateException) { }
+                    }
+                }
+                showSessionCreateError(e.reason)
             }
-            showInterview(false)
         }
     }
 
@@ -3422,6 +3485,7 @@ class MainActivity : ComponentActivity() {
                     onClarify = { clarifyCurrentQuestion() },
                     onAnswerNow = { ensurePermissionsThenAnswer() },
                     onFinish = { finishAnswer(question.text) },
+                    coachingMessage = coachingMessage,
                 )
             }
         })
@@ -3750,8 +3814,13 @@ class MainActivity : ComponentActivity() {
             )
             val result = if (localResult.score <= 15 && (remoteResult?.score ?: 0) > 20) {
                 localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
+            } else if (remoteResult != null) {
+                // Use backend result, but fallback to local coaching if backend didn't provide one
+                remoteResult.copy(
+                    coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
+                )
             } else {
-                remoteResult ?: localResult
+                localResult
             }
             // If both local and remote scoring failed, show timeout / save error
             if (result.score <= 5 && result.transcript.isBlank()) {
@@ -3803,7 +3872,12 @@ class MainActivity : ComponentActivity() {
             what = "Situation, action, and result.",
             how = "Keep it short and concrete.",
             why = "Specific proof makes the answer easier to trust.",
+            coachingMessage = "Let's review how you did and find ways to make your answer even stronger.",
         )
+        
+        // Update coaching message for display
+        coachingMessage = result.coachingMessage
+        
         val column = baseColumn()
         column.addView(title("Answer result", 30))
         column.addView(scoreCard(result))
@@ -3945,6 +4019,9 @@ class MainActivity : ComponentActivity() {
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
+                }
+                override fun onModelError(modelName: String, message: String?) {
+                    showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)

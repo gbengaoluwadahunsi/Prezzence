@@ -223,7 +223,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             listOf("bbox.j", "config.j", "dh_model.b", "dh_model.p")
                 .all { File(dir, it).isFile } &&
             (File(dir, "weight_168u.bin").isFile || File(dir, "weight_168u.b").isFile) &&
-            File(dir, "raw_jpgs").isDirectory
+            File(dir, "raw_jpgs").isDirectory &&
+            File(dir, "gh").isDirectory
 
     private fun downloadAndUnzip(name: String, destination: File) {
         destination.parentFile?.mkdirs()
@@ -633,7 +634,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 listOf("bbox.j", "config.j", "dh_model.b", "dh_model.p")
                     .all { File(dir, it).isFile } &&
                 (File(dir, "weight_168u.bin").isFile || File(dir, "weight_168u.b").isFile) &&
-                File(dir, "raw_jpgs").isDirectory
+                File(dir, "raw_jpgs").isDirectory &&
+                File(dir, "gh").isDirectory
 
         private fun downloadAndUnzipStatic(client: OkHttpClient, root: File, name: String, destination: File) {
             destination.parentFile?.mkdirs()
