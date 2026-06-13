@@ -3322,65 +3322,9 @@ class MainActivity : ComponentActivity() {
         openingIntroductionSpoken = false
         suppressNativeAvatarForEntry = false
         
-        // Ensure avatar model is ready before entering room
-        val question = appState.currentQuestion()
-        val interviewer = appState.interviewerFor(question)
-        val modelReady = NativeDuixAvatarView.isModelCached(this, interviewer.modelName)
-        
-        if (!modelReady) {
-            // Show loading screen while avatar model downloads
-            val column = baseColumn().apply { gravity = Gravity.CENTER }
-            column.addView(title("Preparing avatar", 28))
-            column.addView(body("Downloading ${interviewer.name}'s avatar model. This happens once."))
-            column.addView(ProgressBar(this).apply {
-                isIndeterminate = true
-                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                    setMargins(0, dp(24), 0, 0)
-                }
-            })
-            setScreen(column)
-            
-            // Preload the model in background, then show interview
-            scope.launch(Dispatchers.IO) {
-                try {
-                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, listOf(interviewer.modelName))
-                    withContext(Dispatchers.Main) {
-                        showInterview(false)
-                        scope.launch { prepareCurrentQuestionSpeech() }
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        // Show detailed error message to help debug model download issues
-                        val errorMsg = when {
-                            e.message?.contains("unzip", ignoreCase = true) == true -> "Avatar model unzip failed. Clear app data and retry."
-                            e.message?.contains("download", ignoreCase = true) == true -> "Avatar model download failed. Check your connection."
-                            e.message?.contains("validation", ignoreCase = true) == true -> "Avatar model validation failed. Files may be corrupted."
-                            else -> "Avatar setup failed: ${e.message?.take(60) ?: "unknown error"}"
-                        }
-                        
-                        // Show error screen instead of just toast for critical failures
-                        val column = baseColumn().apply { gravity = Gravity.CENTER }
-                        column.addView(title("Avatar Setup Issue", 24))
-                        column.addView(spacer(12))
-                        column.addView(body(errorMsg).apply { 
-                            gravity = Gravity.CENTER
-                            setPadding(dp(32), 0, dp(32), 0)
-                        })
-                        column.addView(spacer(24))
-                        column.addView(primaryButton("Continue Anyway") {
-                            showInterview(false)
-                            scope.launch { prepareCurrentQuestionSpeech() }
-                        })
-                        column.addView(spacer(12))
-                        column.addView(secondaryButton("Go Back") { showEnteringRoom(preparing = false) })
-                        setScreen(column)
-                    }
-                }
-            }
-        } else {
-            showInterview(false)
-            scope.launch { prepareCurrentQuestionSpeech() }
-        }
+        // Go directly to interview - models will load on-demand if not cached
+        showInterview(false)
+        scope.launch { prepareCurrentQuestionSpeech() }
     }
 
     /** Shows network error screen when a backend call fails during critical flows. */
