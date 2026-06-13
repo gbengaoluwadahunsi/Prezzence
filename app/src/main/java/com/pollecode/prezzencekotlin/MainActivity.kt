@@ -3321,8 +3321,45 @@ class MainActivity : ComponentActivity() {
         questionSpeechCache.clear()
         openingIntroductionSpoken = false
         suppressNativeAvatarForEntry = false
-        showInterview(false)
-        scope.launch { prepareCurrentQuestionSpeech() }
+        
+        // Ensure avatar model is ready before entering room
+        val question = appState.currentQuestion()
+        val interviewer = appState.interviewerFor(question)
+        val modelReady = NativeDuixAvatarView.isModelCached(this, interviewer.modelName)
+        
+        if (!modelReady) {
+            // Show loading screen while avatar model downloads
+            val column = baseColumn().apply { gravity = Gravity.CENTER }
+            column.addView(title("Preparing avatar", 28))
+            column.addView(body("Downloading ${interviewer.name}'s avatar model. This happens once."))
+            column.addView(ProgressBar(this).apply {
+                isIndeterminate = true
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+                    setMargins(0, dp(24), 0, 0)
+                }
+            })
+            setScreen(column)
+            
+            // Preload the model in background, then show interview
+            scope.launch(Dispatchers.IO) {
+                try {
+                    NativeDuixAvatarView.preloadModelFiles(this@MainActivity, listOf(interviewer.modelName))
+                    withContext(Dispatchers.Main) {
+                        showInterview(false)
+                        scope.launch { prepareCurrentQuestionSpeech() }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        showAppToast("Avatar model failed to download. Using fallback.", ToastKind.WARNING)
+                        showInterview(false)
+                        scope.launch { prepareCurrentQuestionSpeech() }
+                    }
+                }
+            }
+        } else {
+            showInterview(false)
+            scope.launch { prepareCurrentQuestionSpeech() }
+        }
     }
 
     /** Shows network error screen when a backend call fails during critical flows. */
