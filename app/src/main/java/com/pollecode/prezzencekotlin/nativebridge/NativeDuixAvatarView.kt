@@ -71,7 +71,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
     private val modelRoot = File(context.getExternalFilesDir("duix"), "model")
     private val cacheRoot = File(context.cacheDir, "duix-audio")
-    private val apiBase = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
+    private val githubBase = "https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/"
 
     init {
         setBackgroundColor(Color.rgb(12, 11, 18))
@@ -101,11 +101,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         currentModelName = modelName
         if (preparedModelName == modelName || preparingModelName == modelName) return
         preparingModelName = modelName
-        if (!isModelCached(context, modelName)) {
-            showOverlay("Preparing")
-        } else {
-            hideOverlay()
-        }
+        // Don't show overlay - models load silently in background
         scope.launch {
             try {
                 val dirs = withContext(Dispatchers.IO) {
@@ -228,7 +224,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private fun downloadAndUnzip(name: String, destination: File) {
         destination.parentFile?.mkdirs()
         val zip = File(modelRoot, "$name.zip")
-        val request = Request.Builder().url(apiBase + "$name.zip").build()
+        val request = Request.Builder().url(githubBase + "$name.zip").build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("Model download failed: ${response.code}")
             response.body?.byteStream()?.use { input ->
@@ -614,7 +610,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             File(context.getExternalFilesDir("duix"), "model").apply { mkdirs() }
 
         private fun apiBaseStatic(): String =
-            BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
+            "https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/"
 
         private fun baseConfigLooksReadyStatic(dir: File): Boolean =
             dir.exists() &&
