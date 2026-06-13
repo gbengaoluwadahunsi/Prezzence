@@ -3292,13 +3292,15 @@ class MainActivity : ComponentActivity() {
             listOf(appState.interviewerFor())
         }
         
-        // Don't wait for models - they load on-demand during interview
+        // Check if backend session is ready (questions loaded)
+        val isSessionReady = appState.activeSessionId.isNotBlank() && appState.questions().isNotEmpty()
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceEnteringRoomScreen(
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
-                    preparing = preparing,
+                    preparing = preparing && !isSessionReady, // Only show spinner while session/questions load
                     setupStatus = setupStatus,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
@@ -3306,8 +3308,8 @@ class MainActivity : ComponentActivity() {
             }
         })
         
-        // Start backend session preparation if needed
-        if (preparing) {
+        // Prepare backend session (fetch questions) - avatars will load on-demand during interview
+        if (preparing && !isSessionReady) {
             prepareBackendSessionForEntering()
         }
     }

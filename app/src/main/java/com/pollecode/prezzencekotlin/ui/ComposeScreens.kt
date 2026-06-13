@@ -2663,11 +2663,12 @@ fun PrezzenceEnteringRoomScreen(
                     Spacer(Modifier.height(28.dp))
 
                     if (isPanel) {
-                        EnteringPanelRow(displayInterviewers, preparing)
+                        EnteringPanelRow(displayInterviewers, preparing = false)
                     } else {
-                        EnteringSingleCard(displayInterviewers.first(), preparing)
+                        EnteringSingleCard(displayInterviewers.first(), preparing = false)
                     }
-                    
+
+                    Spacer(Modifier.height(22.dp))
                     Spacer(Modifier.height(22.dp))
 
                     Spacer(Modifier.height(22.dp))

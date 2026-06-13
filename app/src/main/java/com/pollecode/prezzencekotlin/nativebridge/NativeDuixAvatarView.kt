@@ -586,9 +586,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         }
 
         fun preloadModelFiles(context: Context, names: List<String>) {
-            // Models will load on-demand during interview if not cached
-            // This function is kept for backward compatibility but doesn't block
-            Log.i("PrezzenceDuix", "Model preload called (models load on-demand during interview)")
+            // Models are bundled in APK or already cached - no download needed
+            Log.i("PrezzenceDuix", "Models loaded from APK/cache")
         }
 
         private fun ensureModelFilesAvailable(
