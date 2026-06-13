@@ -640,6 +640,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         private fun downloadAndUnzipStatic(client: OkHttpClient, root: File, name: String, destination: File) {
             destination.parentFile?.mkdirs()
             val zip = File(root, "$name.zip")
+            
+            // Download with validation
             val request = Request.Builder().url(apiBaseStatic() + "$name.zip").build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IllegalStateException("Model download failed: ${response.code}")
@@ -647,12 +649,45 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     FileOutputStream(zip).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Model download returned empty body")
             }
+            
+            // Validate downloaded file
+            if (!zip.exists() || zip.length() < 1000) {
+                zip.delete()
+                throw IllegalStateException("Model download incomplete: ${zip.length()} bytes")
+            }
+            
+            // Clear destination before unzip
             destination.deleteRecursively()
-            val ok = ZipUtil.unzip(zip.absolutePath, root.absolutePath, null)
-            if (!ok) throw IllegalStateException("Model unzip failed")
+            destination.mkdirs()
+            
+            // Unzip with error handling
+            try {
+                val ok = ZipUtil.unzip(zip.absolutePath, root.absolutePath, null)
+                if (!ok) {
+                    throw IllegalStateException("ZipUtil.unzip returned false")
+                }
+            } catch (e: Exception) {
+                zip.delete()
+                destination.deleteRecursively()
+                throw IllegalStateException("Model unzip failed: ${e.message}", e)
+            }
+            
             repairSingleNestedDirectoryStatic(destination, name)
             File(root, "tmp/$name").mkdirs()
             zip.delete()
+            
+            // Validate unzipped content
+            val isBase = name == BASE_MODEL_NAME
+            val isValid = if (isBase) {
+                baseConfigLooksReadyStatic(destination)
+            } else {
+                avatarModelLooksReadyStatic(destination)
+            }
+            
+            if (!isValid) {
+                destination.deleteRecursively()
+                throw IllegalStateException("Model unzip validation failed - missing expected files in $name")
+            }
         }
 
         private fun repairSingleNestedDirectoryStatic(destination: File, expectedName: String) {

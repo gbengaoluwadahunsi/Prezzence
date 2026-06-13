@@ -3029,7 +3029,7 @@ fun PrezzenceInterviewRoomScreen(
             val panelMode = isPanel && panelInterviewers.size > 1
             val stageMinHeight = if (compactHeight) 270.dp else 320.dp
             val stageMaxHeight = if (compactHeight) 392.dp else 520.dp
-            val speakingStageHeight = if (compactHeight) 374.dp else 440.dp
+            // Use aspect ratio instead of fixed height for consistency with entering room
             val avatarTopCrop = if (compactHeight) 48.dp else 56.dp
             val interviewerChipBottom = if (compactHeight) 10.dp else 14.dp
 
@@ -3055,7 +3055,7 @@ fun PrezzenceInterviewRoomScreen(
                                 if (answering) {
                                     Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
                                 } else {
-                                    Modifier.height(speakingStageHeight)
+                                    Modifier.aspectRatio(4f / 3f) // Match entering room aspect ratio
                                 }
                             )
                             .clip(RoundedCornerShape(stageRadius))
