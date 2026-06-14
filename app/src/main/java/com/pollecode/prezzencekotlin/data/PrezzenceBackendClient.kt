@@ -27,7 +27,7 @@ class PrezzenceBackendClient {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS) // 10 minutes - match React Native's indefinite wait
         .writeTimeout(25, TimeUnit.SECONDS)
         .build()
 
