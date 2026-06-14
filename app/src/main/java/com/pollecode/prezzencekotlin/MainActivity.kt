@@ -3372,6 +3372,10 @@ class MainActivity : ComponentActivity() {
             showEnteringRoom(preparing = false, setupStatus = "Interview room prepared with the standard setup.")
             return
         }
+        
+        // Start preloading avatar models for current interviewers while backend session loads
+        preloadAvatarModelsForInterviewers()
+        
         scope.launch {
             try {
                 val remote = tryCreateSession()
@@ -3402,6 +3406,36 @@ class MainActivity : ComponentActivity() {
                 }
                 showSessionCreateError(e.reason)
             }
+        }
+    }
+
+    private fun preloadAvatarModelsForInterviewers() {
+        try {
+            val interviewers = if (appState.interviewMode == InterviewMode.PANEL) {
+                PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
+            } else {
+                listOf(appState.interviewerFor())
+            }
+            
+            // Preload models for all interviewers in background coroutine
+            scope.launch {
+                interviewers.forEach { interviewer ->
+                    try {
+                        // Create a temporary avatar view just to preload the model
+                        val preloadAvatar = NativeDuixAvatarView(this@MainActivity)
+                        preloadAvatar.prepareModel(interviewer.modelName)
+                        // Keep reference briefly to ensure model loads, then clean up
+                        // The model stays cached after this, so subsequent interviews load instantly
+                        Log.i("PrezzenceEntering", "Preloading avatar model: ${interviewer.modelName}")
+                    } catch (e: Exception) {
+                        Log.w("PrezzenceEntering", "Failed to preload avatar model: ${interviewer.modelName}", e)
+                        // Non-critical - model will load on-demand if preload fails
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("PrezzenceEntering", "Avatar preload setup failed", e)
+            // Non-critical - models will load on-demand if preload fails entirely
         }
     }
 
