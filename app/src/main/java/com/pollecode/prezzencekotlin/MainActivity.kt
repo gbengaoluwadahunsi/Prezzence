@@ -3473,20 +3473,26 @@ class MainActivity : ComponentActivity() {
         
         // Start recording timer if answering
         if (answering) {
-            recordingStartTime = System.currentTimeMillis()
-            recordingDuration = 0
-            recordingTimer?.cancel()
-            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
-                override fun onTick(millisUntilFinished: Long) {
-                    recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                    // Refresh screen to update timer display
-                    showInterview(answering = true)
-                }
-                override fun onFinish() {}
-            }.start()
+            // Only set recordingStartTime on first call, not on every refresh
+            if (recordingStartTime == 0L) {
+                recordingStartTime = System.currentTimeMillis()
+                recordingDuration = 0
+            }
+            
+            if (recordingTimer == null) {
+                recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
+                    override fun onTick(millisUntilFinished: Long) {
+                        recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
+                        // Refresh screen to update timer display
+                        showInterview(answering = true)
+                    }
+                    override fun onFinish() {}
+                }.start()
+            }
         } else {
             recordingTimer?.cancel()
             recordingTimer = null
+            recordingStartTime = 0L
             recordingDuration = 0
             faceMetric = 0
             eyesMetric = 0
@@ -3845,9 +3851,15 @@ class MainActivity : ComponentActivity() {
         val transcriber = activeTranscriber
         activeTranscriber = null
         currentAnswerResult = null
+        recordingTimer?.cancel()
+        recordingTimer = null
+        recordingStartTime = 0L
+        recordingDuration = 0
+        activeCamera = null
+        
         val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Transcribing", 28))
-        column.addView(body("Transcribing"))
+        column.addView(title("Processing answer", 28))
+        column.addView(body("Analyzing your response"))
         setScreen(column)
 
         scope.launch {
@@ -3867,24 +3879,45 @@ class MainActivity : ComponentActivity() {
             val result = if (localResult.score <= 15 && (remoteResult?.score ?: 0) > 20) {
                 localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
             } else if (remoteResult != null) {
-                // Use backend result, but fallback to local coaching if backend didn't provide one
                 remoteResult.copy(
                     coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
                 )
             } else {
                 localResult
             }
-            // If both local and remote scoring failed, show timeout / save error
+            
             if (result.score <= 5 && result.transcript.isBlank()) {
                 showProcessingTimeout()
                 return@launch
             }
+            
             appState.markAnswered(result.score, result.transcript)
             currentAnswerResult = result
             sessionAnswers.add(result)
             activeTranscript = ""
             speechError = ""
-            showResult()
+            coachingMessage = result.coachingMessage
+            
+            // Skip result screen - go directly to next question (like React Native)
+            val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+            appState.saveSessionAnswers(sessionId, sessionAnswers.toList())
+            sessionAnswers.clear()
+            val done = appState.advanceOrComplete()
+            
+            if (done) {
+                if (appState.authToken.isNotBlank() && appState.activeSessionId.isNotBlank()) {
+                    showHome()
+                } else {
+                    showSessionSaveError()
+                }
+            } else {
+                val nextColumn = baseColumn().apply { gravity = Gravity.CENTER }
+                nextColumn.addView(title("Preparing next question", 28))
+                nextColumn.addView(body("Loading the interviewer"))
+                setScreen(nextColumn)
+                prepareCurrentQuestionSpeech()
+                showInterview(false)
+            }
         }
     }
 
@@ -4079,6 +4112,7 @@ class MainActivity : ComponentActivity() {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
             }
+            // Model loads silently in background without showing overlay
             setModelName(interviewer.modelName)
         }
         activeAvatar = avatar

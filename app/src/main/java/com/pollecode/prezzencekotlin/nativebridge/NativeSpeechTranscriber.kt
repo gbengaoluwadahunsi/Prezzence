@@ -30,8 +30,10 @@ class NativeSpeechTranscriber(
     private val recording = AtomicBoolean(false)
     private val pcmSamples = mutableListOf<Float>()
     private val pcmLock = Any()
+    private var currentLanguageTag: String = "en-US"
 
     fun start(languageTag: String = "en-US") {
+        currentLanguageTag = languageTag
         stop(languageTag)
         latestText = ""
         if (BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) {
