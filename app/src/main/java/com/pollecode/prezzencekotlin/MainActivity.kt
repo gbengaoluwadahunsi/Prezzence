@@ -168,6 +168,7 @@ class MainActivity : ComponentActivity() {
     private var isAvatarLoading: Boolean = false
     private var isAvatarReadyForEntering: Boolean = false  // Track if avatar is ready before joining
     private var isStartingAnswer: Boolean = false
+    private var preloadingAvatarView: NativeDuixAvatarView? = null  // Keep reference during preloading
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -3352,8 +3353,8 @@ class MainActivity : ComponentActivity() {
         try {
             val interviewer = interviewers.firstOrNull() ?: return
             
-            val preloadAvatar = NativeDuixAvatarView(this@MainActivity)
-            preloadAvatar.listener = object : NativeDuixAvatarView.Listener {
+            preloadingAvatarView = NativeDuixAvatarView(this@MainActivity)
+            preloadingAvatarView?.listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
                     isAvatarReadyForEntering = true
                     Log.i("PrezzenceAvatarReady", "Avatar ready: $modelName")
@@ -3366,7 +3367,7 @@ class MainActivity : ComponentActivity() {
             }
             
             // Start model preparation
-            preloadAvatar.setModelName(interviewer.modelName)
+            preloadingAvatarView?.setModelName(interviewer.modelName)
             Log.i("PrezzenceAvatarLoading", "Starting avatar preload: ${interviewer.modelName}")
             
         } catch (e: Exception) {
