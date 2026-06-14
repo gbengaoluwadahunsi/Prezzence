@@ -3593,13 +3593,10 @@ class MainActivity : ComponentActivity() {
                     isAvatarLoading = isAvatarLoading,
                     isStartingAnswer = isStartingAnswer,
                     createAvatarView = {
-                        if (suppressNativeAvatarForEntry) {
-                            suppressNativeAvatarForEntry = false
-                            interviewerReadyCard(interviewer)
-                        } else {
-                            runCatching { duixAvatarCard(interviewer, "speaking", true) }
-                                .getOrElse { interviewerReadyCard(interviewer) }
-                        }
+                        // Show interviewer card immediately instead of trying to load DUIX avatar
+                        // DUIX avatar causes blank screens during slow initialization
+                        isAvatarLoading = false  // Ensure loading state is cleared
+                        interviewerReadyCard(interviewer)
                     },
                     createCameraView = { cameraCoachCard(interviewer) },
                     onExit = { showHome() },
