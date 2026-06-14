@@ -4186,12 +4186,22 @@ class MainActivity : ComponentActivity() {
         val questionText = appState.currentQuestion().text
         val token = speechGenerationToken
         var speechQueued = false
+        
+        // Add placeholder/preview while avatar model loads
+        val placeholderView = View(this@MainActivity).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(Color.rgb(20, 20, 35))
+        }
+        addView(placeholderView)
+        
         val avatar = NativeDuixAvatarView(this@MainActivity).apply avatarView@{
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
                     readyDuixModelName = modelName
                     isAvatarLoading = false
+                    // Hide placeholder when avatar is ready
+                    placeholderView.visibility = View.GONE
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
@@ -4199,6 +4209,8 @@ class MainActivity : ComponentActivity() {
                 override fun onModelError(modelName: String, message: String?) {
                     readyDuixModelName = modelName
                     isAvatarLoading = false
+                    // Keep placeholder visible on error
+                    placeholderView.visibility = View.VISIBLE
                     showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
