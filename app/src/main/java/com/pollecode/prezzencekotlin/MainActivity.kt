@@ -125,12 +125,21 @@ class MainActivity : ComponentActivity() {
     private var recordingDuration: Int = 0
     private var recordingTimer: android.os.CountDownTimer? = null
     private var recordingDurationState: androidx.compose.runtime.MutableState<Int>? = null
+    private var metricsState: androidx.compose.runtime.MutableState<MetricsSnapshot>? = null
     private var cameraMetrics: Pair<String, Int>? = null
     private var faceMetric: Int = 0
     private var eyesMetric: Int = 0
     private var headMetric: Int = 0
     private var postureMetric: Int = 0
     private var energyMetric: Int = 0
+
+    data class MetricsSnapshot(
+        val face: Int = 0,
+        val eyes: Int = 0,
+        val head: Int = 0,
+        val posture: Int = 0,
+        val energy: Int = 0,
+    )
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -3472,7 +3481,7 @@ class MainActivity : ComponentActivity() {
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
         
-        // Start recording timer if answering - but DON'T refresh UI in the timer
+        // Start recording timer and metrics state if answering
         if (answering) {
             if (recordingStartTime == 0L) {
                 recordingStartTime = System.currentTimeMillis()
@@ -3484,16 +3493,25 @@ class MainActivity : ComponentActivity() {
                 recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 500) {
                     override fun onTick(millisUntilFinished: Long) {
                         recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                        // Just update duration, don't re-render the whole UI
+                        recordingDurationState?.value = recordingDuration
                     }
                     override fun onFinish() {}
                 }.start()
+            }
+            
+            // Initialize Compose state for metrics if needed
+            if (metricsState == null) {
+                metricsState = androidx.compose.runtime.mutableStateOf(
+                    MetricsSnapshot(faceMetric, eyesMetric, headMetric, postureMetric, energyMetric)
+                )
             }
         } else {
             recordingTimer?.cancel()
             recordingTimer = null
             recordingStartTime = 0L
             recordingDuration = 0
+            recordingDurationState?.value = 0
+            metricsState = null
             faceMetric = 0
             eyesMetric = 0
             headMetric = 0
@@ -3503,6 +3521,14 @@ class MainActivity : ComponentActivity() {
         
         setScreen(ComposeView(this).apply {
             setContent {
+                // Use remember for state that persists across recompositions
+                val recordingDurationRemembered = androidx.compose.runtime.remember { recordingDurationState ?: androidx.compose.runtime.mutableStateOf(recordingDuration) }
+                val metricsRemembered = androidx.compose.runtime.remember { metricsState ?: androidx.compose.runtime.mutableStateOf(MetricsSnapshot()) }
+                
+                // Update stored state references
+                recordingDurationState = recordingDurationRemembered
+                metricsState = metricsRemembered
+                
                 PrezzenceInterviewRoomScreen(
                     currentStep = appState.currentQuestionIndex + 1,
                     totalSteps = appState.questions().size,
@@ -3520,13 +3546,13 @@ class MainActivity : ComponentActivity() {
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
-                    recordingDuration = recordingDuration,
+                    recordingDuration = recordingDurationRemembered.value,
                     isRecording = answering && activeTranscriber != null,
-                    faceMetric = faceMetric,
-                    eyesMetric = eyesMetric,
-                    headMetric = headMetric,
-                    postureMetric = postureMetric,
-                    energyMetric = energyMetric,
+                    faceMetric = metricsRemembered.value.face,
+                    eyesMetric = metricsRemembered.value.eyes,
+                    headMetric = metricsRemembered.value.head,
+                    postureMetric = metricsRemembered.value.posture,
+                    energyMetric = metricsRemembered.value.energy,
                     createAvatarView = {
                         if (suppressNativeAvatarForEntry) {
                             suppressNativeAvatarForEntry = false
@@ -4144,8 +4170,14 @@ class MainActivity : ComponentActivity() {
                         headMetric = metrics.head
                         postureMetric = metrics.posture
                         energyMetric = metrics.energy
-                        // Refresh screen to update metrics display
-                        showInterview(answering = true)
+                        // Update state WITHOUT recreating screen
+                        metricsState?.value = MetricsSnapshot(
+                            face = metrics.face,
+                            eyes = metrics.eyes,
+                            head = metrics.head,
+                            posture = metrics.posture,
+                            energy = metrics.energy
+                        )
                     }
                     override fun onStatus(message: String) {
                         Log.i("PrezzenceCamera", message)
