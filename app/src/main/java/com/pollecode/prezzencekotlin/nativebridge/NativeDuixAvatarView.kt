@@ -71,8 +71,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private var playToken = AtomicInteger(0)
     private val duixSampleRate = 16_000
 
-    private val modelRoot = File(context.getExternalFilesDir("duix"), "model")
-    private val cacheRoot = File(context.cacheDir, "duix-audio")
+    private val modelRoot = File(context.getExternalFilesDir("duix")?.apply { mkdirs() } ?: File(context.cacheDir, "duix/model"), "model").apply { mkdirs() }
+    private val cacheRoot = File(context.cacheDir, "duix-audio").apply { mkdirs() }
     private val apiBase = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
 
     init {
@@ -566,8 +566,14 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             return baseDir to modelDir
         }
 
-        private fun modelRootFor(context: Context): File =
-            File(context.getExternalFilesDir("duix"), "model").apply { mkdirs() }
+        private fun modelRootFor(context: Context): File {
+            val externalDir = context.getExternalFilesDir("duix")
+            return if (externalDir != null) {
+                File(externalDir, "model").apply { mkdirs() }
+            } else {
+                File(context.cacheDir, "duix/model").apply { mkdirs() }
+            }
+        }
 
         private fun apiBaseStatic(): String =
             BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
