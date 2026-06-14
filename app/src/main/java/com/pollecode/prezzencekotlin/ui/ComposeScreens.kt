@@ -3078,6 +3078,7 @@ fun PrezzenceInterviewRoomScreen(
                             AndroidView(
                                 factory = { createCameraView() },
                                 modifier = Modifier.fillMaxSize(),
+                                update = { /* Don't recreate on recomposition */ }
                             )
                             InterviewTopGlassLabel("Camera Presence Coach", "Starting camera. Position your face in frame")
                             InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 66.dp))
@@ -3107,6 +3108,7 @@ fun PrezzenceInterviewRoomScreen(
                             AndroidView(
                                 factory = { createAvatarView() },
                                 modifier = Modifier.fillMaxSize(),
+                                update = { /* Don't recreate on recomposition */ }
                             )
                             InterviewerChip(
                                 interviewerName,
@@ -3121,6 +3123,7 @@ fun PrezzenceInterviewRoomScreen(
                                     .fillMaxWidth()
                                     .height(maxHeight + avatarTopCrop)
                                     .offset(y = -avatarTopCrop),
+                                update = { /* Don't recreate on recomposition */ }
                             )
                             InterviewerChip(
                                 interviewerName,
