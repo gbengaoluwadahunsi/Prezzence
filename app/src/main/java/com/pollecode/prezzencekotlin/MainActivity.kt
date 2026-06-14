@@ -4199,18 +4199,18 @@ class MainActivity : ComponentActivity() {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
                 listener = object : NativePresenceCameraView.Listener {
                     override fun onMetrics(metrics: NativePresenceCameraView.Metrics) {
-                        faceMetric = metrics.face
-                        eyesMetric = metrics.eyes
-                        headMetric = metrics.head
+                        faceMetric = metrics.faceVisibility
+                        eyesMetric = metrics.eyeContact
+                        headMetric = metrics.headStability
                         postureMetric = metrics.posture
-                        energyMetric = metrics.energy
+                        energyMetric = metrics.expressionEnergy
                         // Update state WITHOUT recreating screen
                         metricsState?.value = MetricsSnapshot(
-                            face = metrics.face,
-                            eyes = metrics.eyes,
-                            head = metrics.head,
+                            face = metrics.faceVisibility,
+                            eyes = metrics.eyeContact,
+                            head = metrics.headStability,
                             posture = metrics.posture,
-                            energy = metrics.energy
+                            energy = metrics.expressionEnergy
                         )
                     }
                     override fun onStatus(message: String) {

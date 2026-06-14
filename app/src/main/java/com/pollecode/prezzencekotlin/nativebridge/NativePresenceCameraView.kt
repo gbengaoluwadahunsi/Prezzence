@@ -43,11 +43,12 @@ import kotlin.math.roundToInt
 
 class NativePresenceCameraView(private val activity: ComponentActivity) : FrameLayout(activity) {
     data class Metrics(
-        val face: Int,
-        val eyes: Int,
-        val head: Int,
+        val faceVisible: Boolean,
+        val faceVisibility: Int,
+        val eyeContact: Int,
+        val headStability: Int,
         val posture: Int,
-        val energy: Int,
+        val expressionEnergy: Int,
     )
 
     interface Listener {
@@ -103,7 +104,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
                 gravity = Gravity.TOP
             }
         })
-        setMetrics(Metrics(0, 0, 0, 0, 0))
+        setMetrics(Metrics(false, 0, 0, 0, 0, 0))
         start()
     }
 
@@ -115,7 +116,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
         lastFaceSize = null
         lastGoodMetrics = null
         status.text = "Starting camera. Position your face in frame"
-        setMetrics(Metrics(0, 0, 0, 0, 0))
+        setMetrics(Metrics(false, 0, 0, 0, 0, 0))
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             status.text = "Camera access needed"
             listener?.onError("Camera permission is not granted")
@@ -259,7 +260,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
             if (faceLandmarks.isNullOrEmpty()) {
                 activity.runOnUiThread {
                     status.text = "Position your face in frame"
-                    setMetrics(lastGoodMetrics ?: Metrics(0, 0, 0, 0, 0))
+                    setMetrics(lastGoodMetrics ?: Metrics(false, 0, 0, 0, 0, 0))
                     listener?.onStatus("No face detected yet")
                 }
                 bitmap.recycle()
@@ -298,22 +299,30 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
         val centerX = (minX + maxX) / 2f
         val centerY = (minY + maxY) / 2f
         val faceSize = max(maxX - minX, maxY - minY).coerceAtLeast(0.01f)
-        val centered = (100 - (abs(centerX - 0.5f) * 170 + abs(centerY - 0.43f) * 135)).roundToInt().coerceIn(0, 100)
-        val sizeScore = (100 - abs(faceSize - 0.46f) * 170).roundToInt().coerceIn(0, 100)
+        
+        // Face visibility: how well face is positioned and sized
+        val facePositioned = (100 - (abs(centerX - 0.5f) * 170 + abs(centerY - 0.43f) * 135)).roundToInt().coerceIn(0, 100)
+        val faceSized = (100 - abs(faceSize - 0.46f) * 170).roundToInt().coerceIn(0, 100)
+        val faceVisibility = ((facePositioned + faceSized) / 2).coerceIn(0, 100)
+        val faceVisible = faceVisibility > 50
 
+        // Eye contact: based on yaw/head turn
         val leftEyeOuter = face.safe(33)
         val leftEyeInner = face.safe(133)
         val rightEyeInner = face.safe(362)
         val rightEyeOuter = face.safe(263)
         val nose = face.safe(1) ?: face.safe(4)
         val eyeMidX = listOfNotNull(leftEyeOuter, leftEyeInner, rightEyeInner, rightEyeOuter).map { it.x() }.averageOrNull()?.toFloat() ?: centerX
-        val yawScore = if (nose != null) (100 - abs(nose.x() - eyeMidX) * 520).roundToInt().coerceIn(0, 100) else centered
+        val yawScore = if (nose != null) (100 - abs(nose.x() - eyeMidX) * 520).roundToInt().coerceIn(0, 100) else facePositioned
+        val eyeContact = yawScore
+
+        // Head stability: based on tilt/roll
         val rollScore = if (leftEyeOuter != null && rightEyeOuter != null) {
             (100 - abs(leftEyeOuter.y() - rightEyeOuter.y()) * 760).roundToInt().coerceIn(0, 100)
-        } else centered
-        val eyeScore = ((yawScore + rollScore + centered) / 3).coerceIn(0, 100)
-        val headScore = ((yawScore + rollScore + centered) / 3).coerceIn(0, 100)
+        } else facePositioned
+        val headStability = rollScore
 
+        // Posture: from pose landmarks
         val postureScore = pose?.let { landmarks ->
             val leftShoulder = landmarks.safe(11)
             val rightShoulder = landmarks.safe(12)
@@ -324,8 +333,9 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
                 val upright = 100 - shoulderTilt * 820 - abs(poseNose.x() - shoulderCenterX) * 160
                 upright.roundToInt().coerceIn(0, 100)
             } else null
-        } ?: ((centered + sizeScore) / 2).coerceIn(0, 100)
+        } ?: ((facePositioned + faceSized) / 2).coerceIn(0, 100)
 
+        // Expression Energy: from movement/stillness
         val prevX = lastCenterX
         val prevY = lastCenterY
         val prevSize = lastFaceSize
@@ -340,11 +350,12 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
         val expressionEnergy = (100 - stillness).coerceIn(12, 88)
 
         return Metrics(
-            face = ((centered + sizeScore) / 2).coerceIn(0, 100),
-            eyes = eyeScore,
-            head = headScore,
+            faceVisible = faceVisible,
+            faceVisibility = faceVisibility,
+            eyeContact = eyeContact,
+            headStability = headStability,
             posture = postureScore,
-            energy = expressionEnergy,
+            expressionEnergy = expressionEnergy,
         )
     }
 
@@ -407,11 +418,11 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
 
     fun setMetrics(metrics: Metrics) {
         metricsRow.removeAllViews()
-        metricsRow.addView(metric("FACE", metrics.face))
-        metricsRow.addView(metric("EYES", metrics.eyes))
-        metricsRow.addView(metric("HEAD", metrics.head))
+        metricsRow.addView(metric("FACE", metrics.faceVisibility))
+        metricsRow.addView(metric("EYES", metrics.eyeContact))
+        metricsRow.addView(metric("HEAD", metrics.headStability))
         metricsRow.addView(metric("POSTURE", metrics.posture))
-        metricsRow.addView(metric("ENERGY", metrics.energy))
+        metricsRow.addView(metric("ENERGY", metrics.expressionEnergy))
         listener?.onMetrics(metrics)
     }
 
