@@ -53,8 +53,10 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS)  // 10 minutes for large ~50MB model file downloads
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private val textureView = DUIXTextureView(context)
@@ -126,9 +128,17 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             try {
                 if (preparedModelName != modelName || duix == null) {
                     Log.i("PrezzenceDuix", "Model not ready, ensuring availability for $modelName")
-                    val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
-                    bindDuix(modelName, dirs.first, dirs.second)
-                    preparedModelName = modelName
+                    showOverlay("Loading avatar model...")
+                    val startTime = System.currentTimeMillis()
+                    try {
+                        val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
+                        val elapsed = System.currentTimeMillis() - startTime
+                        Log.i("PrezzenceDuix", "Model loaded in ${elapsed}ms for $modelName")
+                        bindDuix(modelName, dirs.first, dirs.second)
+                        preparedModelName = modelName
+                    } finally {
+                        hideOverlay()
+                    }
                 }
                 if (!waitForDuixReady(modelName)) {
                     throw IllegalStateException("Avatar is still initializing")
@@ -632,26 +642,59 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             destination.parentFile?.mkdirs()
             val zip = File(root, "$name.zip")
             
-            // Download with validation
-            Log.i("PrezzenceDuix", "Downloading model $name from ${apiBaseStatic()}$name.zip")
-            val request = Request.Builder().url(apiBaseStatic() + "$name.zip").build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.e("PrezzenceDuix", "Model download failed: HTTP ${response.code}")
-                    throw IllegalStateException("Model download failed: ${response.code}")
+            // Download with validation and retry
+            val maxRetries = 3
+            var lastError: Exception? = null
+            
+            for (attempt in 1..maxRetries) {
+                try {
+                    Log.i("PrezzenceDuix", "Downloading model $name (attempt $attempt/$maxRetries) from ${apiBaseStatic()}$name.zip")
+                    val request = Request.Builder()
+                        .url(apiBaseStatic() + "$name.zip")
+                        .header("User-Agent", "Prezzence-Android/${BuildConfig.PREZZENCE_VERSION_NAME}")
+                        .build()
+                    
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            Log.e("PrezzenceDuix", "Model download failed: HTTP ${response.code} for $name")
+                            throw IllegalStateException("Model download failed: ${response.code}")
+                        }
+                        
+                        val contentLength = response.header("content-length")?.toLongOrNull() ?: 0L
+                        Log.i("PrezzenceDuix", "Downloading $name: $contentLength bytes")
+                        
+                        response.body?.byteStream()?.use { input ->
+                            FileOutputStream(zip).use { output -> input.copyTo(output) }
+                        } ?: throw IllegalStateException("Model download returned empty body")
+                    }
+                    
+                    // Validate downloaded file
+                    if (!zip.exists() || zip.length() < 1000) {
+                        Log.w("PrezzenceDuix", "Model download incomplete for $name: ${zip.length()} bytes, retrying...")
+                        zip.delete()
+                        lastError = IllegalStateException("Model download incomplete: ${zip.length()} bytes")
+                        if (attempt < maxRetries) continue
+                        throw lastError
+                    }
+                    
+                    Log.i("PrezzenceDuix", "Model $name downloaded successfully: ${zip.length()} bytes")
+                    break  // Success
+                    
+                } catch (e: Exception) {
+                    lastError = e
+                    Log.e("PrezzenceDuix", "Download attempt $attempt/$maxRetries failed for $name: ${e.message}", e)
+                    if (attempt < maxRetries) {
+                        Log.i("PrezzenceDuix", "Waiting 2 seconds before retry...")
+                        Thread.sleep(2000)
+                    }
                 }
-                response.body?.byteStream()?.use { input ->
-                    FileOutputStream(zip).use { output -> input.copyTo(output) }
-                } ?: throw IllegalStateException("Model download returned empty body")
             }
             
-            // Validate downloaded file
-            if (!zip.exists() || zip.length() < 1000) {
+            if (zip.length() < 1000) {
                 zip.delete()
-                Log.e("PrezzenceDuix", "Model download incomplete: ${zip.length()} bytes for $name")
-                throw IllegalStateException("Model download incomplete: ${zip.length()} bytes")
+                Log.e("PrezzenceDuix", "Model download failed after $maxRetries attempts for $name")
+                throw lastError ?: IllegalStateException("Model download failed: max retries exceeded")
             }
-            Log.i("PrezzenceDuix", "Model $name downloaded: ${zip.length()} bytes")
             
             // Clear destination before unzip
             destination.deleteRecursively()
