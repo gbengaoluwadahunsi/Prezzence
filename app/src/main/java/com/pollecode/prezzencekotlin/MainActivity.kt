@@ -3321,7 +3321,7 @@ class MainActivity : ComponentActivity() {
         // Check if backend session is ready (questions loaded)
         val isSessionReady = appState.activeSessionId.isNotBlank() && appState.questions().isNotEmpty()
         
-        // Reset avatar ready flag and start preloading
+        // Reset avatar ready flag - it will be set when avatar loads
         isAvatarReadyForEntering = false
         
         setScreen(ComposeView(this).apply {
@@ -3329,9 +3329,9 @@ class MainActivity : ComponentActivity() {
                 PrezzenceEnteringRoomScreen(
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
-                    preparing = preparing && !isSessionReady, // Only show spinner while session/questions load
+                    preparing = preparing && !isSessionReady,
                     setupStatus = setupStatus,
-                    isAvatarReady = isAvatarReadyForEntering,  // Disable join button until avatar is ready
+                    isAvatarReady = isAvatarReadyForEntering,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
                 )
@@ -3343,49 +3343,35 @@ class MainActivity : ComponentActivity() {
             prepareBackendSessionForEntering()
         }
         
-        // Preload avatars in background for current interviewers
+        // Start avatar preloading immediately
         preloadAvatarsForEnteringRoom(interviewers)
     }
     
     private fun preloadAvatarsForEnteringRoom(interviewers: List<Interviewer>) {
-        scope.launch {
-            try {
-                interviewers.forEach { interviewer ->
-                    try {
-                        // Create temporary avatar to preload model
-                        val tempAvatar = NativeDuixAvatarView(this@MainActivity)
-                        var modelReady = false
-                        
-                        tempAvatar.listener = object : NativeDuixAvatarView.Listener {
-                            override fun onModelReady(modelName: String) {
-                                modelReady = true
-                                isAvatarReadyForEntering = true
-                                Log.i("PrezzenceEntering", "Avatar preloaded: $modelName")
-                            }
-                            override fun onModelError(modelName: String, message: String?) {
-                                Log.w("PrezzenceEntering", "Avatar preload failed: $modelName - $message")
-                                // Still allow join even if preload fails (will load on-demand)
-                                isAvatarReadyForEntering = true
-                            }
-                        }
-                        
-                        // Start model preparation
-                        tempAvatar.setModelName(interviewer.modelName)
-                        
-                        // Wait up to 30 seconds for model to be ready
-                        repeat(300) {
-                            if (modelReady) return@repeat
-                            Thread.sleep(100)
-                        }
-                    } catch (e: Exception) {
-                        Log.w("PrezzenceEntering", "Failed to preload avatar: ${interviewer.modelName}", e)
-                        isAvatarReadyForEntering = true  // Allow join anyway
-                    }
+        // Create avatar immediately and keep it for interview
+        try {
+            val interviewer = interviewers.firstOrNull() ?: return
+            
+            val preloadAvatar = NativeDuixAvatarView(this@MainActivity)
+            preloadAvatar.listener = object : NativeDuixAvatarView.Listener {
+                override fun onModelReady(modelName: String) {
+                    isAvatarReadyForEntering = true
+                    Log.i("PrezzenceAvatarReady", "Avatar ready: $modelName")
                 }
-            } catch (e: Exception) {
-                Log.w("PrezzenceEntering", "Avatar preload setup failed", e)
-                isAvatarReadyForEntering = true  // Allow join anyway
+                override fun onModelError(modelName: String, message: String?) {
+                    // Allow join even if preload fails
+                    isAvatarReadyForEntering = true
+                    Log.w("PrezzenceAvatarError", "Avatar failed: $message")
+                }
             }
+            
+            // Start model preparation
+            preloadAvatar.setModelName(interviewer.modelName)
+            Log.i("PrezzenceAvatarLoading", "Starting avatar preload: ${interviewer.modelName}")
+            
+        } catch (e: Exception) {
+            Log.e("PrezzenceAvatarError", "Failed to start avatar preload", e)
+            isAvatarReadyForEntering = true  // Allow join anyway
         }
     }
 

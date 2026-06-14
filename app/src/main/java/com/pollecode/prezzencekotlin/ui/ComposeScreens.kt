@@ -2697,13 +2697,28 @@ fun PrezzenceEnteringRoomScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(color = TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(12.dp))
-                            Text("Preparing...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("Preparing session...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                     } else if (!isAvatarReady) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(color = TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("Loading avatar...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                                Text("Loading avatar", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                Text("0%", color = TextPrimary, fontSize = 14.sp)
+                            }
+                            // Progress bar - horizontal line filling up
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .background(Color(0xFF2A2A3E), shape = RoundedCornerShape(2.dp))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(0.3f)
+                                        .background(Accent, shape = RoundedCornerShape(2.dp))
+                                )
+                            }
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
