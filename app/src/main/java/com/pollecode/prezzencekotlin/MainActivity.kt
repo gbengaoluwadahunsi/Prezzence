@@ -15,6 +15,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -123,6 +124,12 @@ class MainActivity : ComponentActivity() {
     private var recordingStartTime: Long = 0L
     private var recordingDuration: Int = 0
     private var recordingTimer: android.os.CountDownTimer? = null
+    private var cameraMetrics: Pair<String, Int>? = null // "face" to score mapping
+    private var faceMetric: Int = 0
+    private var eyesMetric: Int = 0
+    private var headMetric: Int = 0
+    private var postureMetric: Int = 0
+    private var energyMetric: Int = 0
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -3481,6 +3488,11 @@ class MainActivity : ComponentActivity() {
             recordingTimer?.cancel()
             recordingTimer = null
             recordingDuration = 0
+            faceMetric = 0
+            eyesMetric = 0
+            headMetric = 0
+            postureMetric = 0
+            energyMetric = 0
         }
         
         setScreen(ComposeView(this).apply {
@@ -3504,6 +3516,11 @@ class MainActivity : ComponentActivity() {
                     cameraCoachEnabled = appState.cameraCoachEnabled,
                     recordingDuration = recordingDuration,
                     isRecording = answering && activeTranscriber != null,
+                    faceMetric = faceMetric,
+                    eyesMetric = eyesMetric,
+                    headMetric = headMetric,
+                    postureMetric = postureMetric,
+                    energyMetric = energyMetric,
                     createAvatarView = {
                         if (suppressNativeAvatarForEntry) {
                             suppressNativeAvatarForEntry = false
@@ -4086,6 +4103,23 @@ class MainActivity : ComponentActivity() {
         if (hasCameraPermission) {
             val camera = NativePresenceCameraView(this@MainActivity).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                listener = object : NativePresenceCameraView.Listener {
+                    override fun onMetrics(metrics: NativePresenceCameraView.Metrics) {
+                        faceMetric = metrics.face
+                        eyesMetric = metrics.eyes
+                        headMetric = metrics.head
+                        postureMetric = metrics.posture
+                        energyMetric = metrics.energy
+                        // Refresh screen to update metrics display
+                        showInterview(answering = true)
+                    }
+                    override fun onStatus(message: String) {
+                        Log.i("PrezzenceCamera", message)
+                    }
+                    override fun onError(message: String) {
+                        showAppToast(message, ToastKind.WARNING)
+                    }
+                }
             }
             activeCamera = camera
             addView(camera)

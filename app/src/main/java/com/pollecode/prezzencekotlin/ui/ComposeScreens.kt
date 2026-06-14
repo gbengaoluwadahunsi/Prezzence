@@ -3014,6 +3014,11 @@ fun PrezzenceInterviewRoomScreen(
     cameraCoachEnabled: Boolean,
     recordingDuration: Int = 0,
     isRecording: Boolean = false,
+    faceMetric: Int = 0,
+    eyesMetric: Int = 0,
+    headMetric: Int = 0,
+    postureMetric: Int = 0,
+    energyMetric: Int = 0,
     createAvatarView: () -> View,
     createCameraView: () -> View,
     onExit: () -> Unit,
@@ -3081,24 +3086,41 @@ fun PrezzenceInterviewRoomScreen(
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
                                     .padding(10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                listOf("Face", "Eyes", "Head", "Posture", "Energy").forEach { label ->
-                                    PresenceMetricPill(label, "--", Modifier.weight(1f))
+                                listOf(
+                                    "Face" to faceMetric,
+                                    "Eyes" to eyesMetric,
+                                    "Head" to headMetric,
+                                    "Posture" to postureMetric,
+                                    "Energy" to energyMetric,
+                                ).forEach { (label, value) ->
+                                    PresenceMetricPill(
+                                        label,
+                                        if (value > 0) value.toString() else "--",
+                                        Modifier.weight(1f),
+                                    )
                                 }
                             }
-                        } else {
-                            // Show avatar (whether answering or listening)
+                        } else if (answering) {
+                            // Show avatar during answering when camera coach disabled
                             AndroidView(
                                 factory = { createAvatarView() },
-                                modifier = if (answering) {
-                                    Modifier.fillMaxSize()
-                                } else {
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(maxHeight + avatarTopCrop)
-                                        .offset(y = -avatarTopCrop)
-                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            InterviewerChip(
+                                interviewerName,
+                                interviewerTitle,
+                                Modifier.align(Alignment.BottomStart).padding(start = interviewerChipBottom, end = interviewerChipBottom, bottom = interviewerChipBottom),
+                            )
+                        } else {
+                            // Show avatar while listening to question
+                            AndroidView(
+                                factory = { createAvatarView() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(maxHeight + avatarTopCrop)
+                                    .offset(y = -avatarTopCrop),
                             )
                             InterviewerChip(
                                 interviewerName,
@@ -3431,17 +3453,63 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
 }
 
 @Composable
+private fun AvatarLoadingSkeleton(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(Color(0xFF050509)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // Animated shimmer circle
+            Box(
+                Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.2f),
+                                Color.White.copy(alpha = 0.05f),
+                            ),
+                        ),
+                    ),
+            )
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "Loading avatar...",
+                color = TextSecondary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
 private fun PresenceMetricPill(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.06f)),
+            .height(40.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(label, color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
-        Text(value, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(label, color = TextSecondary, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            if (value == "--") "--" else value,
+            color = if (value == "--") TextSecondary else TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+        )
     }
 }
 
