@@ -124,7 +124,8 @@ class MainActivity : ComponentActivity() {
     private var recordingStartTime: Long = 0L
     private var recordingDuration: Int = 0
     private var recordingTimer: android.os.CountDownTimer? = null
-    private var cameraMetrics: Pair<String, Int>? = null // "face" to score mapping
+    private var recordingDurationState: androidx.compose.runtime.MutableState<Int>? = null
+    private var cameraMetrics: Pair<String, Int>? = null
     private var faceMetric: Int = 0
     private var eyesMetric: Int = 0
     private var headMetric: Int = 0
@@ -3471,20 +3472,19 @@ class MainActivity : ComponentActivity() {
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
         
-        // Start recording timer if answering
+        // Start recording timer if answering - but DON'T refresh UI in the timer
         if (answering) {
-            // Only set recordingStartTime on first call, not on every refresh
             if (recordingStartTime == 0L) {
                 recordingStartTime = System.currentTimeMillis()
                 recordingDuration = 0
             }
             
+            // Only create timer once, don't call showInterview repeatedly
             if (recordingTimer == null) {
-                recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
+                recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 500) {
                     override fun onTick(millisUntilFinished: Long) {
                         recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                        // Refresh screen to update timer display
-                        showInterview(answering = true)
+                        // Just update duration, don't re-render the whole UI
                     }
                     override fun onFinish() {}
                 }.start()
