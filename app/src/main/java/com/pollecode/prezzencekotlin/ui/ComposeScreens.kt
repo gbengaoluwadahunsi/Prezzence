@@ -3305,9 +3305,8 @@ private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier
                 }
             }
         }
-        if (!compact || label.length <= 5) {
-            Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
-        }
+        // Always show consistent spacing between icon and label
+        Spacer(Modifier.width(if (compact) 5.dp else 7.dp))
         Text(
             label,
             color = TextPrimary,

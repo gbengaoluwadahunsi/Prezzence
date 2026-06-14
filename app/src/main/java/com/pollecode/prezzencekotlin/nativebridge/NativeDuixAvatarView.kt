@@ -103,7 +103,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         currentModelName = modelName
         if (preparedModelName == modelName || preparingModelName == modelName) return
         preparingModelName = modelName
-        // Don't show overlay - models load silently in background
+        // Models load silently in background - no overlay to avoid blank screen
         scope.launch {
             try {
                 val dirs = withContext(Dispatchers.IO) {
@@ -112,10 +112,10 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 bindDuix(modelName, dirs.first, dirs.second)
                 preparedModelName = modelName
                 preparingModelName = null
+                listener?.onModelReady(modelName)
             } catch (error: Throwable) {
                 preparingModelName = null
                 Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)
-                hideOverlay()
                 listener?.onModelError(modelName, error.message)
             }
         }
@@ -127,18 +127,13 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         scope.launch {
             try {
                 if (preparedModelName != modelName || duix == null) {
-                    Log.i("PrezzenceDuix", "Model not ready, ensuring availability for $modelName")
-                    showOverlay("Loading avatar model...")
+                    Log.i("PrezzenceDuix", "Model not ready, waiting for availability for $modelName")
                     val startTime = System.currentTimeMillis()
-                    try {
-                        val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
-                        val elapsed = System.currentTimeMillis() - startTime
-                        Log.i("PrezzenceDuix", "Model loaded in ${elapsed}ms for $modelName")
-                        bindDuix(modelName, dirs.first, dirs.second)
-                        preparedModelName = modelName
-                    } finally {
-                        hideOverlay()
-                    }
+                    val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
+                    val elapsed = System.currentTimeMillis() - startTime
+                    Log.i("PrezzenceDuix", "Model loaded in ${elapsed}ms for $modelName")
+                    bindDuix(modelName, dirs.first, dirs.second)
+                    preparedModelName = modelName
                 }
                 if (!waitForDuixReady(modelName)) {
                     throw IllegalStateException("Avatar is still initializing")
