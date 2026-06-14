@@ -120,6 +120,9 @@ class MainActivity : ComponentActivity() {
     private var openingIntroductionSpoken = false
     private var activeTranscript: String = ""
     private var speechError: String = ""
+    private var recordingStartTime: Long = 0L
+    private var recordingDuration: Int = 0
+    private var recordingTimer: android.os.CountDownTimer? = null
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -3460,6 +3463,26 @@ class MainActivity : ComponentActivity() {
     private fun showInterview(answering: Boolean) {
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
+        
+        // Start recording timer if answering
+        if (answering) {
+            recordingStartTime = System.currentTimeMillis()
+            recordingDuration = 0
+            recordingTimer?.cancel()
+            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
+                override fun onTick(millisUntilFinished: Long) {
+                    recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
+                    // Refresh screen to update timer display
+                    showInterview(answering = true)
+                }
+                override fun onFinish() {}
+            }.start()
+        } else {
+            recordingTimer?.cancel()
+            recordingTimer = null
+            recordingDuration = 0
+        }
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceInterviewRoomScreen(
@@ -3479,6 +3502,8 @@ class MainActivity : ComponentActivity() {
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
+                    recordingDuration = recordingDuration,
+                    isRecording = answering && activeTranscriber != null,
                     createAvatarView = {
                         if (suppressNativeAvatarForEntry) {
                             suppressNativeAvatarForEntry = false

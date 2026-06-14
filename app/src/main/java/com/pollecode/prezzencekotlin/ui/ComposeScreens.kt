@@ -3068,18 +3068,12 @@ fun PrezzenceInterviewRoomScreen(
                             .background(Color(0xFF050509))
                             .border(1.dp, Accent.copy(alpha = if (answering && cameraCoachEnabled) 0.72f else 0.28f), RoundedCornerShape(stageRadius)),
                     ) {
-                        AndroidView(
-                            factory = { if (answering && cameraCoachEnabled) createCameraView() else createAvatarView() },
-                            modifier = if (answering && cameraCoachEnabled) {
-                                Modifier.fillMaxSize()
-                            } else {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(maxHeight + avatarTopCrop)
-                                    .offset(y = -avatarTopCrop)
-                            },
-                        )
                         if (answering && cameraCoachEnabled) {
+                            // Show camera coach for presence feedback
+                            AndroidView(
+                                factory = { createCameraView() },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                             InterviewTopGlassLabel("Camera Presence Coach", "Starting camera. Position your face in frame")
                             InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 66.dp))
                             Row(
@@ -3094,6 +3088,18 @@ fun PrezzenceInterviewRoomScreen(
                                 }
                             }
                         } else {
+                            // Show avatar (whether answering or listening)
+                            AndroidView(
+                                factory = { createAvatarView() },
+                                modifier = if (answering) {
+                                    Modifier.fillMaxSize()
+                                } else {
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(maxHeight + avatarTopCrop)
+                                        .offset(y = -avatarTopCrop)
+                                },
+                            )
                             InterviewerChip(
                                 interviewerName,
                                 interviewerTitle,
