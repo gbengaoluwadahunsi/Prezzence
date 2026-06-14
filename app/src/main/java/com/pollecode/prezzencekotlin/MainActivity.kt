@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
     private var suppressNativeAvatarForEntry = false
     private var readyDuixModelName: String? = null
     private var isAvatarLoading: Boolean = false
+    private var isAvatarReadyForEntering: Boolean = false  // Track if avatar is ready before joining
     private var isStartingAnswer: Boolean = false
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
@@ -3320,6 +3321,9 @@ class MainActivity : ComponentActivity() {
         // Check if backend session is ready (questions loaded)
         val isSessionReady = appState.activeSessionId.isNotBlank() && appState.questions().isNotEmpty()
         
+        // Reset avatar ready flag and start preloading
+        isAvatarReadyForEntering = false
+        
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceEnteringRoomScreen(
@@ -3327,15 +3331,61 @@ class MainActivity : ComponentActivity() {
                     interviewers = interviewers.map { it.name to it.title },
                     preparing = preparing && !isSessionReady, // Only show spinner while session/questions load
                     setupStatus = setupStatus,
+                    isAvatarReady = isAvatarReadyForEntering,  // Disable join button until avatar is ready
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
                 )
             }
         })
         
-        // Prepare backend session (fetch questions) - avatars will load on-demand during interview
+        // Prepare backend session (fetch questions)
         if (preparing && !isSessionReady) {
             prepareBackendSessionForEntering()
+        }
+        
+        // Preload avatars in background for current interviewers
+        preloadAvatarsForEnteringRoom(interviewers)
+    }
+    
+    private fun preloadAvatarsForEnteringRoom(interviewers: List<Interviewer>) {
+        scope.launch {
+            try {
+                interviewers.forEach { interviewer ->
+                    try {
+                        // Create temporary avatar to preload model
+                        val tempAvatar = NativeDuixAvatarView(this@MainActivity)
+                        var modelReady = false
+                        
+                        tempAvatar.listener = object : NativeDuixAvatarView.Listener {
+                            override fun onModelReady(modelName: String) {
+                                modelReady = true
+                                isAvatarReadyForEntering = true
+                                Log.i("PrezzenceEntering", "Avatar preloaded: $modelName")
+                            }
+                            override fun onModelError(modelName: String, message: String?) {
+                                Log.w("PrezzenceEntering", "Avatar preload failed: $modelName - $message")
+                                // Still allow join even if preload fails (will load on-demand)
+                                isAvatarReadyForEntering = true
+                            }
+                        }
+                        
+                        // Start model preparation
+                        tempAvatar.setModelName(interviewer.modelName)
+                        
+                        // Wait up to 30 seconds for model to be ready
+                        repeat(300) {
+                            if (modelReady) return@repeat
+                            Thread.sleep(100)
+                        }
+                    } catch (e: Exception) {
+                        Log.w("PrezzenceEntering", "Failed to preload avatar: ${interviewer.modelName}", e)
+                        isAvatarReadyForEntering = true  // Allow join anyway
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("PrezzenceEntering", "Avatar preload setup failed", e)
+                isAvatarReadyForEntering = true  // Allow join anyway
+            }
         }
     }
 

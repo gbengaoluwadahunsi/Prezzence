@@ -2601,6 +2601,7 @@ fun PrezzenceEnteringRoomScreen(
     interviewers: List<Pair<String, String>>,
     preparing: Boolean,
     setupStatus: String,
+    isAvatarReady: Boolean = false,
     onBack: () -> Unit,
     onJoin: () -> Unit,
 ) {
@@ -2688,8 +2689,8 @@ fun PrezzenceEnteringRoomScreen(
                         .fillMaxWidth()
                         .height(62.dp)
                         .clip(RoundedCornerShape(31.dp))
-                        .background(Accent.copy(alpha = if (preparing) 0.45f else 1f))
-                        .clickable(enabled = !preparing, onClick = onJoin),
+                        .background(Accent.copy(alpha = if (preparing || !isAvatarReady) 0.45f else 1f))
+                        .clickable(enabled = !preparing && isAvatarReady, onClick = onJoin),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (preparing) {
@@ -2697,6 +2698,12 @@ fun PrezzenceEnteringRoomScreen(
                             CircularProgressIndicator(color = TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(12.dp))
                             Text("Preparing...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (!isAvatarReady) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(color = TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Loading avatar...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
