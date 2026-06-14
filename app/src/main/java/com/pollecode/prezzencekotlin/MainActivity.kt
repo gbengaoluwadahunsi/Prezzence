@@ -15,6 +15,8 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -3593,10 +3595,44 @@ class MainActivity : ComponentActivity() {
                     isAvatarLoading = isAvatarLoading,
                     isStartingAnswer = isStartingAnswer,
                     createAvatarView = {
-                        // Show interviewer card immediately instead of trying to load DUIX avatar
-                        // DUIX avatar causes blank screens during slow initialization
-                        isAvatarLoading = false  // Ensure loading state is cleared
-                        interviewerReadyCard(interviewer)
+                        // Create a container view that will hold static card initially, then avatar when ready
+                        val container = FrameLayout(this@MainActivity)
+                        
+                        // Show static interviewer card immediately (no blank screen)
+                        val staticCard = interviewerReadyCard(interviewer)
+                        container.addView(staticCard)
+                        
+                        // Create avatar view
+                        val avatar = NativeDuixAvatarView(this@MainActivity).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT, 
+                                FrameLayout.LayoutParams.MATCH_PARENT
+                            )
+                            listener = object : NativeDuixAvatarView.Listener {
+                                override fun onModelReady(modelName: String) {
+                                    // Avatar loaded successfully - replace static card with avatar
+                                    Handler(Looper.getMainLooper()).post {
+                                        container.removeAllViews()
+                                        container.addView(this@apply)
+                                    }
+                                }
+                                override fun onModelError(modelName: String, message: String?) {
+                                    // Avatar failed - keep showing static card
+                                    Log.w("PrezzenceAvatar", "Avatar failed to load: $message")
+                                }
+                            }
+                        }
+                        
+                        // Start model preparation in background
+                        scope.launch {
+                            try {
+                                avatar.setModelName(interviewer.modelName)
+                            } catch (e: Exception) {
+                                Log.e("PrezzenceAvatar", "Failed to start avatar loading", e)
+                            }
+                        }
+                        
+                        container
                     },
                     createCameraView = { cameraCoachCard(interviewer) },
                     onExit = { showHome() },
