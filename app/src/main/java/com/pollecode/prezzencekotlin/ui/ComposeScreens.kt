@@ -3107,52 +3107,21 @@ fun PrezzenceInterviewRoomScreen(
                         } else if (answering) {
                             // Show avatar during answering when camera coach disabled
                             if (isAvatarLoading) {
-                                // Show loading placeholder while avatar model loads
+                                // Show minimal loading state - just dark background with subtle pulse
                                 Box(
                                     Modifier
                                         .fillMaxSize()
                                         .background(Color(0xFF050509))
-                                        .clip(RoundedCornerShape(stageRadius)),
-                                    contentAlignment = Alignment.Center
+                                        .clip(RoundedCornerShape(stageRadius))
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        // Logo placeholder - use initials circle
-                                        Box(
-                                            Modifier
-                                                .size(80.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF1E1D30))
-                                                .border(2.dp, Accent, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                "P",
-                                                fontSize = 32.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-                                        CircularProgressIndicator(
-                                            color = Accent,
-                                            strokeWidth = 3.dp,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Text(
-                                            "Preparing room",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            "Loading interview",
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF96969A),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
+                                    // Subtle pulse animation in center
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .align(Alignment.Center)
+                                            .clip(CircleShape)
+                                            .background(Accent.copy(alpha = 0.2f))
+                                    )
                                 }
                             } else {
                                 AndroidView(
@@ -3169,51 +3138,21 @@ fun PrezzenceInterviewRoomScreen(
                         } else {
                             // Show avatar while listening to question
                             if (isAvatarLoading) {
-                                // Show loading placeholder
+                                // Show minimal loading state
                                 Box(
                                     Modifier
                                         .fillMaxSize()
                                         .background(Color(0xFF050509))
-                                        .clip(RoundedCornerShape(stageRadius)),
-                                    contentAlignment = Alignment.Center
+                                        .clip(RoundedCornerShape(stageRadius))
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Box(
-                                            Modifier
-                                                .size(80.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF1E1D30))
-                                                .border(2.dp, Accent, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                "P",
-                                                fontSize = 32.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-                                        CircularProgressIndicator(
-                                            color = Accent,
-                                            strokeWidth = 3.dp,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Text(
-                                            "Preparing interviewer",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            "Loading avatar model",
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF96969A),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
+                                    // Subtle pulse animation in center
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .align(Alignment.Center)
+                                            .clip(CircleShape)
+                                            .background(Accent.copy(alpha = 0.2f))
+                                    )
                                 }
                             } else {
                                 AndroidView(
