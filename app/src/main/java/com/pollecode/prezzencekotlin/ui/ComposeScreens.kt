@@ -3020,6 +3020,7 @@ fun PrezzenceInterviewRoomScreen(
     postureMetric: Int = 0,
     energyMetric: Int = 0,
     isAvatarLoading: Boolean = false,
+    isStartingAnswer: Boolean = false,
     createAvatarView: () -> View,
     createCameraView: () -> View,
     onExit: () -> Unit,
@@ -3186,7 +3187,14 @@ fun PrezzenceInterviewRoomScreen(
                                 InterviewSmallButton("Repeat", "repeat", Modifier.weight(1f), onRepeat, compact = compactWidth)
                                 InterviewSmallButton("Clarify", "clarify", Modifier.weight(1f), onClarify, compact = compactWidth)
                             }
-                            InterviewPrimaryButton("Answer Now", "mic", onAnswerNow, Modifier.fillMaxWidth(), compact = compactWidth || compactHeight)
+                            InterviewPrimaryButton(
+                                "Answer Now",
+                                "mic",
+                                onAnswerNow,
+                                Modifier.fillMaxWidth(),
+                                compact = compactWidth || compactHeight,
+                                enabled = !isStartingAnswer
+                            )
 
                             Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
                         }
@@ -3389,21 +3397,21 @@ private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier
 }
 
 @Composable
-private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false) {
+private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false, enabled: Boolean = true) {
     Row(
         modifier
             .height(if (compact) 52.dp else 56.dp)
             .clip(RoundedCornerShape(if (compact) 26.dp else 28.dp))
-            .background(color)
-            .clickable(onClick = onClick)
+            .background(if (enabled) color else color.copy(alpha = 0.5f))
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = if (compact) 20.dp else 28.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = TextPrimary, fontSize = if (compact) 15.sp else 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = if (enabled) TextPrimary else TextPrimary.copy(alpha = 0.6f), fontSize = if (compact) 15.sp else 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
         Canvas(Modifier.size(if (compact) 18.dp else 20.dp)) {
-            val c = TextPrimary
+            val c = if (enabled) TextPrimary else TextPrimary.copy(alpha = 0.6f)
             val s = Stroke(width = 2.4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             when (icon) {
                 "mic" -> {

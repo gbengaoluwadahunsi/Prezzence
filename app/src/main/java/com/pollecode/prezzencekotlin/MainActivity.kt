@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
     private var suppressNativeAvatarForEntry = false
     private var readyDuixModelName: String? = null
     private var isAvatarLoading: Boolean = false
+    private var isStartingAnswer: Boolean = false
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -3556,6 +3557,7 @@ class MainActivity : ComponentActivity() {
                     postureMetric = metricsRemembered.value.posture,
                     energyMetric = metricsRemembered.value.energy,
                     isAvatarLoading = isAvatarLoading,
+                    isStartingAnswer = isStartingAnswer,
                     createAvatarView = {
                         if (suppressNativeAvatarForEntry) {
                             suppressNativeAvatarForEntry = false
@@ -3819,6 +3821,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensurePermissionsThenAnswer() {
+        if (isStartingAnswer) return  // Prevent multiple clicks
+        
         val required = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (appState.cameraCoachEnabled) required.add(Manifest.permission.CAMERA)
         val needed = required.filter {
@@ -3829,7 +3833,29 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), 100)
             return
         }
+        beginAnswer()
+    }
+
+    private fun beginAnswer() {
+        if (isStartingAnswer) return
+        isStartingAnswer = true
+        
+        // Update UI to show loading state
         showInterview(true)
+        
+        // Start speech capture and recording
+        scope.launch {
+            try {
+                startSpeechCapture()
+                isStartingAnswer = false
+                // Update UI to show recording state
+                showInterview(true)
+            } catch (e: Exception) {
+                isStartingAnswer = false
+                Log.e("PrezzenceAnswer", "Error starting recording", e)
+                showAppToast("Recording error: ${e.message}", ToastKind.WARNING)
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -3873,7 +3899,7 @@ class MainActivity : ComponentActivity() {
         if (appState.cameraCoachEnabled && !cameraGranted) {
             showAppToast("Answering without camera coach until camera access is allowed.", ToastKind.WARNING)
         }
-        showInterview(true)
+        beginAnswer()
     }
 
     private fun finishAnswer(questionText: String) {
