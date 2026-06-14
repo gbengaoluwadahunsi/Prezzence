@@ -3019,6 +3019,7 @@ fun PrezzenceInterviewRoomScreen(
     headMetric: Int = 0,
     postureMetric: Int = 0,
     energyMetric: Int = 0,
+    isAvatarLoading: Boolean = false,
     createAvatarView: () -> View,
     createCameraView: () -> View,
     onExit: () -> Unit,
@@ -3105,11 +3106,61 @@ fun PrezzenceInterviewRoomScreen(
                             }
                         } else if (answering) {
                             // Show avatar during answering when camera coach disabled
-                            AndroidView(
-                                factory = { createAvatarView() },
-                                modifier = Modifier.fillMaxSize(),
-                                update = { /* Don't recreate on recomposition */ }
-                            )
+                            if (isAvatarLoading) {
+                                // Show loading placeholder while avatar model loads
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF050509))
+                                        .clip(RoundedCornerShape(stageRadius)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        // Logo placeholder - use initials circle
+                                        Box(
+                                            Modifier
+                                                .size(80.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF1E1D30))
+                                                .border(2.dp, Accent, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "P",
+                                                fontSize = 32.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                        CircularProgressIndicator(
+                                            color = Accent,
+                                            strokeWidth = 3.dp,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Text(
+                                            "Preparing room",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            "Loading interview",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF96969A),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                AndroidView(
+                                    factory = { createAvatarView() },
+                                    modifier = Modifier.fillMaxSize(),
+                                    update = { /* Don't recreate on recomposition */ }
+                                )
+                            }
                             InterviewerChip(
                                 interviewerName,
                                 interviewerTitle,
@@ -3117,14 +3168,63 @@ fun PrezzenceInterviewRoomScreen(
                             )
                         } else {
                             // Show avatar while listening to question
-                            AndroidView(
-                                factory = { createAvatarView() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(maxHeight + avatarTopCrop)
-                                    .offset(y = -avatarTopCrop),
-                                update = { /* Don't recreate on recomposition */ }
-                            )
+                            if (isAvatarLoading) {
+                                // Show loading placeholder
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xFF050509))
+                                        .clip(RoundedCornerShape(stageRadius)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .size(80.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF1E1D30))
+                                                .border(2.dp, Accent, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "P",
+                                                fontSize = 32.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                        CircularProgressIndicator(
+                                            color = Accent,
+                                            strokeWidth = 3.dp,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Text(
+                                            "Preparing interviewer",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            "Loading avatar model",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF96969A),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                AndroidView(
+                                    factory = { createAvatarView() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(maxHeight + avatarTopCrop)
+                                        .offset(y = -avatarTopCrop),
+                                    update = { /* Don't recreate on recomposition */ }
+                                )
+                            }
                             InterviewerChip(
                                 interviewerName,
                                 interviewerTitle,

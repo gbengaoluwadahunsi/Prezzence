@@ -162,6 +162,8 @@ class MainActivity : ComponentActivity() {
     private var onboardingMicError: String? = null
     private var continueToRoomAfterMicPermission = false
     private var suppressNativeAvatarForEntry = false
+    private var readyDuixModelName: String? = null
+    private var isAvatarLoading: Boolean = false
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -3553,6 +3555,7 @@ class MainActivity : ComponentActivity() {
                     headMetric = metricsRemembered.value.head,
                     postureMetric = metricsRemembered.value.posture,
                     energyMetric = metricsRemembered.value.energy,
+                    isAvatarLoading = isAvatarLoading,
                     createAvatarView = {
                         if (suppressNativeAvatarForEntry) {
                             suppressNativeAvatarForEntry = false
@@ -4127,11 +4130,15 @@ class MainActivity : ComponentActivity() {
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
+                    readyDuixModelName = modelName
+                    isAvatarLoading = false
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
                 }
                 override fun onModelError(modelName: String, message: String?) {
+                    readyDuixModelName = modelName
+                    isAvatarLoading = false
                     showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
@@ -4139,6 +4146,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             // Model loads silently in background without showing overlay
+            isAvatarLoading = true
             setModelName(interviewer.modelName)
         }
         activeAvatar = avatar
