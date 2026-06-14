@@ -2829,6 +2829,7 @@ private fun EnteringInterviewerImage(name: String, modifier: Modifier = Modifier
     val image = when (name.lowercase()) {
         "maya" -> R.drawable.interviewer_maya
         "jonas" -> R.drawable.interviewer_jonas
+        "sophia", "amina" -> R.drawable.interviewer_sophia
         else -> R.drawable.interviewer_sophia
     }
     Image(

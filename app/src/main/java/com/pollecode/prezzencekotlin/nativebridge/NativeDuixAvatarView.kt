@@ -53,8 +53,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
     private val textureView = DUIXTextureView(context)
@@ -71,7 +71,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
     private val modelRoot = File(context.getExternalFilesDir("duix"), "model")
     private val cacheRoot = File(context.cacheDir, "duix-audio")
-    private val githubBase = "https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/"
+    private val apiBase = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
 
     init {
         setBackgroundColor(Color.rgb(12, 11, 18))
@@ -112,6 +112,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 preparingModelName = null
             } catch (error: Throwable) {
                 preparingModelName = null
+                Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)
                 hideOverlay()
                 listener?.onModelError(modelName, error.message)
             }
@@ -124,6 +125,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         scope.launch {
             try {
                 if (preparedModelName != modelName || duix == null) {
+                    Log.i("PrezzenceDuix", "Model not ready, ensuring availability for $modelName")
                     val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
                     bindDuix(modelName, dirs.first, dirs.second)
                     preparedModelName = modelName
@@ -224,7 +226,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private fun downloadAndUnzip(name: String, destination: File) {
         destination.parentFile?.mkdirs()
         val zip = File(modelRoot, "$name.zip")
-        val request = Request.Builder().url(githubBase + "$name.zip").build()
+        val request = Request.Builder().url(apiBase + "$name.zip").build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("Model download failed: ${response.code}")
             response.body?.byteStream()?.use { input ->
@@ -610,7 +612,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             File(context.getExternalFilesDir("duix"), "model").apply { mkdirs() }
 
         private fun apiBaseStatic(): String =
-            "https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/"
+            BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
 
         private fun baseConfigLooksReadyStatic(dir: File): Boolean =
             dir.exists() &&
