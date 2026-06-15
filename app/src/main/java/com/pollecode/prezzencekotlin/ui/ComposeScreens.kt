@@ -3080,14 +3080,34 @@ fun PrezzenceInterviewRoomScreen(
                                 factory = { createCameraView() },
                                 modifier = Modifier.fillMaxSize(),
                             )
+                            // Subtle gradient overlay for depth
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.Black.copy(alpha = 0.35f),
+                                                Color.Transparent,
+                                                Color.Transparent,
+                                                Color.Black.copy(alpha = 0.50f),
+                                            ),
+                                        ),
+                                    ),
+                            )
                             InterviewTopGlassLabel("Camera Presence Coach", cameraStatus)
-                            InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 10.dp))
+                            InterviewerChip(
+                                interviewerName,
+                                interviewerTitle,
+                                Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 10.dp),
+                            )
+                            // Presence metrics bar - positioned above interviewer chip
                             Row(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(start = 10.dp, end = 10.dp, bottom = 52.dp),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    .padding(start = 10.dp, end = 10.dp, bottom = 58.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
                                 PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
@@ -3404,15 +3424,34 @@ private fun RecorderBar(recordingDuration: Int = 0, isRecording: Boolean = false
 
 @Composable
 private fun InterviewerChip(name: String, title: String, modifier: Modifier = Modifier) {
+    val imageRes = when (name.lowercase()) {
+        "maya" -> R.drawable.interviewer_maya
+        "jonas" -> R.drawable.interviewer_jonas
+        "sophia", "amina" -> R.drawable.interviewer_sophia
+        else -> R.drawable.interviewer_sophia
+    }
     Row(
         modifier
             .clip(RoundedCornerShape(18.dp))
             .background(Color.Black.copy(alpha = 0.70f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(14.dp)).background(Accent.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            Text(name.take(1), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Black)
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.5.dp, Accent.copy(alpha = 0.40f), RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(imageRes),
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Spacer(Modifier.width(8.dp))
         Column {
@@ -3425,32 +3464,63 @@ private fun InterviewerChip(name: String, title: String, modifier: Modifier = Mo
 
 @Composable
 private fun InterviewTopGlassLabel(label: String, status: String) {
-    Column(
-        Modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
             .padding(10.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.Black.copy(alpha = 0.62f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.55f)),
+                ),
+            )
+            .border(0.5.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label.uppercase(), color = Color(0xFF00D68F), fontSize = 10.sp, fontWeight = FontWeight.Black)
-        Text(status, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label.uppercase(), color = Color(0xFF00D68F), fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+            Text(status, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        Box(
+            Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF00D68F).copy(alpha = 0.70f))
+                .border(2.dp, Color(0xFF00D68F).copy(alpha = 0.30f), CircleShape),
+        )
     }
 }
 
 @Composable
 private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = Modifier) {
     val display = value?.toString() ?: "--"
+    val scoreColor = when {
+        value == null -> TextSecondary
+        value >= 75 -> Color(0xFF00D68F)
+        value >= 50 -> Color(0xFFFFB347)
+        else -> Color(0xFFFF3B6B)
+    }
     Column(
         modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.White.copy(alpha = 0.06f)),
+            .height(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(label.uppercase(java.util.Locale.US), color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
-        Text(display, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(
+            label.uppercase(java.util.Locale.US),
+            color = TextSecondary,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.6.sp,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(display, color = scoreColor, fontSize = 14.sp, fontWeight = FontWeight.Black)
     }
 }
 
