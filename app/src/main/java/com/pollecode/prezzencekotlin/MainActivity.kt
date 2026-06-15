@@ -3825,6 +3825,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun playCoachingAudio(improvedAnswer: String) {
+        scope.launch {
+            try {
+                val currentInterviewer = appState.interviewerFor(appState.currentQuestion())
+                val coachingText = "A stronger answer would be: $improvedAnswer"
+                val backendSpeech = backend.synthesizeSpeechUrl(
+                    bearerToken = appState.authToken.ifBlank { null },
+                    text = coachingText,
+                    language = appState.language,
+                    personality = currentInterviewer.id,
+                )
+                if (!backendSpeech.isNullOrBlank()) {
+                    activeAvatar?.speakAudioUri(backendSpeech, "coaching")
+                } else {
+                    showAppToast("Could not generate coaching audio.", ToastKind.WARNING)
+                }
+            } catch (e: Exception) {
+                showAppToast("Error playing coaching audio: ${e.message}", ToastKind.ERROR)
+            }
+        }
+    }
+
     private suspend fun prepareCurrentQuestionSpeech(forceRefresh: Boolean = false): Boolean {
         return prepareQuestionSpeech(appState.currentQuestionIndex, forceRefresh)
     }
@@ -4031,11 +4053,66 @@ class MainActivity : ComponentActivity() {
         
         val column = baseColumn()
         column.addView(title("Answer result", 30))
+        
+        // Score card - larger and more prominent
         column.addView(scoreCard(result))
-        column.addView(card("Your answer", result.transcript.ifBlank { "No transcript captured." }))
-        column.addView(card("Stronger answer", result.improvedAnswer))
-        column.addView(coachingCard(result))
+        column.addView(spacer(12))
+        
+        // Transcript section
+        column.addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            background = rounded(panel, radius = 26, strokeColor = border)
+            layoutParams = blockParams()
+            
+            addView(label("YOUR ANSWER"))
+            addView(spacer(8))
+            addView(TextView(this@MainActivity).apply {
+                text = result.transcript.ifBlank { "No transcript captured." }
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setLineSpacing(0f, 1.4f)
+            })
+        })
+        column.addView(spacer(12))
+        
+        // Coaching/improvement section with avatar speaking
+        if (result.improvedAnswer.isNotBlank()) {
+            val improvedAnswerText = result.improvedAnswer
+            val card = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(16))
+                background = rounded(Color.rgb(24, 23, 39), radius = 26, strokeColor = border)
+                layoutParams = blockParams()
+            }
+            
+            card.addView(label("STRONGER ANSWER"))
+            card.addView(spacer(8))
+            
+            // Show improved answer text
+            card.addView(TextView(this@MainActivity).apply {
+                text = improvedAnswerText
+                textSize = 14f
+                setTextColor(Color.rgb(160, 200, 255))
+                setLineSpacing(0f, 1.4f)
+            })
+            
+            card.addView(spacer(12))
+            
+            // Button to have avatar speak the improved answer
+            card.addView(primaryButton("Listen to better answer") {
+                playCoachingAudio(improvedAnswerText)
+            })
+            
+            column.addView(card)
+            column.addView(spacer(12))
+        }
+        
+        // Presence coaching section
         column.addView(presenceSummaryCard(result))
+        column.addView(spacer(12))
+        
+        // Action buttons
         column.addView(rowOf(
             secondaryButton("Retry question") { showInterview(false) },
             primaryButton("Continue") {
@@ -4200,6 +4277,86 @@ class MainActivity : ComponentActivity() {
         addView(row)
     }
 
+    private fun getInterviewerDrawableId(name: String): Int {
+        return when (name.lowercase()) {
+            "sophia" -> R.drawable.interviewer_sophia
+            "maya" -> R.drawable.interviewer_maya
+            "jonas" -> R.drawable.interviewer_jonas
+            else -> R.drawable.interviewer_sophia
+        }
+    }
+
+    private fun staticAvatarCard(interviewer: Interviewer) = FrameLayout(this).apply {
+        background = rounded(Color.rgb(24, 23, 39))
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(330)).apply {
+            setMargins(0, dp(10), 0, dp(10))
+        }
+        
+        // Show static interviewer image
+        addView(android.widget.ImageView(this@MainActivity).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            setImageResource(getInterviewerDrawableId(interviewer.name))
+        })
+        
+        // Add overlay with interviewer info
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.BOTTOM
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(Color.argb(100, 0, 0, 0))
+            
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                setBackgroundColor(Color.argb(220, 30, 30, 40))
+                
+                addView(android.widget.ImageView(this@MainActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    setImageResource(getInterviewerDrawableId(interviewer.name))
+                })
+                
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        leftMargin = dp(12)
+                    }
+                    
+                    addView(TextView(this@MainActivity).apply {
+                        text = "ASKED BY"
+                        textSize = 10f
+                        setTextColor(Color.rgb(160, 160, 160))
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    })
+                    
+                    addView(TextView(this@MainActivity).apply {
+                        text = interviewer.name
+                        textSize = 16f
+                        setTextColor(Color.WHITE)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    })
+                    
+                    addView(TextView(this@MainActivity).apply {
+                        text = interviewer.title
+                        textSize = 11f
+                        setTextColor(Color.rgb(160, 160, 160))
+                    })
+                })
+            })
+        })
+        
+        addView(pill("LIVE", green).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                setMargins(dp(16), dp(16), 0, 0)
+            }
+        })
+    }
+
     private fun interviewerReadyCard(interviewer: Interviewer) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
@@ -4243,6 +4400,15 @@ class MainActivity : ComponentActivity() {
         val questionText = appState.currentQuestion().text
         val token = speechGenerationToken
         var speechQueued = false
+        
+        // Add static image as fallback background
+        addView(android.widget.ImageView(this@MainActivity).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            setImageResource(getInterviewerDrawableId(interviewer.name))
+            alpha = 0.3f  // Faded background
+        })
+        
         val avatar = NativeDuixAvatarView(this@MainActivity).apply avatarView@{
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             listener = object : NativeDuixAvatarView.Listener {
@@ -4275,7 +4441,7 @@ class MainActivity : ComponentActivity() {
 
     private fun cameraCoachCard(interviewer: Interviewer) = FrameLayout(this).apply {
         background = rounded(Color.BLACK)
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(310)).apply {
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(450)).apply {
             setMargins(0, dp(10), 0, dp(10))
         }
         val hasCameraPermission = ContextCompat.checkSelfPermission(
@@ -4305,6 +4471,116 @@ class MainActivity : ComponentActivity() {
             }
             activeCamera = camera
             addView(camera)
+            
+            // Add scoring overlay at bottom
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(70)).apply {
+                    gravity = Gravity.BOTTOM
+                }
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                setBackgroundColor(Color.argb(200, 30, 30, 40))
+                
+                // Face visibility
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    addView(TextView(this@MainActivity).apply {
+                        text = "FACE"
+                        textSize = 11f
+                        setTextColor(Color.rgb(200, 200, 200))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${faceVisibilityState.value ?: 0}"
+                        textSize = 20f
+                        setTextColor(green)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                    })
+                })
+                
+                // Eye contact
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    addView(TextView(this@MainActivity).apply {
+                        text = "EYES"
+                        textSize = 11f
+                        setTextColor(Color.rgb(200, 200, 200))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${eyeContactState.value ?: 0}"
+                        textSize = 20f
+                        setTextColor(green)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                    })
+                })
+                
+                // Head stability
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    addView(TextView(this@MainActivity).apply {
+                        text = "HEAD"
+                        textSize = 11f
+                        setTextColor(Color.rgb(200, 200, 200))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${headStabilityState.value ?: 0}"
+                        textSize = 20f
+                        setTextColor(green)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                    })
+                })
+                
+                // Posture
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    addView(TextView(this@MainActivity).apply {
+                        text = "POSTURE"
+                        textSize = 11f
+                        setTextColor(Color.rgb(200, 200, 200))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${postureState.value ?: 0}"
+                        textSize = 20f
+                        setTextColor(green)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                    })
+                })
+                
+                // Energy
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    addView(TextView(this@MainActivity).apply {
+                        text = "ENERGY"
+                        textSize = 11f
+                        setTextColor(Color.rgb(200, 200, 200))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${expressionEnergyState.value ?: 0}"
+                        textSize = 20f
+                        setTextColor(green)
+                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                    })
+                })
+            })
         } else {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
