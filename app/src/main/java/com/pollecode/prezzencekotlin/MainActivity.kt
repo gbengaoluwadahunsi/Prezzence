@@ -137,6 +137,8 @@ class MainActivity : ComponentActivity() {
     private val processingAnswerState = androidx.compose.runtime.mutableStateOf(false)
     private val processingStageState = androidx.compose.runtime.mutableStateOf("")
     private val processingProgressState = androidx.compose.runtime.mutableIntStateOf(0)
+    private val avatarReadyState = androidx.compose.runtime.mutableStateOf(false)
+    private val interviewerSpeakingState = androidx.compose.runtime.mutableStateOf(false)
     private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
@@ -3568,6 +3570,8 @@ class MainActivity : ComponentActivity() {
             cameraStatusState.value = "Starting camera. Position your face in frame"
             cameraErrorState.value = null
             presenceSamples.clear()
+            avatarReadyState.value = false
+            interviewerSpeakingState.value = false
         }
 
         val question = appState.currentQuestion()
@@ -3642,6 +3646,8 @@ class MainActivity : ComponentActivity() {
                     onAnswerNow = { ensurePermissionsThenAnswer() },
                     onFinish = { finishAnswer(question.text) },
                     coachingMessage = coachingMessage,
+                    avatarReady = avatarReadyState.value,
+                    interviewerSpeaking = interviewerSpeakingState.value,
                     cameraStatus = cameraStatusState.value,
                     faceVisibility = faceVisibilityState.value,
                     eyeContact = eyeContactState.value,
@@ -4690,15 +4696,23 @@ class MainActivity : ComponentActivity() {
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
+                    avatarReadyState.value = true
+                    interviewerSpeakingState.value = true
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
                 }
                 override fun onModelError(modelName: String, message: String?) {
-                    // Show static card as fallback, allow user to continue
+                    avatarReadyState.value = true
+                    interviewerSpeakingState.value = false
                     val errorMsg = message ?: "Avatar unavailable"
                     showAppToast("Avatar info: $errorMsg", ToastKind.INFO)
-                    // Don't crash - let static card show instead
+                }
+                override fun onSpeechStart(source: String?, modelName: String?) {
+                    interviewerSpeakingState.value = true
+                }
+                override fun onSpeechEnd(source: String?, modelName: String?) {
+                    interviewerSpeakingState.value = false
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)

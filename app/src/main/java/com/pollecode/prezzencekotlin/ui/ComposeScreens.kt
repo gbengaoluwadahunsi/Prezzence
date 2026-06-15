@@ -3035,6 +3035,8 @@ fun PrezzenceInterviewRoomScreen(
     onAnswerNow: () -> Unit,
     onFinish: () -> Unit,
     coachingMessage: String = "",
+    avatarReady: Boolean = false,
+    interviewerSpeaking: Boolean = false,
     cameraStatus: String = "Starting camera. Position your face in frame",
     faceVisibility: Int? = null,
     eyeContact: Int? = null,
@@ -3242,7 +3244,7 @@ fun PrezzenceInterviewRoomScreen(
                                 InterviewSmallButton("Repeat", "repeat", Modifier.weight(1f), onRepeat, compact = compactWidth)
                                 InterviewSmallButton("Clarify", "clarify", Modifier.weight(1f), onClarify, compact = compactWidth)
                             }
-                            InterviewPrimaryButton("Answer Now", "mic", onAnswerNow, Modifier.fillMaxWidth(), compact = compactWidth || compactHeight)
+                            InterviewPrimaryButton("Answer Now", "mic", onAnswerNow, Modifier.fillMaxWidth(), compact = compactWidth || compactHeight, enabled = avatarReady && !interviewerSpeaking)
 
                             Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
                         }
@@ -3508,13 +3510,14 @@ private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier
 }
 
 @Composable
-private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false) {
+private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false, enabled: Boolean = true) {
+    val alpha = if (enabled) 1f else 0.50f
     Row(
         modifier
             .height(if (compact) 52.dp else 56.dp)
             .clip(RoundedCornerShape(if (compact) 26.dp else 28.dp))
-            .background(color)
-            .clickable(onClick = onClick)
+            .background(color.copy(alpha = alpha))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = if (compact) 20.dp else 28.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
