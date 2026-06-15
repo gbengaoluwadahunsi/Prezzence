@@ -252,7 +252,8 @@ async def startup():
     print(">>> STARTING PREZZENCE API <<<")
     print(">>> REGISTERED ROUTES:")
     for route in app.routes:
-        print(f"  {getattr(route, 'path', 'N/A')} -> {route.name}")
+        route_name = getattr(route, 'name', None) or route.__class__.__name__
+        print(f"  {getattr(route, 'path', 'N/A')} -> {route_name}")
     print(">>> END REGISTERED ROUTES <<<")
     await neon_db.connect()
     tts_service.ensure_storage_ready()
