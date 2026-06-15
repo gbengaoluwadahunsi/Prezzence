@@ -1,4 +1,4 @@
-﻿package com.pollecode.prezzencekotlin.data
+package com.pollecode.prezzencekotlin.data
 
 import java.util.Locale
 
@@ -29,6 +29,15 @@ data class InterviewQuestion(
     val type: String = "behavioral",
 )
 
+data class PresenceMetrics(
+    val faceVisible: Boolean = false,
+    val faceVisibility: Int = 0,
+    val eyeContact: Int = 0,
+    val headStability: Int = 0,
+    val posture: Int = 0,
+    val expressionEnergy: Int = 0,
+)
+
 data class AnswerResult(
     val transcript: String,
     val score: Int,
@@ -39,6 +48,7 @@ data class AnswerResult(
     val why: String,
     val coachingFeedback: String = "",
     val coachingMessage: String = "",
+    val presenceMetrics: PresenceMetrics? = null,
 )
 
 data class SessionSummary(

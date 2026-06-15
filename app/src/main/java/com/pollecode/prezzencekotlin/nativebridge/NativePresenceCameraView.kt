@@ -67,6 +67,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
     private var lastCenterY: Float? = null
     private var lastFaceSize: Float? = null
     private var lastGoodMetrics: Metrics? = null
+    private var isStopped = false
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -94,16 +95,6 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
     init {
         setBackgroundColor(Color.BLACK)
         addView(previewView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.argb(72, 0, 0, 0))
-            addView(label("CAMERA PRESENCE COACH"))
-            addView(status)
-            addView(metricsRow)
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.TOP
-            }
-        })
         setMetrics(Metrics(false, 0, 0, 0, 0, 0))
         start()
     }
@@ -115,6 +106,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
         lastCenterY = null
         lastFaceSize = null
         lastGoodMetrics = null
+        isStopped = false
         status.text = "Starting camera. Position your face in frame"
         setMetrics(Metrics(false, 0, 0, 0, 0, 0))
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -165,6 +157,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
     }
 
     fun stop() {
+        isStopped = true
         runCatching { ProcessCameraProvider.getInstance(activity).get().unbindAll() }
         analyzerExecutor?.shutdownNow()
         analyzerExecutor = null
@@ -176,39 +169,59 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
 
     private fun initializeLandmarkers() {
         if (faceLandmarker != null) return
-        try {
-            status.text = "Downloading camera coach models"
-            val faceModel = ensureModel(
-                fileName = FACE_MODEL_NAME,
-                url = FACE_MODEL_URL,
-                minBytes = MIN_FACE_MODEL_BYTES,
-            )
-            val poseModel = ensureModel(
-                fileName = POSE_MODEL_NAME,
-                url = POSE_MODEL_URL,
-                minBytes = MIN_POSE_MODEL_BYTES,
-            )
-            val faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(faceModel.toDirectByteBuffer()).build())
-                .setRunningMode(RunningMode.IMAGE)
-                .setNumFaces(1)
-                .setMinFaceDetectionConfidence(0.35f)
-                .setMinFacePresenceConfidence(0.35f)
-                .setMinTrackingConfidence(0.35f)
-                .build()
-            faceLandmarker = FaceLandmarker.createFromOptions(activity, faceOptions)
-            val poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
-                .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(poseModel.toDirectByteBuffer()).build())
-                .setRunningMode(RunningMode.IMAGE)
-                .setNumPoses(1)
-                .setMinPoseDetectionConfidence(0.30f)
-                .setMinPosePresenceConfidence(0.30f)
-                .setMinTrackingConfidence(0.35f)
-                .build()
-            poseLandmarker = PoseLandmarker.createFromOptions(activity, poseOptions)
-        } catch (error: Throwable) {
-            status.text = "Camera coach is starting"
-            listener?.onError("MediaPipe unavailable: ${error.message ?: "unknown error"}")
+        status.text = "Preparing camera coach models..."
+        listener?.onStatus("Preparing camera coach models...")
+        Executors.newSingleThreadExecutor().execute {
+            try {
+                activity.runOnUiThread {
+                    status.text = "Downloading camera coach models..."
+                    listener?.onStatus("Downloading camera coach models...")
+                }
+                val faceModel = ensureModel(
+                    fileName = FACE_MODEL_NAME,
+                    url = FACE_MODEL_URL,
+                    minBytes = MIN_FACE_MODEL_BYTES,
+                )
+                val poseModel = ensureModel(
+                    fileName = POSE_MODEL_NAME,
+                    url = POSE_MODEL_URL,
+                    minBytes = MIN_POSE_MODEL_BYTES,
+                )
+                val faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(faceModel.toDirectByteBuffer()).build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumFaces(1)
+                    .setMinFaceDetectionConfidence(0.35f)
+                    .setMinFacePresenceConfidence(0.35f)
+                    .setMinTrackingConfidence(0.35f)
+                    .build()
+                val fLandmarker = FaceLandmarker.createFromOptions(activity, faceOptions)
+                val poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(poseModel.toDirectByteBuffer()).build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumPoses(1)
+                    .setMinPoseDetectionConfidence(0.30f)
+                    .setMinPosePresenceConfidence(0.30f)
+                    .setMinTrackingConfidence(0.35f)
+                    .build()
+                val pLandmarker = PoseLandmarker.createFromOptions(activity, poseOptions)
+                activity.runOnUiThread {
+                    if (isStopped) {
+                        runCatching { fLandmarker.close() }
+                        runCatching { pLandmarker.close() }
+                    } else {
+                        faceLandmarker = fLandmarker
+                        poseLandmarker = pLandmarker
+                        status.text = "Camera presence captured"
+                        listener?.onStatus("Camera ready")
+                    }
+                }
+            } catch (error: Throwable) {
+                activity.runOnUiThread {
+                    status.text = "Camera coach error: ${error.message ?: "unknown error"}"
+                    listener?.onError("MediaPipe unavailable: ${error.message ?: "unknown error"}")
+                }
+            }
         }
     }
 
@@ -250,12 +263,17 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
             image.close()
             return
         }
+        val fLandmarker = faceLandmarker
+        if (fLandmarker == null) {
+            image.close()
+            return
+        }
         lastAnalyzeAt = now
         lastFrameSeenAt = now
         try {
             val bitmap = image.toBitmapForLandmarks()
             val mpImage = BitmapImageBuilder(bitmap).build()
-            val faceResult = faceLandmarker?.detect(mpImage)
+            val faceResult = fLandmarker.detect(mpImage)
             val faceLandmarks = faceResult?.faceLandmarks()?.firstOrNull()
             if (faceLandmarks.isNullOrEmpty()) {
                 activity.runOnUiThread {

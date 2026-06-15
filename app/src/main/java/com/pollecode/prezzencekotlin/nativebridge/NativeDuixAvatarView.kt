@@ -73,7 +73,10 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
     private val modelRoot = File(context.getExternalFilesDir("duix"), "model")
     private val cacheRoot = File(context.cacheDir, "duix-audio")
+    // Try backend API first, fall back to GitHub for base config and Supabase for models
     private val apiBase = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
+    // Direct GitHub URLs as fallback
+    private val githubBase = "https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/"
 
     init {
         setBackgroundColor(Color.rgb(12, 11, 18))
@@ -103,7 +106,14 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         currentModelName = modelName
         if (preparedModelName == modelName || preparingModelName == modelName) return
         preparingModelName = modelName
-        // Models load silently in background - no overlay to avoid blank screen
+
+        // Show loading overlay for first-time download (models may take 10-30s)
+        if (!isModelCached(context, modelName)) {
+            showOverlay(0)
+        } else {
+            hideOverlay()
+        }
+
         scope.launch {
             try {
                 val dirs = withContext(Dispatchers.IO) {
@@ -112,15 +122,13 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 bindDuix(modelName, dirs.first, dirs.second)
                 preparedModelName = modelName
                 preparingModelName = null
-                listener?.onModelReady(modelName)
-                // Show toast to confirm model is ready
-                android.widget.Toast.makeText(context, "Avatar model ready: $modelName", android.widget.Toast.LENGTH_SHORT).show()
+                // NOTE: onModelReady fires from CALLBACK_EVENT_INIT_READY inside bindDuix(),
+                // not here — the render thread finishes asynchronously.
             } catch (error: Throwable) {
                 preparingModelName = null
+                hideOverlay()
                 Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)
                 listener?.onModelError(modelName, error.message)
-                // Show toast for errors
-                android.widget.Toast.makeText(context, "Avatar error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -222,7 +230,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     }
 
     private fun ensureModelAvailable(modelName: String): Pair<File, File> {
-        return ensureModelFilesAvailable(context, modelName, client)
+        return ensureModelFilesAvailable(context, modelName, client) { progress ->
+            mainHandler.post { showOverlay(progress) }
+        }
     }
 
     private fun baseConfigLooksReady(dir: File): Boolean =
@@ -486,9 +496,16 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     }
 
     private fun padForDuix(pcmData: ByteArray): ByteArray {
+        // Add 200ms of silence at the START so the DUIX render thread has time
+        // to spin up before real audio arrives — fixes choppy first sentence.
+        val leadInBytes = (duixSampleRate * 2 * 0.20).toInt() // 200ms @ 16kHz mono 16-bit = 6400 bytes
+        val leadIn = ByteArray(leadInBytes)
+        val withLeadIn = leadIn + pcmData
+
+        // Ensure minimum total length (1 second) for DUIX compatibility
         val minBytes = duixSampleRate * 2
-        if (pcmData.size >= minBytes) return pcmData
-        return pcmData + ByteArray(minBytes - pcmData.size)
+        if (withLeadIn.size >= minBytes) return withLeadIn
+        return withLeadIn + ByteArray(minBytes - withLeadIn.size)
     }
 
     private fun writeShortLe(out: ByteArrayOutputStream, value: Short) {
@@ -532,16 +549,19 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         else -> "S"
     }
 
-    private fun showOverlay(text: String) {
+    private fun showOverlay(progress: Int) {
         mainHandler.post {
             val existing = findViewWithTag<LinearLayout>("duixOverlay")
+            val messageText = "Since it's your first time using the app, let's take a while to set up the avatar once and for all."
+            val progressText = "$progress%"
+
             if (existing == null) {
                 val accent = Color.rgb(108, 99, 255)
                 addView(LinearLayout(context).apply {
                     tag = "duixOverlay"
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding(dp(24), dp(24), dp(24), dp(24))
+                    setPadding(dp(32), dp(32), dp(32), dp(32))
                     setBackgroundColor(Color.rgb(8, 8, 14))
                     layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
                     addView(TextView(context).apply {
@@ -556,29 +576,31 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                             setStroke(dp(2), accent)
                         }
                         layoutParams = LinearLayout.LayoutParams(dp(92), dp(92)).apply {
-                            bottomMargin = dp(16)
+                            bottomMargin = dp(24)
                         }
                     })
                     addView(TextView(context).apply {
-                        this.text = text.ifBlank { "Preparing avatar" }
+                        this.text = progressText
                         gravity = Gravity.CENTER
-                        textSize = 15f
+                        textSize = 36f
                         setTextColor(Color.WHITE)
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
                     })
                     addView(TextView(context).apply {
-                        this.text = "Loading interviewer model"
+                        this.text = messageText
                         gravity = Gravity.CENTER
-                        textSize = 12f
+                        textSize = 14f
                         setTextColor(Color.rgb(150, 150, 168))
-                        layoutParams = LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                            topMargin = dp(6)
+                        setLineSpacing(dp(4).toFloat(), 1f)
+                        layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(16)
                         }
                     })
                 })
             } else {
                 (existing.getChildAt(0) as? TextView)?.text = displayInitialForModel()
-                (existing.getChildAt(1) as? TextView)?.text = text.ifBlank { "Preparing avatar" }
+                (existing.getChildAt(1) as? TextView)?.text = progressText
+                (existing.getChildAt(2) as? TextView)?.text = messageText
             }
         }
     }
@@ -603,22 +625,44 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             // Models are bundled in APK or already cached - no download needed
             Log.i("PrezzenceDuix", "Models loaded from APK/cache")
         }
+        
+        fun clearModelCache(context: Context) {
+            val root = modelRootFor(context)
+            Log.i("PrezzenceDuix", "Clearing model cache at: ${root.absolutePath}")
+            root.deleteRecursively()
+            root.mkdirs()
+            Log.i("PrezzenceDuix", "Model cache cleared successfully")
+        }
 
         private fun ensureModelFilesAvailable(
             context: Context,
             modelName: String,
             client: OkHttpClient,
+            onProgress: ((Int) -> Unit)? = null
         ): Pair<File, File> {
             val normalized = normalizeModelNameStatic(modelName)
             val root = modelRootFor(context)
             val baseDir = File(root, BASE_MODEL_NAME)
             val modelDir = File(root, normalized)
-            if (!baseConfigLooksReadyStatic(baseDir)) {
-                downloadAndUnzipStatic(client, root, BASE_MODEL_NAME, baseDir)
+            
+            // If base model needs download, we'll allocate 0-60% of progress to it
+            // If avatar needs download, we'll allocate 60-100% of progress to it
+            val needsBase = !baseConfigLooksReadyStatic(baseDir)
+            val needsAvatar = !avatarModelLooksReadyStatic(modelDir)
+            
+            if (needsBase) {
+                downloadAndUnzipStatic(client, root, BASE_MODEL_NAME, baseDir) { p ->
+                    if (needsAvatar) onProgress?.invoke((p * 0.6).toInt())
+                    else onProgress?.invoke(p)
+                }
             }
-            if (!avatarModelLooksReadyStatic(modelDir)) {
-                downloadAndUnzipStatic(client, root, normalized, modelDir)
+            if (needsAvatar) {
+                downloadAndUnzipStatic(client, root, normalized, modelDir) { p ->
+                    if (needsBase) onProgress?.invoke(60 + (p * 0.4).toInt())
+                    else onProgress?.invoke(p)
+                }
             }
+            
             File(root, "tmp/$BASE_MODEL_NAME").mkdirs()
             File(root, "tmp/$normalized").mkdirs()
             return baseDir to modelDir
@@ -644,81 +688,190 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 (File(dir, "weight_168u.bin").isFile || File(dir, "weight_168u.b").isFile) &&
                 File(dir, "raw_jpgs").isDirectory
 
-        private fun downloadAndUnzipStatic(client: OkHttpClient, root: File, name: String, destination: File) {
+        private fun downloadAndUnzipStatic(
+            client: OkHttpClient, 
+            root: File, 
+            name: String, 
+            destination: File,
+            onProgress: ((Int) -> Unit)? = null
+        ) {
             destination.parentFile?.mkdirs()
             val zip = File(root, "$name.zip")
             
-            // Download with validation and retry
-            val maxRetries = 3
-            var lastError: Exception? = null
+            // Build list of URLs to try - START WITH DIRECT URLs FOR IMMEDIATE FIX
+            val urlsToTry = mutableListOf<String>()
             
-            for (attempt in 1..maxRetries) {
-                try {
-                    Log.i("PrezzenceDuix", "Downloading model $name (attempt $attempt/$maxRetries) from ${apiBaseStatic()}$name.zip")
-                    val request = Request.Builder()
-                        .url(apiBaseStatic() + "$name.zip")
-                        .header("User-Agent", "Prezzence-Android/${BuildConfig.PREZZENCE_VERSION_NAME}")
-                        .build()
-                    
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            Log.e("PrezzenceDuix", "Model download failed: HTTP ${response.code} for $name")
-                            throw IllegalStateException("Model download failed: ${response.code}")
+            // 1. Direct GitHub for base config (MOST RELIABLE)
+            if (name == BASE_MODEL_NAME) {
+                urlsToTry.add("https://github.com/duixcom/Duix-Mobile/releases/download/v1.0.0/gj_dh_res.zip")
+            }
+            
+            // 2. Direct Supabase for models
+            if (name != BASE_MODEL_NAME) {
+                val baseUrl = BuildConfig.DEBUG_DUIX_MODEL_BASE_URL.takeIf { it.isNotEmpty() && !it.contains("your-project") }
+                    ?: "https://djwtmlvorvuhgaksqirc.supabase.co/storage/v1/object/public/duix-models"
+                urlsToTry.add("$baseUrl/$name.zip")
+            }
+            
+            // 3. Backend API as fallback (with redirect following)
+            urlsToTry.add(apiBaseStatic() + "$name.zip")
+            
+            var lastError: Exception? = null
+            var downloadSuccessful = false
+            
+            Log.i("PrezzenceDuix", "Will try ${urlsToTry.size} URL(s) for model $name")
+            urlsToTry.forEachIndexed { idx, url -> Log.i("PrezzenceDuix", "  URL ${idx + 1}: $url") }
+            
+            // Try each URL with retries
+            for (urlIndex in urlsToTry.indices) {
+                if (downloadSuccessful) break
+                
+                val url = urlsToTry[urlIndex]
+                val maxRetries = 2
+                
+                for (attempt in 1..maxRetries) {
+                    try {
+                        Log.i("PrezzenceDuix", ">>> Downloading model $name (URL ${urlIndex + 1}/${urlsToTry.size}, attempt $attempt/$maxRetries)")
+                        Log.i("PrezzenceDuix", ">>> From: $url")
+                        
+                        val request = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Prezzence-Android/${BuildConfig.PREZZENCE_VERSION_NAME}")
+                            .build()
+                        
+                        // Create client that follows redirects
+                        val downloadClient = client.newBuilder()
+                            .followRedirects(true)
+                            .followSslRedirects(true)
+                            .build()
+                        
+                        downloadClient.newCall(request).execute().use { response ->
+                            Log.i("PrezzenceDuix", ">>> HTTP Response: ${response.code} ${response.message}")
+                            
+                            if (!response.isSuccessful) {
+                                Log.e("PrezzenceDuix", ">>> FAILED: HTTP ${response.code} from URL $url")
+                                lastError = IllegalStateException("HTTP ${response.code}")
+                                if (response.code == 404) {
+                                    Log.w("PrezzenceDuix", ">>> 404 Not Found - skipping to next URL")
+                                    return@use  // Don't retry 404s
+                                }
+                                throw lastError!!
+                            }
+                            
+                            val contentLength = response.header("content-length")?.toLongOrNull() ?: -1L
+                            val contentType = response.header("content-type") ?: "unknown"
+                            Log.i("PrezzenceDuix", ">>> Downloading: $contentLength bytes, type: $contentType")
+                            
+                            val body = response.body ?: throw IllegalStateException("Empty response body")
+                            
+                            // Use buffered stream for reliability
+                            zip.delete()
+                            var bytesWritten = 0L
+                            
+                            // Initialize progress tracking
+                            var lastReportedProgress = 0
+                            
+                            FileOutputStream(zip).use { output ->
+                                body.byteStream().buffered(8192).use { input ->
+                                    val buffer = ByteArray(8192)
+                                    var count: Int
+                                    while (input.read(buffer).also { count = it } != -1) {
+                                        output.write(buffer, 0, count)
+                                        bytesWritten += count
+                                        
+                                        if (contentLength > 0 && onProgress != null) {
+                                            val progress = ((bytesWritten.toDouble() / contentLength) * 100).toInt().coerceIn(0, 100)
+                                            // Only report on 1% increments to avoid spamming UI thread too much
+                                            if (progress > lastReportedProgress) {
+                                                lastReportedProgress = progress
+                                                onProgress(progress)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Log.i("PrezzenceDuix", ">>> Wrote $bytesWritten bytes to disk")
                         }
                         
-                        val contentLength = response.header("content-length")?.toLongOrNull() ?: 0L
-                        Log.i("PrezzenceDuix", "Downloading $name: $contentLength bytes")
+                        // Validate downloaded file
+                        val downloadedSize = zip.length()
+                        Log.i("PrezzenceDuix", ">>> Final file size: $downloadedSize bytes")
                         
-                        response.body?.byteStream()?.use { input ->
-                            FileOutputStream(zip).use { output -> input.copyTo(output) }
-                        } ?: throw IllegalStateException("Model download returned empty body")
-                    }
-                    
-                    // Validate downloaded file
-                    if (!zip.exists() || zip.length() < 1000) {
-                        Log.w("PrezzenceDuix", "Model download incomplete for $name: ${zip.length()} bytes, retrying...")
-                        zip.delete()
-                        lastError = IllegalStateException("Model download incomplete: ${zip.length()} bytes")
-                        if (attempt < maxRetries) continue
-                        throw lastError
-                    }
-                    
-                    Log.i("PrezzenceDuix", "Model $name downloaded successfully: ${zip.length()} bytes")
-                    break  // Success
-                    
-                } catch (e: Exception) {
-                    lastError = e
-                    Log.e("PrezzenceDuix", "Download attempt $attempt/$maxRetries failed for $name: ${e.message}", e)
-                    if (attempt < maxRetries) {
-                        Log.i("PrezzenceDuix", "Waiting 2 seconds before retry...")
-                        Thread.sleep(2000)
+                        if (downloadedSize < 1000) {
+                            Log.e("PrezzenceDuix", ">>> FAILED: File too small: $downloadedSize bytes")
+                            zip.delete()
+                            lastError = IllegalStateException("File too small: $downloadedSize bytes")
+                            continue
+                        }
+                        
+                        // Verify it's actually a valid ZIP
+                        var isValidZip = false
+                        try {
+                            RandomAccessFile(zip, "r").use { raf ->
+                                val header = ByteArray(4)
+                                raf.readFully(header)
+                                val signature = (header[0].toInt() and 0xFF) or
+                                    ((header[1].toInt() and 0xFF) shl 8) or
+                                    ((header[2].toInt() and 0xFF) shl 16) or
+                                    ((header[3].toInt() and 0xFF) shl 24)
+                                isValidZip = signature == 0x04034b50  // ZIP local file header signature
+                                Log.i("PrezzenceDuix", ">>> ZIP signature: 0x${signature.toString(16)} (valid: $isValidZip)")
+                                if (!isValidZip) {
+                                    Log.e("PrezzenceDuix", ">>> FAILED: Invalid ZIP signature")
+                                    zip.delete()
+                                    lastError = IllegalStateException("Invalid ZIP file")
+                                    throw lastError!!
+                                }
+                            }
+                        } catch (e: Exception) {
+                            if (!isValidZip) {
+                                Log.e("PrezzenceDuix", ">>> ZIP validation failed: ${e.message}")
+                                throw e
+                            }
+                            Log.w("PrezzenceDuix", ">>> Could not fully verify ZIP (but continuing): ${e.message}")
+                        }
+                        
+                        Log.i("PrezzenceDuix", ">>> SUCCESS: Model $name downloaded: $downloadedSize bytes")
+                        lastError = null
+                        downloadSuccessful = true
+                        break  // Success - exit retry loop
+                        
+                    } catch (e: Exception) {
+                        lastError = e
+                        Log.e("PrezzenceDuix", ">>> Download attempt $attempt/$maxRetries FAILED: ${e.javaClass.simpleName}: ${e.message}")
+                        if (attempt < maxRetries) {
+                            val backoffMs = 1000L * attempt * 2  // Exponential backoff: 2s, 4s
+                            Log.i("PrezzenceDuix", ">>> Waiting ${backoffMs}ms before retry...")
+                            Thread.sleep(backoffMs)
+                        }
                     }
                 }
             }
             
-            if (zip.length() < 1000) {
+            // If no URL succeeded, throw error
+            if (lastError != null || !zip.exists() || zip.length() < 1000) {
                 zip.delete()
-                Log.e("PrezzenceDuix", "Model download failed after $maxRetries attempts for $name")
-                throw lastError ?: IllegalStateException("Model download failed: max retries exceeded")
+                Log.e("PrezzenceDuix", ">>> FINAL FAILURE: All ${urlsToTry.size} URLs failed for $name")
+                throw lastError ?: IllegalStateException("Model download failed: no valid file obtained")
             }
             
             // Clear destination before unzip
+            Log.i("PrezzenceDuix", ">>> Preparing to unzip to ${destination.absolutePath}")
             destination.deleteRecursively()
             destination.mkdirs()
             
             // Unzip with error handling
             try {
-                Log.i("PrezzenceDuix", "Unzipping model $name to ${destination.absolutePath}")
+                Log.i("PrezzenceDuix", ">>> Calling ZipUtil.unzip...")
                 val ok = ZipUtil.unzip(zip.absolutePath, root.absolutePath, null)
+                Log.i("PrezzenceDuix", ">>> ZipUtil.unzip returned: $ok")
                 if (!ok) {
-                    Log.e("PrezzenceDuix", "ZipUtil.unzip returned false for $name")
                     throw IllegalStateException("ZipUtil.unzip returned false")
                 }
-                Log.i("PrezzenceDuix", "Model $name unzipped successfully")
             } catch (e: Exception) {
                 zip.delete()
                 destination.deleteRecursively()
-                Log.e("PrezzenceDuix", "Model unzip failed for $name: ${e.message}", e)
+                Log.e("PrezzenceDuix", ">>> Unzip FAILED: ${e.message}", e)
                 throw IllegalStateException("Model unzip failed: ${e.message}", e)
             }
             
@@ -726,7 +879,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             File(root, "tmp/$name").mkdirs()
             zip.delete()
             
-            // Validate unzipped content - if validation fails, log but don't fail
+            // Validate unzipped content
             val isBase = name == BASE_MODEL_NAME
             val isValid = if (isBase) {
                 baseConfigLooksReadyStatic(destination)
@@ -746,11 +899,12 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 }
                 val subdirStr = subdirFiles.joinToString("; ")
                 
-                Log.w("PrezzenceDuix", "Model validation WARNING for $name. Root files: [$filesStr]. Subdirs: [$subdirStr]")
-                Log.w("PrezzenceDuix", "Attempting to use incomplete model anyway - DUIX SDK may fail or provide degraded experience")
-                // Don't throw - let DUIX try to work with what we have
+                Log.w("PrezzenceDuix", ">>> Model validation WARNING for $name")
+                Log.w("PrezzenceDuix", ">>> Root files: [$filesStr]")
+                Log.w("PrezzenceDuix", ">>> Subdirs: [$subdirStr]")
+                Log.w("PrezzenceDuix", ">>> Attempting to use incomplete model anyway")
             } else {
-                Log.i("PrezzenceDuix", "Model $name validated successfully")
+                Log.i("PrezzenceDuix", ">>> Model $name validated successfully!")
             }
         }
 

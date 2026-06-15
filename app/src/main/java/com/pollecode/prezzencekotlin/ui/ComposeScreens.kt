@@ -3023,6 +3023,12 @@ fun PrezzenceInterviewRoomScreen(
     onAnswerNow: () -> Unit,
     onFinish: () -> Unit,
     coachingMessage: String = "",
+    cameraStatus: String = "Starting camera. Position your face in frame",
+    faceVisibility: Int? = null,
+    eyeContact: Int? = null,
+    headStability: Int? = null,
+    posture: Int? = null,
+    expressionEnergy: Int? = null,
 ) {
     PrezzenceTheme {
         BoxWithConstraints(Modifier.fillMaxSize().background(Bg)) {
@@ -3074,7 +3080,7 @@ fun PrezzenceInterviewRoomScreen(
                                 factory = { createCameraView() },
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            InterviewTopGlassLabel("Camera Presence Coach", "Starting camera. Position your face in frame")
+                            InterviewTopGlassLabel("Camera Presence Coach", cameraStatus)
                             InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 66.dp))
                             Row(
                                 modifier = Modifier
@@ -3083,9 +3089,11 @@ fun PrezzenceInterviewRoomScreen(
                                     .padding(10.dp),
                                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                             ) {
-                                listOf("Face", "Eyes", "Head", "Posture", "Energy").forEach { label ->
-                                    PresenceMetricPill(label, "--", Modifier.weight(1f))
-                                }
+                                PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
+                                PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
+                                PresenceMetricPill("Head", headStability, Modifier.weight(1f))
+                                PresenceMetricPill("Posture", posture, Modifier.weight(1f))
+                                PresenceMetricPill("Energy", expressionEnergy, Modifier.weight(1f))
                             }
                         } else {
                             // Show avatar (whether answering or listening)
@@ -3431,7 +3439,8 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
 }
 
 @Composable
-private fun PresenceMetricPill(label: String, value: String, modifier: Modifier = Modifier) {
+private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = Modifier) {
+    val display = value?.toString() ?: "--"
     Column(
         modifier
             .height(38.dp)
@@ -3440,8 +3449,8 @@ private fun PresenceMetricPill(label: String, value: String, modifier: Modifier 
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(label, color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
-        Text(value, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(label.uppercase(java.util.Locale.US), color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
+        Text(display, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black)
     }
 }
 

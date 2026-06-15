@@ -22,6 +22,7 @@ def prezzenceEnableWhisperCpp = envOrProp('PREZZENCE_ENABLE_WHISPER_CPP', 'false
 def whisperModelName = envOrProp('PREZZENCE_WHISPER_MODEL_NAME', 'ggml-base.bin')
 def whisperModelUrl = envOrProp('PREZZENCE_WHISPER_MODEL_URL', 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin')
 def prezzenceSubscriptionProductId = envOrProp('PREZZENCE_SUBSCRIPTION_PRODUCT_ID', 'prezzence_pro')
+def duixModelBaseUrl = envOrProp('DUIX_MODEL_BASE_URL', '')
 def releaseStorePath = releaseStoreFile ? file(releaseStoreFile) : null
 
 def escapeBuildConfig = { String value ->
@@ -46,6 +47,7 @@ android {
         buildConfigField 'String', 'PREZZENCE_WHISPER_MODEL_URL', "\"${escapeBuildConfig(whisperModelUrl)}\""
         buildConfigField 'String', 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID', '"' + escapeBuildConfig(prezzenceSubscriptionProductId) + '"'
         buildConfigField 'String', 'PREZZENCE_VERSION_NAME', "\"${prezzenceVersionName}\""
+        buildConfigField 'String', 'DEBUG_DUIX_MODEL_BASE_URL', "\"${escapeBuildConfig(duixModelBaseUrl)}\""
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }

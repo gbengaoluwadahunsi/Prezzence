@@ -1,4 +1,4 @@
-﻿package com.pollecode.prezzencekotlin
+package com.pollecode.prezzencekotlin
 
 import android.Manifest
 import android.content.Intent
@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import com.pollecode.prezzencekotlin.billing.BillingUiState
 import com.pollecode.prezzencekotlin.billing.PrezzenceBillingManager
 import com.pollecode.prezzencekotlin.data.AnswerResult
+import com.pollecode.prezzencekotlin.data.PresenceMetrics
 import com.pollecode.prezzencekotlin.data.AppState
 import com.pollecode.prezzencekotlin.data.InterviewMode
 import com.pollecode.prezzencekotlin.data.Interviewer
@@ -122,8 +123,17 @@ class MainActivity : ComponentActivity() {
     private var activeTranscript: String = ""
     private var speechError: String = ""
     private var recordingStartTime: Long = 0L
-    private var recordingDuration: Int = 0
+    private val recordingDurationState = androidx.compose.runtime.mutableIntStateOf(0)
     private var recordingTimer: android.os.CountDownTimer? = null
+    private val faceVisibilityState = androidx.compose.runtime.mutableStateOf<Int?>(null)
+    private val eyeContactState = androidx.compose.runtime.mutableStateOf<Int?>(null)
+    private val headStabilityState = androidx.compose.runtime.mutableStateOf<Int?>(null)
+    private val postureState = androidx.compose.runtime.mutableStateOf<Int?>(null)
+    private val expressionEnergyState = androidx.compose.runtime.mutableStateOf<Int?>(null)
+    private val faceVisibleState = androidx.compose.runtime.mutableStateOf(false)
+    private val cameraStatusState = androidx.compose.runtime.mutableStateOf("Starting camera. Position your face in frame")
+    private val cameraErrorState = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -2675,6 +2685,33 @@ class MainActivity : ComponentActivity() {
             primaryButton(if (running) "Running" else "Run checks") { if (!running) runDeviceQa() }
         ))
         column.addView(spacer(8))
+        
+        // Add model cache management section
+        column.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            background = rounded(panel, radius = 26, strokeColor = border)
+            layoutParams = blockParams()
+            addView(TextView(this@MainActivity).apply {
+                text = "Avatar Model Cache"; textSize = 18f; setTextColor(Color.WHITE)
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            })
+            addView(spacer(8))
+            addView(TextView(this@MainActivity).apply {
+                text = "If avatar models fail to load or show corrupted, clear cache to force fresh download."; textSize = 13f; setTextColor(muted)
+            })
+            addView(spacer(12))
+            addView(secondaryButton("Clear Avatar Model Cache") {
+                try {
+                    NativeDuixAvatarView.clearModelCache(this@MainActivity)
+                    showAppToast("Model cache cleared. Models will re-download on next interview.", ToastKind.green)
+                } catch (e: Exception) {
+                    showAppToast("Failed to clear cache: ${e.message}", ToastKind.ERROR)
+                }
+            })
+        })
+        column.addView(spacer(8))
+        
         if (results.isEmpty()) {
             column.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -3509,26 +3546,35 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showInterview(answering: Boolean) {
+        coachingMessage = ""
+        faceVisibilityState.value = null
+        eyeContactState.value = null
+        headStabilityState.value = null
+        postureState.value = null
+        expressionEnergyState.value = null
+        faceVisibleState.value = false
+        cameraStatusState.value = "Starting camera. Position your face in frame"
+        cameraErrorState.value = null
+        presenceSamples.clear()
+
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
         
         // Start recording timer if answering
         if (answering) {
             recordingStartTime = System.currentTimeMillis()
-            recordingDuration = 0
+            recordingDurationState.intValue = 0
             recordingTimer?.cancel()
-            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
+            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 1000) {
                 override fun onTick(millisUntilFinished: Long) {
-                    recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                    // Refresh screen to update timer display
-                    showInterview(answering = true)
+                    recordingDurationState.intValue = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
                 }
                 override fun onFinish() {}
             }.start()
         } else {
             recordingTimer?.cancel()
             recordingTimer = null
-            recordingDuration = 0
+            recordingDurationState.intValue = 0
         }
         
         setScreen(ComposeView(this).apply {
@@ -3550,7 +3596,7 @@ class MainActivity : ComponentActivity() {
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
-                    recordingDuration = recordingDuration,
+                    recordingDuration = recordingDurationState.intValue,
                     isRecording = answering && activeTranscriber != null,
                     createAvatarView = {
                         Log.i("PrezzenceAvatar", "createAvatarView called, suppressNativeAvatarForEntry=$suppressNativeAvatarForEntry")
@@ -3580,6 +3626,12 @@ class MainActivity : ComponentActivity() {
                     onAnswerNow = { ensurePermissionsThenAnswer() },
                     onFinish = { finishAnswer(question.text) },
                     coachingMessage = coachingMessage,
+                    cameraStatus = cameraStatusState.value,
+                    faceVisibility = faceVisibilityState.value,
+                    eyeContact = eyeContactState.value,
+                    headStability = headStabilityState.value,
+                    posture = postureState.value,
+                    expressionEnergy = expressionEnergyState.value,
                 )
             }
         })
@@ -3921,9 +3973,14 @@ class MainActivity : ComponentActivity() {
                 showProcessingTimeout()
                 return@launch
             }
-            appState.markAnswered(result.score, result.transcript)
-            currentAnswerResult = result
-            sessionAnswers.add(result)
+            
+            // Summarize presence samples and attach to result
+            val finalPresence = summarizePresenceSamples(presenceSamples)
+            val finalResult = result.copy(presenceMetrics = finalPresence)
+            
+            appState.markAnswered(finalResult.score, finalResult.transcript)
+            currentAnswerResult = finalResult
+            sessionAnswers.add(finalResult)
             activeTranscript = ""
             speechError = ""
             showResult()
@@ -3978,6 +4035,7 @@ class MainActivity : ComponentActivity() {
         column.addView(card("Your answer", result.transcript.ifBlank { "No transcript captured." }))
         column.addView(card("Stronger answer", result.improvedAnswer))
         column.addView(coachingCard(result))
+        column.addView(presenceSummaryCard(result))
         column.addView(rowOf(
             secondaryButton("Retry question") { showInterview(false) },
             primaryButton("Continue") {
@@ -4004,6 +4062,85 @@ class MainActivity : ComponentActivity() {
             }
         ))
         setScreen(scroll(column))
+    }
+
+    private fun summarizePresenceSamples(samples: List<NativePresenceCameraView.Metrics>): PresenceMetrics? {
+        val usable = samples.filter { it.faceVisible }
+        if (usable.isEmpty()) return null
+        val faceVisibilityAvg = usable.map { it.faceVisibility }.average().toInt()
+        val eyeContactAvg = usable.map { it.eyeContact }.average().toInt()
+        val headStabilityAvg = usable.map { it.headStability }.average().toInt()
+        val postureAvg = usable.map { it.posture }.average().toInt()
+        val expressionEnergyAvg = usable.map { it.expressionEnergy }.average().toInt()
+        return PresenceMetrics(
+            faceVisible = true,
+            faceVisibility = faceVisibilityAvg,
+            eyeContact = eyeContactAvg,
+            headStability = headStabilityAvg,
+            posture = postureAvg,
+            expressionEnergy = expressionEnergyAvg,
+        )
+    }
+
+    private fun presenceSummaryCard(result: AnswerResult) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(20), dp(20), dp(20))
+        background = rounded(panel)
+        layoutParams = blockParams()
+        
+        addView(label("CAMERA PRESENCE"))
+        val pm = result.presenceMetrics
+        if (pm == null || pm.faceVisibility == 0) {
+            addView(TextView(this@MainActivity).apply {
+                text = "Not enough camera signal was captured for this answer. Keep your face in frame after tapping Answer Now."
+                textSize = 13f
+                setTextColor(Color.parseColor("#FF4757"))
+                setPadding(0, dp(8), 0, 0)
+            })
+        } else {
+            val grid = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(12), 0, dp(12))
+                weightSum = 5f
+            }
+            grid.addView(metricPill("Face", pm.faceVisibility))
+            grid.addView(metricPill("Eyes", pm.eyeContact))
+            grid.addView(metricPill("Head", pm.headStability))
+            grid.addView(metricPill("Posture", pm.posture))
+            grid.addView(metricPill("Energy", pm.expressionEnergy))
+            addView(grid)
+            
+            addView(TextView(this@MainActivity).apply {
+                text = "Reviewed during your response on this device."
+                textSize = 11f
+                setTextColor(muted)
+            })
+        }
+    }
+    
+    private fun metricPill(label: String, value: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(6), dp(8), dp(6), dp(8))
+        background = rounded(surface)
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(dp(3), 0, dp(3), 0)
+        }
+        
+        addView(TextView(this@MainActivity).apply {
+            text = label.uppercase(Locale.US)
+            textSize = 9f
+            setTextColor(muted)
+            gravity = Gravity.CENTER
+        })
+        addView(TextView(this@MainActivity).apply {
+            text = if (value > 0) value.toString() else "--"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(2), 0, 0)
+        })
     }
 
     private fun readinessCard(): View {
@@ -4148,6 +4285,23 @@ class MainActivity : ComponentActivity() {
         if (hasCameraPermission) {
             val camera = NativePresenceCameraView(this@MainActivity).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                listener = object : NativePresenceCameraView.Listener {
+                    override fun onMetrics(metrics: NativePresenceCameraView.Metrics) {
+                        faceVisibilityState.value = metrics.faceVisibility
+                        eyeContactState.value = metrics.eyeContact
+                        headStabilityState.value = metrics.headStability
+                        postureState.value = metrics.posture
+                        expressionEnergyState.value = metrics.expressionEnergy
+                        faceVisibleState.value = metrics.faceVisible
+                        presenceSamples.add(metrics)
+                    }
+                    override fun onStatus(message: String) {
+                        cameraStatusState.value = message
+                    }
+                    override fun onError(message: String) {
+                        cameraErrorState.value = message
+                    }
+                }
             }
             activeCamera = camera
             addView(camera)
@@ -4165,17 +4319,6 @@ class MainActivity : ComponentActivity() {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             })
         }
-        addView(TextView(this@MainActivity).apply {
-            text = "ASKED BY\n${interviewer.name}"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.BOTTOM or Gravity.START
-                setMargins(dp(14), 0, 0, dp(48))
-            }
-        })
     }
 
     private fun transcriptPreview() = LinearLayout(this).apply {
