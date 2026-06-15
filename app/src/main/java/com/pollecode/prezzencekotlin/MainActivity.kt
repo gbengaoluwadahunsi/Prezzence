@@ -158,6 +158,13 @@ class MainActivity : ComponentActivity() {
     private var onboardingMicError: String? = null
     private var continueToRoomAfterMicPermission = false
     private var suppressNativeAvatarForEntry = false
+    
+    // Inter font typefaces for consistent cross-device typography
+    private val interRegular: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_regular)!! }
+    private val interMedium: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_medium)!! }
+    private val interSemiBold: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_semibold)!! }
+    private val interBold: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_bold)!! }
+    private val interBlack: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_black)!! }
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -443,7 +450,7 @@ class MainActivity : ComponentActivity() {
             textSize = 27f
             setTextColor(Color.WHITE)
             includeFontPadding = false
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
         })
     }
 
@@ -452,7 +459,7 @@ class MainActivity : ComponentActivity() {
         textSize = 16f
         letterSpacing = 0.24f
         setTextColor(accent)
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = interMedium
         includeFontPadding = false
         setPadding(0, 0, 0, dp(34))
     }
@@ -462,7 +469,7 @@ class MainActivity : ComponentActivity() {
         textSize = 70f
         setLineSpacing((-4).toFloat(), 0.92f)
         includeFontPadding = false
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         setTextColor(Color.rgb(244, 244, 255))
         setPadding(0, 0, 0, if (gradient) dp(40) else dp(22))
         if (gradient) {
@@ -492,7 +499,7 @@ class MainActivity : ComponentActivity() {
         textSize = 22f
         includeFontPadding = false
         setTextColor(Color.WHITE)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         background = rounded(accent, radius = 40, strokeColor = Color.TRANSPARENT)
         minHeight = dp(92)
         elevation = dp(12).toFloat()
@@ -508,7 +515,7 @@ class MainActivity : ComponentActivity() {
         textSize = 18f
         includeFontPadding = false
         setTextColor(Color.rgb(158, 154, 170))
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = interMedium
         setPadding(0, dp(2), 0, dp(24))
         setOnClickListener { action() }
     }
@@ -567,7 +574,7 @@ class MainActivity : ComponentActivity() {
                     text = "Signing you in"
                     textSize = 16f
                     setTextColor(Color.WHITE)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                     gravity = Gravity.CENTER
                 })
             })
@@ -1022,7 +1029,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             textSize = 13f
             setTextColor(accent)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             background = rounded(Color.argb(36, 108, 99, 255), radius = 22, strokeColor = borderLight)
             layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
             setOnClickListener { showDeviceQa() }
@@ -1055,7 +1062,7 @@ class MainActivity : ComponentActivity() {
                 textSize = 34f
                 setTextColor(accent)
                 includeFontPadding = false
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
             })
         }
         addView(row)
@@ -1091,7 +1098,7 @@ class MainActivity : ComponentActivity() {
         textSize = 14f
         setTextColor(accent)
         includeFontPadding = false
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         background = rounded(Color.TRANSPARENT, radius = 16, strokeColor = accent)
         layoutParams = LinearLayout.LayoutParams(0, dp(64), 1f).apply { setMargins(dp(5), 0, dp(5), 0) }
         setOnClickListener { action() }
@@ -1228,7 +1235,7 @@ class MainActivity : ComponentActivity() {
                             text = appState.userFullName.take(2).uppercase().ifBlank { "U" }
                             textSize = 32f
                             setTextColor(accent)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                             gravity = Gravity.CENTER
                         })
                     })
@@ -1238,14 +1245,14 @@ class MainActivity : ComponentActivity() {
                     text = appState.userFullName.ifBlank { "Prezzence user" }
                     textSize = 24f
                     setTextColor(Color.WHITE)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                     gravity = Gravity.CENTER
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = appState.userEmail.uppercase()
                     textSize = 14f
                     setTextColor(accent)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                     gravity = Gravity.CENTER
                     setPadding(0, dp(4), 0, 0)
                 })
@@ -1347,7 +1354,7 @@ class MainActivity : ComponentActivity() {
             })
             addView(TextView(this@MainActivity).apply {
                 text = appState.userEmail.ifBlank { "Signed in account" }
-                textSize = 12f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 12f; setTextColor(muted); typeface = interBold
                 setPadding(0, dp(16), 0, 0)
             })
         })
@@ -1612,7 +1619,7 @@ class MainActivity : ComponentActivity() {
         column.addView(spacer(24))
         column.addView(TextView(this).apply {
             text = "Help"; textSize = 48f; setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
         })
         column.addView(body("Search support topics and tutorials."))
         column.addView(spacer(8))
@@ -1645,7 +1652,7 @@ class MainActivity : ComponentActivity() {
         })
         column.addView(TextView(this).apply {
             text = "PAYMENT SUCCESS"
-            textSize = 12f; setTextColor(accent); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            textSize = 12f; setTextColor(accent); typeface = interBold
             letterSpacing = 0.06f; gravity = Gravity.CENTER
         })
         column.addView(title("Prezzence Pro unlocked", 34))
@@ -1721,7 +1728,7 @@ class MainActivity : ComponentActivity() {
             text = letter
             textSize = 18f
             setTextColor(accent)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             setPadding(dp(11), dp(11), dp(11), dp(11))
             layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
@@ -1732,7 +1739,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(12), 0, dp(8), 0) }
             addView(TextView(this@MainActivity).apply {
                 text = title; textSize = 16f; setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD); includeFontPadding = false
+                typeface = interBold; includeFontPadding = false
             })
             addView(TextView(this@MainActivity).apply {
                 text = subtitle; textSize = 13f; setTextColor(muted); includeFontPadding = false; setPadding(0, dp(3), 0, 0)
@@ -1743,7 +1750,7 @@ class MainActivity : ComponentActivity() {
             text = "On"
             textSize = 11f
             setTextColor(badgeColor)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             setPadding(dp(12), dp(5), dp(12), dp(5))
             background = rounded(Color.argb(32, Color.red(badgeColor), Color.green(badgeColor), Color.blue(badgeColor)), radius = 8)
         })
@@ -1765,7 +1772,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             addView(TextView(this@MainActivity).apply {
                 text = label; textSize = 16f; setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD); includeFontPadding = false
+                typeface = interBold; includeFontPadding = false
             })
             addView(TextView(this@MainActivity).apply {
                 text = subtitle; textSize = 13f; setTextColor(muted); includeFontPadding = false; setPadding(0, dp(3), 0, 0)
@@ -1807,7 +1814,7 @@ class MainActivity : ComponentActivity() {
             text = titleText
             textSize = 18f
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
@@ -1852,7 +1859,7 @@ class MainActivity : ComponentActivity() {
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = name; textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                 })
                 addView(pill(if (color == green) "green" else if (color == danger) "danger" else "warning", color))
             })
@@ -1912,12 +1919,12 @@ class MainActivity : ComponentActivity() {
                     setPadding(dp(4), 0, 0, 0)
                     text = " PREVIEW"
                     textSize = 18f; setTextColor(green)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                 })
             })
             addView(TextView(this@MainActivity).apply {
                 text = "Easy to read"
-                textSize = 28f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 28f; setTextColor(Color.WHITE); typeface = interBold
                 setPadding(0, dp(16), 0, dp(12))
             })
             addView(TextView(this@MainActivity).apply {
@@ -1982,24 +1989,24 @@ class MainActivity : ComponentActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 addView(TextView(this@MainActivity).apply {
                     text = (if (hasSignal) "COMPLETED" else "INCOMPLETE")
-                    textSize = 12f; setTextColor(accent); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 12f; setTextColor(accent); typeface = interBold
                     letterSpacing = 0.05f
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = session.role.ifBlank { "Interview Assessment" }
-                    textSize = 28f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 28f; setTextColor(Color.WHITE); typeface = interBold
                     setPadding(0, dp(8), 0, 0)
                 })
                 addView(TextView(this@MainActivity).apply {
                     val detail = listOfNotNull(session.date, "${session.answered}/${session.total} answered").joinToString(" | ")
                     text = detail
-                    textSize = 13f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 13f; setTextColor(muted); typeface = interBold
                     setPadding(0, dp(8), 0, 0)
                 })
                 if (hasSignal) {
                     addView(TextView(this@MainActivity).apply {
                         text = "1 scored answer"
-                        textSize = 12f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        textSize = 12f; setTextColor(muted); typeface = interBold
                         setPadding(0, dp(8), 0, 0)
                     })
                 }
@@ -2011,12 +2018,12 @@ class MainActivity : ComponentActivity() {
                 background = rounded(Color.argb(8, 255, 255, 255), radius = 28).apply { setStroke(dp(2), scoreColorVal) }
                 addView(TextView(this@MainActivity).apply {
                     text = "$score"
-                    textSize = 30f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 30f; setTextColor(Color.WHITE); typeface = interBold
                     gravity = Gravity.CENTER
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = "score"
-                    textSize = 10f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 10f; setTextColor(muted); typeface = interBold
                     gravity = Gravity.CENTER; letterSpacing = 0.05f
                 })
             })
@@ -2033,13 +2040,13 @@ class MainActivity : ComponentActivity() {
                 background = rounded(accent, radius = 25)
                 addView(TextView(this@MainActivity).apply {
                     text = "Export PDF report"
-                    textSize = 14f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 14f; setTextColor(Color.WHITE); typeface = interBold
                     setPadding(0, 0, dp(8), 0)
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = if (appState.subscriptionEntitled) "" else "Pro"
                     textSize = 11f; setTextColor(Color.argb(180, 255, 255, 255))
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                 })
                 setOnClickListener { exportSessionPdf(sessionId) }
             })
@@ -2054,7 +2061,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
                 text = "Coach Summary"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
             })
             addView(TextView(this@MainActivity).apply {
                 text = summary
@@ -2072,12 +2079,12 @@ class MainActivity : ComponentActivity() {
                             background = rounded(Color.argb(30, 108, 99, 255), radius = 18).apply { setStroke(dp(1), Color.argb(45, 108, 99, 255)) }
                             addView(TextView(this@MainActivity).apply {
                                 text = label
-                                textSize = 10f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                                textSize = 10f; setTextColor(muted); typeface = interBold
                                 letterSpacing = 0.04f
                             })
                             addView(TextView(this@MainActivity).apply {
                                 text = value
-                                textSize = 15f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                                textSize = 15f; setTextColor(Color.WHITE); typeface = interBold
                                 setPadding(0, dp(6), 0, 0)
                             })
                         }
@@ -2115,7 +2122,7 @@ class MainActivity : ComponentActivity() {
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(12), 0, 0, 0) }
                         addView(TextView(this@MainActivity).apply {
                             text = "Report needs clearer audio"
-                            textSize = 14f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            textSize = 14f; setTextColor(Color.WHITE); typeface = interBold
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "Skill rankings are hidden until at least one answer has a usable transcript and score."
@@ -2137,7 +2144,7 @@ class MainActivity : ComponentActivity() {
                 layoutParams = blockParams()
                 addView(TextView(this@MainActivity).apply {
                     text = "Strengths and weak spots"
-                    textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = "A simple view of where this interview was strong and what needs more practice."
@@ -2218,11 +2225,11 @@ class MainActivity : ComponentActivity() {
                         setPadding(0, dp(4), 0, dp(4))
                         addView(TextView(this@MainActivity).apply {
                             text = label; textSize = 13f; setTextColor(Color.WHITE)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            typeface = interBold; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "$value%"; textSize = 13f; setTextColor(when { value >= 70 -> green; value >= 50 -> warning; else -> danger })
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                         })
                     })
                 }
@@ -2238,7 +2245,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
                 text = "Next Coaching Plan"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
             })
             coachingPlan.forEach { plan ->
                 addView(TextView(this@MainActivity).apply {
@@ -2257,7 +2264,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
                 text = "What to improve"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
             })
             growthAreas.forEach { area ->
                 addView(TextView(this@MainActivity).apply {
@@ -2278,11 +2285,11 @@ class MainActivity : ComponentActivity() {
                 layoutParams = blockParams()
                 addView(TextView(this@MainActivity).apply {
                     text = "Answer Review"
-                    textSize = 20f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = "${sessionAnswers.size} answer(s)"
-                    textSize = 12f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 12f; setTextColor(muted); typeface = interBold
                     setPadding(0, dp(4), 0, dp(12))
                 })
                 sessionAnswers.forEachIndexed { i, ans ->
@@ -2296,12 +2303,12 @@ class MainActivity : ComponentActivity() {
                             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                             addView(TextView(this@MainActivity).apply {
                                 text = "Q${i + 1}"; textSize = 13f; setTextColor(muted)
-                                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                                typeface = interBold
                             })
                             addView(spacer(10))
                             addView(TextView(this@MainActivity).apply {
                                 text = "Score: ${ans.score}"; textSize = 14f; setTextColor(ansScoreColor)
-                                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                                typeface = interBold
                                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                             })
                             addView(TextView(this@MainActivity).apply {
@@ -2343,10 +2350,10 @@ class MainActivity : ComponentActivity() {
                 val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
                 val page = document.startPage(pageInfo)
                 val c = page.canvas
-                val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 36f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
-                val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 22f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+                val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 36f; typeface = interBold }
+                val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 22f; typeface = interBold }
                 val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 14f }
-                val scorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(108, 99, 255); textSize = 28f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+                val scorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(108, 99, 255); textSize = 28f; typeface = interBold }
                 var y = 60f
                 c.drawText("Session Report", 40f, y, titlePaint)
                 y += 50f
@@ -2434,7 +2441,7 @@ class MainActivity : ComponentActivity() {
                 canvas.drawCircle(cx, cy, r, bgPaint)
                 val sweep = 360f * currentRating / 5f
                 canvas.drawArc(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), -90f, sweep, false, fgPaint)
-                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = dp(48).toFloat(); textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = dp(48).toFloat(); textAlign = Paint.Align.CENTER; typeface = interBold }
                 canvas.drawText("$currentRating", cx, cy + dp(16).toFloat(), textPaint)
             }
         }.apply {
@@ -2501,7 +2508,7 @@ class MainActivity : ComponentActivity() {
                 text = "How was it?"
                 textSize = 32f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 gravity = Gravity.CENTER
                 layoutParams = blockParams()
             })
@@ -2518,7 +2525,7 @@ class MainActivity : ComponentActivity() {
             text = "COMMENT (OPTIONAL)"
             textSize = 11f
             setTextColor(muted)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
         })
         column.addView(comment)
         column.addView(primaryButton("Submit feedback") {
@@ -2553,7 +2560,7 @@ class MainActivity : ComponentActivity() {
                 this.text = "Thank You!"
                 textSize = 32f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 gravity = Gravity.CENTER
             })
             column.addView(TextView(this@MainActivity).apply {
@@ -2607,12 +2614,12 @@ class MainActivity : ComponentActivity() {
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
                 text = "PLAN"
-                textSize = 10f; setTextColor(accent); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 10f; setTextColor(accent); typeface = interBold
                 letterSpacing = 0.15f
             })
             addView(TextView(this@MainActivity).apply {
                 text = "Prezzence Pro"
-                textSize = 24f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                textSize = 24f; setTextColor(Color.WHITE); typeface = interBold
                 setPadding(0, dp(8), 0, 0)
             })
             addView(spacer(16))
@@ -2696,7 +2703,7 @@ class MainActivity : ComponentActivity() {
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
                 text = "Avatar Model Cache"; textSize = 18f; setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
             })
             addView(spacer(8))
             addView(TextView(this@MainActivity).apply {
@@ -2722,7 +2729,7 @@ class MainActivity : ComponentActivity() {
                 layoutParams = blockParams()
                 addView(TextView(this@MainActivity).apply {
                     text = "Checks"; textSize = 20f; setTextColor(Color.WHITE)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                 })
                 addView(spacer(8))
                 listOf("Microphone PCM capture", "First-run Whisper model download", "Native Whisper JNI load", "CameraX provider open", "Duix model endpoint reachability").forEach { check ->
@@ -2753,7 +2760,7 @@ class MainActivity : ComponentActivity() {
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "  ${result.name}"
-                            textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            textSize = 18f; setTextColor(Color.WHITE); typeface = interBold
                         })
                     })
                     addView(spacer(6))
@@ -2841,7 +2848,7 @@ class MainActivity : ComponentActivity() {
                 text = "Protected data"
                 textSize = 18f
                 setTextColor(Color.rgb(0, 214, 143))
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
             })
             addView(body("Your voice data, transcripts, and scores are stored privately and used to power your own coaching."))
         })
@@ -3045,7 +3052,7 @@ class MainActivity : ComponentActivity() {
                     text = "No sessions yet"
                     textSize = 17f
                     setTextColor(Color.WHITE)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = interBold
                     gravity = Gravity.CENTER
                 })
                 addView(TextView(this@MainActivity).apply {
@@ -3083,14 +3090,14 @@ class MainActivity : ComponentActivity() {
                             text = "${session.score}"
                             textSize = 20f
                             setTextColor(Color.WHITE)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                             gravity = Gravity.CENTER
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "score"
                             textSize = 9f
                             setTextColor(muted)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                             gravity = Gravity.CENTER
                         })
                     })
@@ -3101,7 +3108,7 @@ class MainActivity : ComponentActivity() {
                             text = session.role.ifBlank { "Interview Assessment" }
                             textSize = 16f
                             setTextColor(Color.WHITE)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                             includeFontPadding = false
                             maxLines = 2
                         })
@@ -3109,7 +3116,7 @@ class MainActivity : ComponentActivity() {
                             text = "${session.answered}/${session.total} answered \u00B7 ${session.date}"
                             textSize = 12f
                             setTextColor(muted)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            typeface = interBold
                             setPadding(0, dp(5), 0, 0)
                         })
                     })
@@ -3180,7 +3187,7 @@ class MainActivity : ComponentActivity() {
         column.addView(backButton { showHome(PrezzenceTab.PRACTICE) })
         column.addView(TextView(this).apply {
             text = "${history.size} SESSIONS"
-            textSize = 11f; setTextColor(accent); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            textSize = 11f; setTextColor(accent); typeface = interBold
             letterSpacing = 0.06f
         })
         column.addView(title("Every interview", 38))
@@ -3211,7 +3218,7 @@ class MainActivity : ComponentActivity() {
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = "No sessions yet"
-                    textSize = 17f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 17f; setTextColor(Color.WHITE); typeface = interBold
                     setPadding(0, dp(14), 0, 0)
                 })
                 addView(TextView(this@MainActivity).apply {
@@ -3238,11 +3245,11 @@ class MainActivity : ComponentActivity() {
                         background = rounded(Color.argb(35, 108, 99, 255), radius = 18)
                         addView(TextView(this@MainActivity).apply {
                             text = "${session.score}"; textSize = 20f; setTextColor(Color.WHITE)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD); gravity = Gravity.CENTER
+                            typeface = interBold; gravity = Gravity.CENTER
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "score"; textSize = 9f; setTextColor(muted)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD); gravity = Gravity.CENTER
+                            typeface = interBold; gravity = Gravity.CENTER
                         })
                     })
                     addView(LinearLayout(this@MainActivity).apply {
@@ -3251,11 +3258,11 @@ class MainActivity : ComponentActivity() {
                         addView(TextView(this@MainActivity).apply {
                             text = session.role.ifBlank { "Interview Assessment" }
                             textSize = 16f; setTextColor(Color.WHITE)
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD); maxLines = 2
+                            typeface = interBold; maxLines = 2
                         })
                         addView(TextView(this@MainActivity).apply {
                             text = "${session.answered}/${session.total} answered \u00B7 ${session.date}"
-                            textSize = 12f; setTextColor(muted); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            textSize = 12f; setTextColor(muted); typeface = interBold
                             setPadding(0, dp(5), 0, 0)
                         })
                     })
@@ -3327,7 +3334,7 @@ class MainActivity : ComponentActivity() {
                 setPadding(0, dp(16), 0, dp(16))
                 addView(TextView(this@MainActivity).apply {
                     text = "${answer.score}"
-                    textSize = 56f; setTextColor(scoreColor); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 56f; setTextColor(scoreColor); typeface = interBold
                     gravity = Gravity.CENTER
                 })
                 addView(TextView(this@MainActivity).apply {
@@ -3343,7 +3350,7 @@ class MainActivity : ComponentActivity() {
                 background = rounded(panel, radius = 26, strokeColor = border)
                 addView(TextView(this@MainActivity).apply {
                     text = "Feedback"
-                    textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 18f; setTextColor(Color.WHITE); typeface = interBold
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = answer.feedback; textSize = 15f; setTextColor(muted); setPadding(0, dp(12), 0, 0)
@@ -3351,7 +3358,7 @@ class MainActivity : ComponentActivity() {
                 addView(spacer(16))
                 addView(TextView(this@MainActivity).apply {
                     text = "Improved answer"
-                    textSize = 16f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    textSize = 16f; setTextColor(Color.WHITE); typeface = interBold
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = answer.improvedAnswer; textSize = 15f; setTextColor(muted); setPadding(0, dp(8), 0, 0)
@@ -3361,7 +3368,7 @@ class MainActivity : ComponentActivity() {
                     addView(TextView(this@MainActivity).apply {
                         text = "$label: $value"
                         textSize = 14f; setTextColor(Color.WHITE)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         setPadding(0, dp(6), 0, 0)
                     })
                 }
@@ -3697,7 +3704,7 @@ class MainActivity : ComponentActivity() {
                 gravity = Gravity.CENTER
                 setTextColor(accentColor)
                 textSize = 16f
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 background = rounded(Color.argb(24, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)), radius = 999, strokeColor = Color.TRANSPARENT)
                 layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { setMargins(0, 0, dp(10), 0) }
             })
@@ -3705,7 +3712,7 @@ class MainActivity : ComponentActivity() {
                 text = message
                 setTextColor(Color.WHITE)
                 textSize = 14f
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 setLineSpacing(dp(2).toFloat(), 1.0f)
                 maxLines = 3
             })
@@ -4129,7 +4136,7 @@ class MainActivity : ComponentActivity() {
             text = result.score.toString()
             textSize = 42f
             setTextColor(accent)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             letterSpacing = -0.04f
         })
@@ -4137,7 +4144,7 @@ class MainActivity : ComponentActivity() {
             text = "SCORE /100"
             textSize = 9f
             setTextColor(muted)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             letterSpacing = 0.08f
             setPadding(0, dp(2), 0, 0)
@@ -4154,7 +4161,7 @@ class MainActivity : ComponentActivity() {
             text = "Answer result"
             textSize = 14f
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             setPadding(0, 0, 0, dp(6))
         })
         heroCopy.addView(TextView(this@MainActivity).apply {
@@ -4179,7 +4186,7 @@ class MainActivity : ComponentActivity() {
             text = "YOUR ANSWER"
             textSize = 11f
             setTextColor(Color.rgb(255, 209, 102)) // Yellow label
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             letterSpacing = 0.09f
             setPadding(0, 0, 0, dp(7))
         })
@@ -4188,7 +4195,7 @@ class MainActivity : ComponentActivity() {
             textSize = 13f
             setTextColor(Color.WHITE)
             setLineSpacing(0f, 1.45f)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
         })
         content.addView(transcriptBox)
         
@@ -4215,7 +4222,7 @@ class MainActivity : ComponentActivity() {
                 text = "STRONGER ANSWER"
                 textSize = 11f
                 setTextColor(accent)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 letterSpacing = 0.09f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
@@ -4223,7 +4230,7 @@ class MainActivity : ComponentActivity() {
                 text = " 🔊 Listen"
                 textSize = 10f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 setPadding(dp(10), dp(6), dp(10), dp(6))
                 background = rounded(accent, radius = 15, strokeColor = accent)
                 setOnClickListener { playCoachingAudio(result.improvedAnswer) }
@@ -4235,7 +4242,7 @@ class MainActivity : ComponentActivity() {
                 textSize = 13f
                 setTextColor(Color.rgb(231, 231, 243))
                 setLineSpacing(0f, 1.4f)
-                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                typeface = interRegular
             })
             content.addView(improvedBox)
         }
@@ -4257,7 +4264,7 @@ class MainActivity : ComponentActivity() {
                 text = "↻  Retry question"
                 textSize = 13f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 gravity = Gravity.CENTER
                 setPadding(dp(16), dp(12), dp(16), dp(12))
                 background = rounded(accent, radius = 22, strokeColor = accent)
@@ -4271,7 +4278,7 @@ class MainActivity : ComponentActivity() {
             text = "Continue"
             textSize = 13f
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(12), dp(16), dp(12))
             background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(20, 255, 255, 255))
@@ -4321,7 +4328,7 @@ class MainActivity : ComponentActivity() {
             text = "CAMERA PRESENCE"
             textSize = 11f
             setTextColor(accent)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             letterSpacing = 0.09f
             setPadding(0, 0, 0, if (pm == null || pm.faceVisibility == 0) dp(7) else dp(10))
         })
@@ -4373,14 +4380,14 @@ class MainActivity : ComponentActivity() {
             this.text = label.uppercase(Locale.US)
             textSize = 9f
             setTextColor(muted)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
         })
         addView(TextView(this@MainActivity).apply {
             text = if (value > 0) value.toString() else "--"
             textSize = 14f
             setTextColor(scoreColor)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, 0)
         })
@@ -4459,7 +4466,7 @@ class MainActivity : ComponentActivity() {
             text = if (value > 0) value.toString() else "--"
             textSize = 14f
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, 0)
         })
@@ -4486,7 +4493,7 @@ class MainActivity : ComponentActivity() {
             text = result.score.toString()
             textSize = 46f
             setTextColor(accent)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
             gravity = Gravity.CENTER
             background = rounded(surface)
             layoutParams = LinearLayout.LayoutParams(dp(100), dp(100)).apply { setMargins(0, 0, dp(18), 0) }
@@ -4575,14 +4582,14 @@ class MainActivity : ComponentActivity() {
                         text = "ASKED BY"
                         textSize = 10f
                         setTextColor(Color.rgb(160, 160, 160))
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                     })
                     
                     addView(TextView(this@MainActivity).apply {
                         text = interviewer.name
                         textSize = 16f
                         setTextColor(Color.WHITE)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                     })
                     
                     addView(TextView(this@MainActivity).apply {
@@ -4741,7 +4748,7 @@ class MainActivity : ComponentActivity() {
                         text = "${faceVisibilityState.value ?: 0}"
                         textSize = 20f
                         setTextColor(green)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         gravity = Gravity.CENTER
                     })
                 })
@@ -4761,7 +4768,7 @@ class MainActivity : ComponentActivity() {
                         text = "${eyeContactState.value ?: 0}"
                         textSize = 20f
                         setTextColor(green)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         gravity = Gravity.CENTER
                     })
                 })
@@ -4781,7 +4788,7 @@ class MainActivity : ComponentActivity() {
                         text = "${headStabilityState.value ?: 0}"
                         textSize = 20f
                         setTextColor(green)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         gravity = Gravity.CENTER
                     })
                 })
@@ -4801,7 +4808,7 @@ class MainActivity : ComponentActivity() {
                         text = "${postureState.value ?: 0}"
                         textSize = 20f
                         setTextColor(green)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         gravity = Gravity.CENTER
                     })
                 })
@@ -4821,7 +4828,7 @@ class MainActivity : ComponentActivity() {
                         text = "${expressionEnergyState.value ?: 0}"
                         textSize = 20f
                         setTextColor(green)
-                        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                        typeface = interBold
                         gravity = Gravity.CENTER
                     })
                 })
@@ -4879,7 +4886,7 @@ class MainActivity : ComponentActivity() {
                 text = title
                 textSize = 16f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 includeFontPadding = false
             })
             addView(TextView(this@MainActivity).apply {
@@ -5180,7 +5187,7 @@ class MainActivity : ComponentActivity() {
                 text = title
                 textSize = 16f
                 setTextColor(Color.WHITE)
-                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                typeface = interBold
                 includeFontPadding = false
             })
             addView(TextView(this@MainActivity).apply {
@@ -5341,7 +5348,7 @@ class MainActivity : ComponentActivity() {
             text = "Prezzence"
             textSize = logoTextSize.toFloat()
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            typeface = interBold
         })
     }
 
@@ -5349,7 +5356,7 @@ class MainActivity : ComponentActivity() {
         this.text = text
         textSize = size.toFloat()
         setTextColor(Color.WHITE)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         setLineSpacing(0f, 0.98f)
         includeFontPadding = false
         setPadding(0, dp(6), 0, dp(12))
@@ -5369,7 +5376,7 @@ class MainActivity : ComponentActivity() {
         textSize = 12f
         letterSpacing = 0.14f
         setTextColor(accent)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         setPadding(0, dp(12), 0, dp(6))
     }
 
@@ -5387,7 +5394,7 @@ class MainActivity : ComponentActivity() {
         this.text = text
         textSize = 12f
         setTextColor(Color.WHITE)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         setPadding(dp(14), dp(7), dp(14), dp(7))
         background = rounded(Color.argb(220, 0, 0, 0)).apply { setStroke(0, color) }
     }
@@ -5405,7 +5412,7 @@ class MainActivity : ComponentActivity() {
         text = "STEP ${appState.currentQuestionIndex + 1} / ${appState.questions().size}"
         textSize = 17f
         setTextColor(muted)
-        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        typeface = interBold
         setPadding(0, 0, 0, dp(10))
     }
 
@@ -5424,7 +5431,7 @@ class MainActivity : ComponentActivity() {
         isAllCaps = false
         includeFontPadding = false
         textSize = 15f
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        typeface = interMedium
         setTextColor(fgColor)
         background = rounded(bgColor, radius = 12, strokeColor = borderColor)
         minHeight = dp(52)

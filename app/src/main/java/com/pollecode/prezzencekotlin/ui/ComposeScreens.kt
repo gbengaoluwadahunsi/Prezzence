@@ -96,16 +96,25 @@ private val TextPrimary = Color.White
 private val TextSecondary = Color(0xFF8A8A9A)
 private val Border = Color(0xFF2A2A3E)
 
+// Inter font family for consistent cross-device typography
+private val InterFont = FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.inter_regular, FontWeight.Normal),
+    androidx.compose.ui.text.font.Font(R.font.inter_medium, FontWeight.Medium),
+    androidx.compose.ui.text.font.Font(R.font.inter_semibold, FontWeight.SemiBold),
+    androidx.compose.ui.text.font.Font(R.font.inter_bold, FontWeight.Bold),
+    androidx.compose.ui.text.font.Font(R.font.inter_black, FontWeight.Black),
+)
+
 private val PrezzenceTypography = Typography(
-    displayLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, fontSize = 58.sp, lineHeight = 58.sp, letterSpacing = 0.sp),
-    headlineLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = 0.sp),
-    headlineMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, fontSize = 30.sp, lineHeight = 34.sp, letterSpacing = 0.sp),
-    titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 28.sp, letterSpacing = 0.sp),
-    titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 23.sp, letterSpacing = 0.sp),
-    bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 17.sp, lineHeight = 26.sp, letterSpacing = 0.sp),
-    bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0.sp),
-    labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = 0.sp),
-    labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
+    displayLarge = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Black, fontSize = 58.sp, lineHeight = 58.sp, letterSpacing = 0.sp),
+    headlineLarge = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Black, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = 0.sp),
+    headlineMedium = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Black, fontSize = 30.sp, lineHeight = 34.sp, letterSpacing = 0.sp),
+    titleLarge = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 28.sp, letterSpacing = 0.sp),
+    titleMedium = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 23.sp, letterSpacing = 0.sp),
+    bodyLarge = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Normal, fontSize = 17.sp, lineHeight = 26.sp, letterSpacing = 0.sp),
+    bodyMedium = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0.sp),
+    labelLarge = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = 0.sp),
+    labelMedium = TextStyle(fontFamily = InterFont, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
 )
 
 @Composable

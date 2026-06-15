@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Centralized font - swap family to Inter when bundling custom .ttf -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fontFamily="sans-serif">
+</font-family>
