@@ -124,6 +124,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 val dirs = withContext(Dispatchers.IO) {
                     ensureModelAvailable(modelName)
                 }
+                hideOverlay()
                 bindDuix(modelName, dirs.first, dirs.second)
                 preparedModelName = modelName
                 preparingModelName = null
@@ -206,6 +207,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 }
                 Constant.CALLBACK_EVENT_INIT_ERROR -> {
                     duixInitReady = false
+                    hideOverlay()
                     listener?.onModelError(modelName, msg)
                     mainHandler.post {
                         android.widget.Toast.makeText(context, "DUIX init error: $msg", android.widget.Toast.LENGTH_LONG).show()
@@ -501,9 +503,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     }
 
     private fun padForDuix(pcmData: ByteArray): ByteArray {
-        // Add 200ms of silence at the START so the DUIX render thread has time
-        // to spin up before real audio arrives — fixes choppy first sentence.
-        val leadInBytes = (duixSampleRate * 2 * 0.20).toInt() // 200ms @ 16kHz mono 16-bit = 6400 bytes
+        // Add 600ms of silence at the START so the DUIX render thread has time
+        // to spin up and sync before real audio arrives — fixes initial choppy/stuttery speech.
+        val leadInBytes = (duixSampleRate * 2 * 0.60).toInt() // 600ms @ 16kHz mono 16-bit = 19200 bytes
         val leadIn = ByteArray(leadInBytes)
         val withLeadIn = leadIn + pcmData
 
@@ -576,19 +578,20 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     tag = "duixOverlay"
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding(dp(32), dp(32), dp(32), dp(32))
+                    setPadding(dp(24), dp(24), dp(24), dp(24))
                     setBackgroundColor(Color.rgb(8, 8, 14))
                     layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 
-                    // 3D Avatar Compiling HUD Image
+                    // 3D Avatar Compiling HUD Image - downscaled to fit perfectly
                     val imageResId = context.resources.getIdentifier("avatar_compiling_hud", "drawable", context.packageName)
                     if (imageResId != 0) {
                         addView(ImageView(context).apply {
                             tag = "avatarHudImage"
                             setImageResource(imageResId)
                             scaleType = ImageView.ScaleType.FIT_CENTER
-                            layoutParams = LinearLayout.LayoutParams(dp(180), dp(180)).apply {
-                                bottomMargin = dp(24)
+                            layoutParams = LinearLayout.LayoutParams(dp(120), dp(120)).apply {
+                                bottomMargin = dp(16)
+                                topMargin = dp(16)
                             }
                             // Start pulsing micro-animation
                             ObjectAnimator.ofFloat(this, "alpha", 0.5f, 1.0f).apply {
@@ -607,8 +610,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         setProgress(progress)
                         progressTintList = ColorStateList.valueOf(accentColor)
                         progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(30, 29, 48))
-                        layoutParams = LinearLayout.LayoutParams(dp(240), dp(6)).apply {
-                            bottomMargin = dp(12)
+                        layoutParams = LinearLayout.LayoutParams(dp(200), dp(6)).apply {
+                            bottomMargin = dp(8)
                         }
                     })
 
@@ -617,7 +620,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         tag = "progressPercentage"
                         this.text = progressText
                         gravity = Gravity.CENTER
-                        textSize = 24f
+                        textSize = 20f
                         setTextColor(Color.WHITE)
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
                     })
@@ -627,11 +630,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         tag = "compilationPhase"
                         this.text = phaseMessage
                         gravity = Gravity.CENTER
-                        textSize = 14f
+                        textSize = 12f
                         setTextColor(cyberCyan)
                         typeface = android.graphics.Typeface.MONOSPACE
                         layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                            topMargin = dp(16)
+                            topMargin = dp(8)
                         }
                     })
 
@@ -640,11 +643,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         tag = "disclaimerText"
                         this.text = messageText
                         gravity = Gravity.CENTER
-                        textSize = 12f
+                        textSize = 11f
                         setTextColor(Color.rgb(150, 150, 168))
                         setLineSpacing(dp(4).toFloat(), 1f)
                         layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                            topMargin = dp(12)
+                            topMargin = dp(8)
                         }
                     })
                 })
