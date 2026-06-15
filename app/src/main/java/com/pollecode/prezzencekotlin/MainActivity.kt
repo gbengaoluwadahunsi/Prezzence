@@ -15,6 +15,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -168,7 +169,54 @@ class MainActivity : ComponentActivity() {
             appState.subscriptionProductId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
         }
         setContentView(root)
+        
+        // DEBUG: Allow quick launch to interview for testing avatar
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("directToInterview", false) == true) {
+            setupTestSessionAndGoToInterview()
+            return
+        }
+        
         if (!handleAuthCallback(intent?.data)) showSplash()
+    }
+    
+    private fun setupTestSessionAndGoToInterview() {
+        Log.i("PrezzenceDebug", "Setting up test interview session for avatar testing")
+        appState.onboardingComplete = true
+        appState.authToken = "test-token-${System.currentTimeMillis()}"
+        appState.userId = "test-user"
+        appState.userFullName = "Test User"
+        appState.userEmail = "test@prezzence.local"
+        
+        // Import the InterviewQuestion class if needed
+        val testQuestions = listOf(
+            com.pollecode.prezzencekotlin.data.InterviewQuestion(
+                id = 1,
+                text = "Tell me about a time you had to solve a complex problem. What was the challenge, and how did you approach it?",
+                role = "professional",
+                interviewerId = "Sofia",
+                type = "behavioral"
+            ),
+            com.pollecode.prezzencekotlin.data.InterviewQuestion(
+                id = 2,
+                text = "Describe your ideal work environment and explain why it matters to you.",
+                role = "professional",
+                interviewerId = "Oliver",
+                type = "behavioral"
+            ),
+            com.pollecode.prezzencekotlin.data.InterviewQuestion(
+                id = 3,
+                text = "What is your greatest professional achievement and why are you proud of it?",
+                role = "professional",
+                interviewerId = "Lily",
+                type = "behavioral"
+            ),
+        )
+        appState.setGeneratedQuestions(testQuestions)
+        appState.currentQuestionIndex = 0
+        appState.activeSessionId = "test-session-${System.currentTimeMillis()}"
+        
+        Log.i("PrezzenceDebug", "Test session created with ${testQuestions.size} questions, starting interview")
+        showInterview(answering = false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -3505,12 +3553,19 @@ class MainActivity : ComponentActivity() {
                     recordingDuration = recordingDuration,
                     isRecording = answering && activeTranscriber != null,
                     createAvatarView = {
+                        Log.i("PrezzenceAvatar", "createAvatarView called, suppressNativeAvatarForEntry=$suppressNativeAvatarForEntry")
                         if (suppressNativeAvatarForEntry) {
+                            Log.i("PrezzenceAvatar", "Using static card due to suppressNativeAvatarForEntry")
                             suppressNativeAvatarForEntry = false
                             interviewerReadyCard(interviewer)
                         } else {
-                            runCatching { duixAvatarCard(interviewer, "speaking", true) }
-                                .getOrElse { interviewerReadyCard(interviewer) }
+                            Log.i("PrezzenceAvatar", "Creating duixAvatarCard for ${interviewer.name}")
+                            try {
+                                duixAvatarCard(interviewer, "speaking", true)
+                            } catch (e: Exception) {
+                                Log.e("PrezzenceAvatar", "duixAvatarCard failed: ${e.message}", e)
+                                interviewerReadyCard(interviewer)
+                            }
                         }
                     },
                     createCameraView = { cameraCoachCard(interviewer) },
