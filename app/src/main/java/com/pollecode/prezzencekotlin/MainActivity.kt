@@ -85,6 +85,7 @@ import com.pollecode.prezzencekotlin.ui.PracticeSessionItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URLDecoder
@@ -135,6 +136,7 @@ class MainActivity : ComponentActivity() {
     private val cameraErrorState = androidx.compose.runtime.mutableStateOf<String?>(null)
     private val processingAnswerState = androidx.compose.runtime.mutableStateOf(false)
     private val processingStageState = androidx.compose.runtime.mutableStateOf("")
+    private val processingProgressState = androidx.compose.runtime.mutableIntStateOf(0)
     private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
@@ -3606,6 +3608,7 @@ class MainActivity : ComponentActivity() {
                     answering = answering,
                     processing = processing,
                     processingStage = processingStageState.value,
+                    processingProgress = processingProgressState.intValue,
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
@@ -3983,16 +3986,29 @@ class MainActivity : ComponentActivity() {
         recordingTimer?.cancel()
         recordingTimer = null
         processingAnswerState.value = true
-        processingStageState.value = "Transcribing"
+        processingStageState.value = "Transcribing audio"
+        processingProgressState.intValue = 5
         refreshInterviewForProcessing()
 
         scope.launch {
+            // Animate progress during transcription
+            val progressJob = launch {
+                var p = 5
+                while (p < 95) {
+                    delay(120)
+                    p = (p + 1 + (Math.random() * 2).toInt()).coerceAtMost(95)
+                    processingProgressState.intValue = p
+                }
+            }
             val capturedTranscript = withContext(Dispatchers.IO) {
                 transcriber?.stop(appState.language).orEmpty()
             }
+            progressJob.cancel()
+            processingProgressState.intValue = 95
             activeTranscript = capturedTranscript.ifBlank { activeTranscript }
             val transcript = activeTranscript.ifBlank { speechError }.ifBlank { "No clear speech was captured." }
-            processingStageState.value = "Transcribing"
+            processingStageState.value = "Analyzing answer"
+            processingProgressState.intValue = 97
             val localResult = backend.scoreLocalTranscript(questionText, transcript)
             val remoteResult = backend.scoreWithBackend(
                 bearerToken = appState.authToken.ifBlank { null },
@@ -4015,6 +4031,7 @@ class MainActivity : ComponentActivity() {
             if (result.score <= 5 && result.transcript.isBlank()) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
+                processingProgressState.intValue = 0
                 showProcessingTimeout()
                 return@launch
             }
@@ -4028,6 +4045,7 @@ class MainActivity : ComponentActivity() {
             sessionAnswers.add(finalResult)
             activeTranscript = ""
             speechError = ""
+            processingProgressState.intValue = 100
             processingAnswerState.value = false
             processingStageState.value = ""
             showResult()
@@ -4107,7 +4125,7 @@ class MainActivity : ComponentActivity() {
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(8), dp(18), dp(12))
+            setPadding(dp(14), dp(8), dp(14), dp(12))
         }
         
         // ════════════════════════════════════════
@@ -4324,7 +4342,7 @@ class MainActivity : ComponentActivity() {
 
     private fun enhancedPresenceSummary(result: AnswerResult) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(14), dp(14), dp(14), dp(14))
+        setPadding(dp(10), dp(12), dp(10), dp(12))
         background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             setMargins(0, 0, 0, dp(12))
@@ -4371,10 +4389,10 @@ class MainActivity : ComponentActivity() {
     private fun enhancedMetricPill(label: String, value: Int) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        setPadding(dp(6), dp(7), dp(6), dp(7))
-        background = rounded(Color.argb(15, 255, 255, 255), radius = 12, strokeColor = Color.argb(15, 255, 255, 255))
+        setPadding(dp(3), dp(5), dp(3), dp(5))
+        background = rounded(Color.argb(15, 255, 255, 255), radius = 10, strokeColor = Color.argb(15, 255, 255, 255))
         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(dp(3), 0, dp(3), 0)
+            setMargins(dp(1), 0, dp(1), 0)
         }
         
         val scoreColor = when {
@@ -4457,10 +4475,10 @@ class MainActivity : ComponentActivity() {
     private fun metricPill(label: String, value: Int) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        setPadding(dp(6), dp(8), dp(6), dp(8))
+        setPadding(dp(3), dp(6), dp(3), dp(6))
         background = rounded(surface)
         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(dp(3), 0, dp(3), 0)
+            setMargins(dp(1), 0, dp(1), 0)
         }
         
         addView(TextView(this@MainActivity).apply {

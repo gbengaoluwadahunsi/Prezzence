@@ -3020,6 +3020,7 @@ fun PrezzenceInterviewRoomScreen(
     answering: Boolean,
     processing: Boolean = false,
     processingStage: String = "",
+    processingProgress: Int = 0,
     transcript: String,
     error: String,
     cameraCoachEnabled: Boolean,
@@ -3090,23 +3091,70 @@ fun PrezzenceInterviewRoomScreen(
                             }), RoundedCornerShape(stageRadius)),
                     ) {
                         if (processing) {
-                            // Processing/transcribing state - clean centered indicator
+                            // Processing/transcribing state - waveform + progress bar
                             Box(
                                 Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(
-                                        color = Accent,
-                                        strokeWidth = 2.5.dp,
-                                        modifier = Modifier.size(36.dp),
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    // Waveform animation
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.height(60.dp),
+                                    ) {
+                                        val heights = listOf(12, 24, 36, 48, 54, 48, 36, 24, 12, 8, 16, 28, 40, 48, 40, 28, 16, 8,
+                                                            12, 20, 32, 44, 52, 44, 32, 20, 12, 6, 14, 22, 36, 44, 36, 22, 14, 6)
+                                        val accentAlpha = (processingProgress.coerceIn(0, 100) / 100f)
+                                        heights.forEachIndexed { i, h ->
+                                            Box(
+                                                Modifier
+                                                    .width(3.dp)
+                                                    .height((h * 1.2f * (0.5f + 0.5f * kotlin.math.sin(i * 0.8f + processingProgress * 0.1f)).toFloat()).dp.coerceAtLeast(4.dp))
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(Accent.copy(alpha = (0.3f + 0.7f * (1f - i.toFloat() / heights.size)) * accentAlpha)),
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.height(20.dp))
+                                    
+                                    // Progress bar
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.75f)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(Color.White.copy(alpha = 0.10f)),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .fillMaxWidth(processingProgress / 100f)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(
+                                                    Brush.horizontalGradient(
+                                                        listOf(Accent, Color(0xFF00D68F)),
+                                                    ),
+                                                ),
+                                        )
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    
+                                    Text(
+                                        "${processingProgress}%",
+                                        color = TextPrimary,
+                                        fontSize = 28.sp,
+                                        fontWeight = FontWeight.Bold,
                                     )
-                                    Spacer(Modifier.height(14.dp))
+                                    Spacer(Modifier.height(4.dp))
                                     Text(
                                         processingStage.ifBlank { "Transcribing" },
-                                        color = TextPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        color = TextSecondary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
                                     )
                                 }
                             }
@@ -3142,7 +3190,7 @@ fun PrezzenceInterviewRoomScreen(
                                 // Presence metrics bar
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(1.dp),
                                 ) {
                                     PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
                                     PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
@@ -3209,30 +3257,63 @@ fun PrezzenceInterviewRoomScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (processing) {
-                            // Processing/transcribing state - show animated indicator
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(54.dp)
-                                    .clip(RoundedCornerShape(27.dp))
-                                    .background(Accent.copy(alpha = 0.18f))
-                                    .border(1.dp, Accent.copy(alpha = 0.40f), RoundedCornerShape(27.dp)),
-                                contentAlignment = Alignment.Center,
+                            // Processing/transcribing state - progress bar with percentage
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
+                                // Progress bar
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.White.copy(alpha = 0.08f)),
                                 ) {
-                                    CircularProgressIndicator(
-                                        color = Accent,
-                                        strokeWidth = 2.5.dp,
-                                        modifier = Modifier.size(22.dp),
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(processingProgress / 100f)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Accent, Color(0xFF00D68F)),
+                                                ),
+                                            ),
                                     )
-                                    Spacer(Modifier.width(12.dp))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(Accent.copy(alpha = 0.40f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Box(
+                                                Modifier
+                                                    .size(5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Accent),
+                                            )
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            processingStage.ifBlank { "Transcribing" },
+                                            color = TextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
                                     Text(
-                                        processingStage.ifBlank { "Transcribing" },
-                                        color = TextPrimary,
-                                        fontSize = 16.sp,
+                                        "${processingProgress}%",
+                                        color = Accent,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
@@ -3578,11 +3659,11 @@ private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = 
     }
     Column(
         modifier
-            .height(46.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(Color.White.copy(alpha = 0.06f))
-            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 2.dp, vertical = 5.dp),
+            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 1.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
