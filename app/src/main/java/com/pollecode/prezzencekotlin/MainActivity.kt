@@ -4066,74 +4066,219 @@ class MainActivity : ComponentActivity() {
             coachingMessage = "Let's review how you did and find ways to make your answer even stronger.",
         )
         
-        // Update coaching message for display
         coachingMessage = result.coachingMessage
         
-        val column = baseColumn()
-        column.addView(title("Answer result", 30))
-        
-        // Score card - larger and more prominent
-        column.addView(scoreCard(result))
-        column.addView(spacer(12))
-        
-        // Transcript section
-        column.addView(LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(16))
-            background = rounded(panel, radius = 26, strokeColor = border)
-            layoutParams = blockParams()
-            
-            addView(label("YOUR ANSWER"))
-            addView(spacer(8))
-            addView(TextView(this@MainActivity).apply {
-                text = result.transcript.ifBlank { "No transcript captured." }
-                textSize = 14f
-                setTextColor(Color.WHITE)
-                setLineSpacing(0f, 1.4f)
-            })
-        })
-        column.addView(spacer(12))
-        
-        // Coaching/improvement section with avatar speaking
-        if (result.improvedAnswer.isNotBlank()) {
-            val improvedAnswerText = result.improvedAnswer
-            val card = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(16), dp(20), dp(16))
-                background = rounded(Color.rgb(24, 23, 39), radius = 26, strokeColor = border)
-                layoutParams = blockParams()
-            }
-            
-            card.addView(label("STRONGER ANSWER"))
-            card.addView(spacer(8))
-            
-            // Show improved answer text
-            card.addView(TextView(this@MainActivity).apply {
-                text = improvedAnswerText
-                textSize = 14f
-                setTextColor(Color.rgb(160, 200, 255))
-                setLineSpacing(0f, 1.4f)
-            })
-            
-            card.addView(spacer(12))
-            
-            // Button to have avatar speak the improved answer
-            card.addView(primaryButton("Listen to better answer") {
-                playCoachingAudio(improvedAnswerText)
-            })
-            
-            column.addView(card)
-            column.addView(spacer(12))
+        // Build the feedback overlay matching React Native design
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(173, 0, 0, 0)) // rgba(0,0,0,0.68)
+            setPadding(dp(12), dp(54), dp(12), dp(12))
         }
         
-        // Presence coaching section
-        column.addView(presenceSummaryCard(result))
-        column.addView(spacer(12))
+        // Main card
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Color.rgb(18, 18, 29), radius = 26, strokeColor = Color.argb(76, 108, 99, 255))
+            setPadding(0, dp(10), 0, 0)
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.BOTTOM
+            }
+        }
         
-        // Action buttons
-        column.addView(rowOf(
-            secondaryButton("Retry question") { showInterview(false) },
-            primaryButton("Continue") {
+        // Drag handle
+        card.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                setMargins(0, 0, 0, dp(2))
+            }
+            background = rounded(Color.argb(56, 255, 255, 255), radius = 2, strokeColor = Color.TRANSPARENT)
+        })
+        
+        // Scrollable content
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            isVerticalScrollBarEnabled = true
+            overScrollMode = View.OVER_SCROLL_ALWAYS
+            isNestedScrollingEnabled = true
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+        }
+        
+        // ── Hero section: Score badge + feedback ──
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(Color.argb(30, 108, 99, 255), radius = 20, strokeColor = Color.argb(61, 108, 99, 255))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        }
+        
+        // Score badge
+        val scoreBadge = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+            background = rounded(Color.argb(199, 10, 10, 15), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(dp(86), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, dp(12), 0)
+            }
+        }
+        scoreBadge.addView(TextView(this@MainActivity).apply {
+            text = result.score.toString()
+            textSize = 42f
+            setTextColor(accent)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            letterSpacing = -0.04f
+        })
+        scoreBadge.addView(TextView(this@MainActivity).apply {
+            text = "SCORE /100"
+            textSize = 9f
+            setTextColor(muted)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            letterSpacing = 0.08f
+            setPadding(0, dp(2), 0, 0)
+        })
+        hero.addView(scoreBadge)
+        
+        // Hero copy
+        val heroCopy = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        heroCopy.addView(TextView(this@MainActivity).apply {
+            text = "Answer result"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            setPadding(0, 0, 0, dp(6))
+        })
+        heroCopy.addView(TextView(this@MainActivity).apply {
+            text = result.feedback
+            textSize = 13f
+            setTextColor(Color.argb(216, 255, 255, 255))
+            setLineSpacing(0f, 1.35f)
+        })
+        hero.addView(heroCopy)
+        content.addView(hero)
+        
+        // ── Transcript box ──
+        val transcriptBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        }
+        transcriptBox.addView(TextView(this@MainActivity).apply {
+            text = "YOUR ANSWER"
+            textSize = 11f
+            setTextColor(Color.rgb(255, 209, 102)) // Yellow label
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            letterSpacing = 0.09f
+            setPadding(0, 0, 0, dp(7))
+        })
+        transcriptBox.addView(TextView(this@MainActivity).apply {
+            text = result.transcript.ifBlank { "No clear transcript was captured for this answer." }
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setLineSpacing(0f, 1.45f)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        })
+        content.addView(transcriptBox)
+        
+        // ── Improved answer box ──
+        if (result.improvedAnswer.isNotBlank()) {
+            val improvedBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(14), dp(14), dp(14))
+                background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, dp(12))
+                }
+            }
+            
+            // Header row: "Stronger answer" + "Listen" button
+            val improvedHeader = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, dp(8))
+                }
+            }
+            improvedHeader.addView(TextView(this@MainActivity).apply {
+                text = "STRONGER ANSWER"
+                textSize = 11f
+                setTextColor(accent)
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                letterSpacing = 0.09f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            improvedHeader.addView(TextView(this@MainActivity).apply {
+                text = " 🔊 Listen"
+                textSize = 10f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                background = rounded(accent, radius = 15, strokeColor = accent)
+                setOnClickListener { playCoachingAudio(result.improvedAnswer) }
+            })
+            improvedBox.addView(improvedHeader)
+            
+            improvedBox.addView(TextView(this@MainActivity).apply {
+                text = result.improvedAnswer
+                textSize = 13f
+                setTextColor(Color.rgb(231, 231, 243))
+                setLineSpacing(0f, 1.4f)
+                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            })
+            content.addView(improvedBox)
+        }
+        
+        // ── Presence summary ──
+        content.addView(enhancedPresenceSummary(result))
+        
+        // Action buttons container
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(16), dp(12), dp(16), dp(16))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            gravity = Gravity.CENTER
+        }
+        
+        // Only show Retry if score < 70 (matching RN behavior)
+        if (result.score < 70) {
+            actions.addView(TextView(this@MainActivity).apply {
+                text = "↻  Retry question"
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = rounded(accent, radius = 22, strokeColor = accent)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(0, 0, dp(10), 0)
+                }
+                setOnClickListener { showInterview(false) }
+            })
+        }
+        actions.addView(TextView(this@MainActivity).apply {
+            text = "Continue"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(20, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(if (result.score < 70) 0 else 0, 0, 0, 0)
+            }
+            setOnClickListener {
                 val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
                 appState.saveSessionAnswers(sessionId, sessionAnswers.toList())
                 sessionAnswers.clear()
@@ -4145,18 +4290,100 @@ class MainActivity : ComponentActivity() {
                         showSessionSaveError()
                     }
                 } else {
-                    val column = baseColumn().apply { gravity = Gravity.CENTER }
-                    column.addView(title("Preparing next question", 28))
-                    column.addView(body("Loading the interviewer voice before the room opens."))
-                    setScreen(column)
-                    scope.launch {
-                        prepareCurrentQuestionSpeech()
-                        showInterview(false)
-                    }
+                    // Prepare next question inline - update the interview screen
+                    scope.launch { prepareCurrentQuestionSpeech() }
+                    showInterview(false)
                 }
             }
-        ))
-        setScreen(scroll(column))
+        })
+        
+        scrollView.addView(content)
+        card.addView(scrollView)
+        card.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
+            setBackgroundColor(Color.argb(20, 255, 255, 255))
+        })
+        card.addView(actions)
+        root.addView(card)
+        setScreen(root)
+    }
+
+    private fun enhancedPresenceSummary(result: AnswerResult) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+        background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, dp(12))
+        }
+        
+        val pm = result.presenceMetrics
+        addView(TextView(this@MainActivity).apply {
+            text = "CAMERA PRESENCE"
+            textSize = 11f
+            setTextColor(accent)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            letterSpacing = 0.09f
+            setPadding(0, 0, 0, if (pm == null || pm.faceVisibility == 0) dp(7) else dp(10))
+        })
+        
+        if (pm == null || pm.faceVisibility == 0) {
+            addView(TextView(this@MainActivity).apply {
+                text = "Not enough camera signal was captured for this answer. Keep your face in frame after tapping Answer Now."
+                textSize = 12f
+                setTextColor(Color.rgb(255, 71, 87))
+                setLineSpacing(0f, 1.35f)
+            })
+        } else {
+            val grid = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                weightSum = 5f
+                setPadding(0, 0, 0, dp(8))
+            }
+            grid.addView(enhancedMetricPill("Face", pm.faceVisibility))
+            grid.addView(enhancedMetricPill("Eyes", pm.eyeContact))
+            grid.addView(enhancedMetricPill("Head", pm.headStability))
+            grid.addView(enhancedMetricPill("Posture", pm.posture))
+            grid.addView(enhancedMetricPill("Energy", pm.expressionEnergy))
+            addView(grid)
+            
+            addView(TextView(this@MainActivity).apply {
+                text = "Reviewed during your response on this device."
+                textSize = 10f
+                setTextColor(muted)
+            })
+        }
+    }
+    
+    private fun enhancedMetricPill(label: String, value: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(6), dp(7), dp(6), dp(7))
+        background = rounded(Color.argb(15, 255, 255, 255), radius = 12, strokeColor = Color.argb(15, 255, 255, 255))
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(dp(3), 0, dp(3), 0)
+        }
+        
+        val scoreColor = when {
+            value >= 75 -> Color.rgb(0, 214, 143)
+            value >= 50 -> Color.rgb(255, 179, 71)
+            else -> Color.rgb(255, 71, 87)
+        }
+        
+        addView(TextView(this@MainActivity).apply {
+            this.text = label.uppercase(Locale.US)
+            textSize = 9f
+            setTextColor(muted)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+        })
+        addView(TextView(this@MainActivity).apply {
+            text = if (value > 0) value.toString() else "--"
+            textSize = 14f
+            setTextColor(scoreColor)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(2), 0, 0)
+        })
     }
 
     private fun summarizePresenceSamples(samples: List<NativePresenceCameraView.Metrics>): PresenceMetrics? {
