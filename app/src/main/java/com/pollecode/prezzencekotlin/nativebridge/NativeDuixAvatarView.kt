@@ -144,11 +144,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         scope.launch {
             try {
                 if (preparedModelName != modelName || duix == null) {
-                    Log.i("PrezzenceDuix", "Model not ready, waiting for availability for $modelName")
+                    if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Model not ready, waiting for availability for $modelName")
                     val startTime = System.currentTimeMillis()
                     val dirs = withContext(Dispatchers.IO) { ensureModelAvailable(modelName) }
                     val elapsed = System.currentTimeMillis() - startTime
-                    Log.i("PrezzenceDuix", "Model loaded in ${elapsed}ms for $modelName")
+                    if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Model loaded in ${elapsed}ms for $modelName")
                     bindDuix(modelName, dirs.first, dirs.second)
                     preparedModelName = modelName
                 }
@@ -163,7 +163,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
                 listener?.onSpeechReady(source, modelName, null)
                 textureView.renderMode = DUIXTextureView.RENDERMODE_CONTINUOUSLY
-                Log.i("PrezzenceDuix", "playAudio model=$modelName source=$source path=$audioPath bytes=${File(audioPath).length()}")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "playAudio model=$modelName source=$source path=$audioPath bytes=${File(audioPath).length()}")
                 duix?.playAudio(audioPath)
             } catch (error: Throwable) {
                 Log.e("PrezzenceDuix", "speakAudioUri failed model=$modelName source=$source", error)
@@ -199,18 +199,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     textureView.requestRender()
                     hideOverlay()
                     listener?.onModelReady(modelName)
-                    // Show toast to confirm DUIX is initialized
-                    mainHandler.post {
-                        android.widget.Toast.makeText(context, "DUIX initialized: $modelName", android.widget.Toast.LENGTH_SHORT).show()
-                    }
                 }
                 Constant.CALLBACK_EVENT_INIT_ERROR -> {
                     duixInitReady = false
                     hideOverlay()
                     listener?.onModelError(modelName, msg)
-                    mainHandler.post {
-                        android.widget.Toast.makeText(context, "DUIX init error: $msg", android.widget.Toast.LENGTH_LONG).show()
-                    }
                 }
                 Constant.CALLBACK_EVENT_AUDIO_PLAY_START -> listener?.onSpeechStart(currentSpeechSource, modelName)
                 Constant.CALLBACK_EVENT_AUDIO_PLAY_END -> {
@@ -304,7 +297,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             }
         }
         val wav = ensureDuixWav(input, id, source)
-        Log.i("PrezzenceDuix", "Prepared WAV source=$source inputExt=$extension bytes=${wav.length()}")
+        if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Prepared WAV source=$source inputExt=$extension bytes=${wav.length()}")
         return wav.absolutePath
     }
 
@@ -682,15 +675,15 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
 
         fun preloadModelFiles(context: Context, names: List<String>) {
             // Models are bundled in APK or already cached - no download needed
-            Log.i("PrezzenceDuix", "Models loaded from APK/cache")
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Models loaded from APK/cache")
         }
         
         fun clearModelCache(context: Context) {
             val root = modelRootFor(context)
-            Log.i("PrezzenceDuix", "Clearing model cache at: ${root.absolutePath}")
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Clearing model cache at: ${root.absolutePath}")
             root.deleteRecursively()
             root.mkdirs()
-            Log.i("PrezzenceDuix", "Model cache cleared successfully")
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Model cache cleared successfully")
         }
 
         private fun ensureModelFilesAvailable(
@@ -778,8 +771,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             var lastError: Exception? = null
             var downloadSuccessful = false
             
-            Log.i("PrezzenceDuix", "Will try ${urlsToTry.size} URL(s) for model $name")
-            urlsToTry.forEachIndexed { idx, url -> Log.i("PrezzenceDuix", "  URL ${idx + 1}: $url") }
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Will try ${urlsToTry.size} URL(s) for model $name")
+            urlsToTry.forEachIndexed { idx, url -> if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "  URL ${idx + 1}: $url") }
             
             // Try each URL with retries
             for (urlIndex in urlsToTry.indices) {
@@ -790,8 +783,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 
                 for (attempt in 1..maxRetries) {
                     try {
-                        Log.i("PrezzenceDuix", ">>> Downloading model $name (URL ${urlIndex + 1}/${urlsToTry.size}, attempt $attempt/$maxRetries)")
-                        Log.i("PrezzenceDuix", ">>> From: $url")
+                        if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Downloading model $name (URL ${urlIndex + 1}/${urlsToTry.size}, attempt $attempt/$maxRetries)")
+                        if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> From: $url")
                         
                         val request = Request.Builder()
                             .url(url)
@@ -805,7 +798,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                             .build()
                         
                         downloadClient.newCall(request).execute().use { response ->
-                            Log.i("PrezzenceDuix", ">>> HTTP Response: ${response.code} ${response.message}")
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> HTTP Response: ${response.code} ${response.message}")
                             
                             if (!response.isSuccessful) {
                                 Log.e("PrezzenceDuix", ">>> FAILED: HTTP ${response.code} from URL $url")
@@ -819,7 +812,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                             
                             val contentLength = response.header("content-length")?.toLongOrNull() ?: -1L
                             val contentType = response.header("content-type") ?: "unknown"
-                            Log.i("PrezzenceDuix", ">>> Downloading: $contentLength bytes, type: $contentType")
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Downloading: $contentLength bytes, type: $contentType")
                             
                             val body = response.body ?: throw IllegalStateException("Empty response body")
                             
@@ -849,12 +842,12 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                                     }
                                 }
                             }
-                            Log.i("PrezzenceDuix", ">>> Wrote $bytesWritten bytes to disk")
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Wrote $bytesWritten bytes to disk")
                         }
                         
                         // Validate downloaded file
                         val downloadedSize = zip.length()
-                        Log.i("PrezzenceDuix", ">>> Final file size: $downloadedSize bytes")
+                        if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Final file size: $downloadedSize bytes")
                         
                         if (downloadedSize < 1000) {
                             Log.e("PrezzenceDuix", ">>> FAILED: File too small: $downloadedSize bytes")
@@ -874,7 +867,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                                     ((header[2].toInt() and 0xFF) shl 16) or
                                     ((header[3].toInt() and 0xFF) shl 24)
                                 isValidZip = signature == 0x04034b50  // ZIP local file header signature
-                                Log.i("PrezzenceDuix", ">>> ZIP signature: 0x${signature.toString(16)} (valid: $isValidZip)")
+                                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> ZIP signature: 0x${signature.toString(16)} (valid: $isValidZip)")
                                 if (!isValidZip) {
                                     Log.e("PrezzenceDuix", ">>> FAILED: Invalid ZIP signature")
                                     zip.delete()
@@ -890,7 +883,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                             Log.w("PrezzenceDuix", ">>> Could not fully verify ZIP (but continuing): ${e.message}")
                         }
                         
-                        Log.i("PrezzenceDuix", ">>> SUCCESS: Model $name downloaded: $downloadedSize bytes")
+                        if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> SUCCESS: Model $name downloaded: $downloadedSize bytes")
                         lastError = null
                         downloadSuccessful = true
                         break  // Success - exit retry loop
@@ -900,7 +893,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         Log.e("PrezzenceDuix", ">>> Download attempt $attempt/$maxRetries FAILED: ${e.javaClass.simpleName}: ${e.message}")
                         if (attempt < maxRetries) {
                             val backoffMs = 1000L * attempt * 2  // Exponential backoff: 2s, 4s
-                            Log.i("PrezzenceDuix", ">>> Waiting ${backoffMs}ms before retry...")
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Waiting ${backoffMs}ms before retry...")
                             Thread.sleep(backoffMs)
                         }
                     }
@@ -915,15 +908,15 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             }
             
             // Clear destination before unzip
-            Log.i("PrezzenceDuix", ">>> Preparing to unzip to ${destination.absolutePath}")
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Preparing to unzip to ${destination.absolutePath}")
             destination.deleteRecursively()
             destination.mkdirs()
             
             // Unzip with error handling
             try {
-                Log.i("PrezzenceDuix", ">>> Calling ZipUtil.unzip...")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Calling ZipUtil.unzip...")
                 val ok = ZipUtil.unzip(zip.absolutePath, root.absolutePath, null)
-                Log.i("PrezzenceDuix", ">>> ZipUtil.unzip returned: $ok")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> ZipUtil.unzip returned: $ok")
                 if (!ok) {
                     throw IllegalStateException("ZipUtil.unzip returned false")
                 }
@@ -963,26 +956,26 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 Log.w("PrezzenceDuix", ">>> Subdirs: [$subdirStr]")
                 Log.w("PrezzenceDuix", ">>> Attempting to use incomplete model anyway")
             } else {
-                Log.i("PrezzenceDuix", ">>> Model $name validated successfully!")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Model $name validated successfully!")
             }
         }
 
         private fun repairSingleNestedDirectoryStatic(destination: File, expectedName: String) {
             val files = destination.listFiles() ?: return
-            Log.i("PrezzenceDuix", "repairSingleNestedDirectory: checking $destination with ${files.size} items")
-            files.forEach { f -> Log.i("PrezzenceDuix", "  - ${f.name} (isDir: ${f.isDirectory})") }
+            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "repairSingleNestedDirectory: checking $destination with ${files.size} items")
+            files.forEach { f -> if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "  - ${f.name} (isDir: ${f.isDirectory})") }
             
             // If we have exactly one nested directory, move its contents up
             if (files.size == 1 && files[0].isDirectory) {
                 val nested = files[0]
-                Log.i("PrezzenceDuix", "Found single nested dir: ${nested.name}, flattening...")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Found single nested dir: ${nested.name}, flattening...")
                 nested.listFiles()?.forEach { child ->
                     val newPath = File(destination, child.name)
                     val success = child.renameTo(newPath)
-                    Log.i("PrezzenceDuix", "  Moved ${child.name} to ${newPath.name}: $success")
+                    if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "  Moved ${child.name} to ${newPath.name}: $success")
                 }
                 nested.deleteRecursively()
-                Log.i("PrezzenceDuix", "Nested directory flattening complete")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Nested directory flattening complete")
             }
             
             // Check if files are in a deeply nested structure
@@ -991,11 +984,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             while (current.listFiles()?.size == 1 && current.listFiles()!![0].isDirectory && depth < 5) {
                 current = current.listFiles()!![0]
                 depth++
-                Log.i("PrezzenceDuix", "Descending into nested dir at depth $depth: ${current.name}")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Descending into nested dir at depth $depth: ${current.name}")
             }
             
             if (depth > 0 && current != destination) {
-                Log.i("PrezzenceDuix", "Moving contents from depth $depth back to root")
+                if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Moving contents from depth $depth back to root")
                 current.listFiles()?.forEach { child ->
                     val newPath = File(destination, child.name)
                     child.renameTo(newPath)

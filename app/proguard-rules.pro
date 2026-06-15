@@ -1,2 +1,36 @@
 -keep class ai.guiji.duix.** { *; }
 -keep class com.google.mediapipe.** { *; }
+
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+
+# Retrofit (if used)
+-dontwarn retrofit2.**
+-keep class retrofit2.** { *; }
+-keepattributes Signature, InnerClasses, EnclosingMethod
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepattributes AnnotationDefault
+
+# Gson / JSON serialization
+-keepattributes Signature
+-keepattributes *Annotation*
+-dontwarn sun.misc.**
+-keep class com.google.gson.** { *; }
+-keep class * extends com.google.gson.TypeAdapter
+-keep class * implements com.google.gson.TypeAdapterFactory
+-keep class * implements com.google.gson.JsonSerializer
+-keep class * implements com.google.gson.JsonDeserializer
+
+# Billing
+-keep class com.android.billingclient.** { *; }
+-keep class com.pollecode.prezzencekotlin.billing.** { *; }
+
+# Keep data models used for JSON serialization
+-keep class com.pollecode.prezzencekotlin.data.** { *; }
+
+# Firebase Crashlytics
+-keepattributes SourceFile, LineNumberTable
+-keep class com.google.firebase.crashlytics.** { *; }

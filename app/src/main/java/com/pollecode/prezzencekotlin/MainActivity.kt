@@ -181,6 +181,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize Firebase Crashlytics for crash reporting
+        runCatching {
+            com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().apply {
+                setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
+                log("Prezzence Kotlin v${BuildConfig.PREZZENCE_VERSION_NAME}")
+            }
+        }
+        
         root = FrameLayout(this)
         root.fitsSystemWindows = false
         appState = AppState(this)
@@ -2600,7 +2609,7 @@ class MainActivity : ComponentActivity() {
         )
         benefits.forEach { b -> column.addView(pill(b, accent)) }
         column.addView(spacer(12))
-        column.addView(card("Beta access", "Payments are switched off while testers use the app. You can explore Pro features and send feedback before pricing goes live."))
+        column.addView(card("Subscription details", "Your subscription is managed through Google Play. You can cancel anytime by visiting the Google Play Store app on this device."))
         column.addView(primaryButton("Start Pro") { purchaseSubscription() })
         column.addView(secondaryButton("Restore purchases") { restoreSubscription() })
         setScreen(scroll(column))

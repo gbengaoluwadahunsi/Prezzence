@@ -37,3 +37,11 @@ backend/venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Firebase
+google-services.json
+# Crashlytics
+# Release
+*.apk
+*.aab
+
