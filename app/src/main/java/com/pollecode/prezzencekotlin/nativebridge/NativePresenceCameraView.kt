@@ -279,7 +279,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
                 activity.runOnUiThread {
                     status.text = "Position your face in frame"
                     setMetrics(lastGoodMetrics ?: Metrics(false, 0, 0, 0, 0, 0))
-                    listener?.onStatus("No face detected yet")
+                    listener?.onStatus(if (lastGoodMetrics != null) "Tracking paused" else "Position face in frame")
                 }
                 bitmap.recycle()
                 return
@@ -291,6 +291,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
             activity.runOnUiThread {
                 status.text = "Camera presence captured"
                 setMetrics(metrics)
+                listener?.onStatus("Tracking active")
             }
             bitmap.recycle()
         } catch (error: Throwable) {

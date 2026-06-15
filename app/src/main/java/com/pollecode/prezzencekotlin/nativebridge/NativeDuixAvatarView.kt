@@ -124,7 +124,6 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 val dirs = withContext(Dispatchers.IO) {
                     ensureModelAvailable(modelName)
                 }
-                hideOverlay()
                 bindDuix(modelName, dirs.first, dirs.second)
                 preparedModelName = modelName
                 preparingModelName = null

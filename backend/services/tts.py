@@ -26,15 +26,15 @@ class TTSService:
         environment = os.getenv("ENVIRONMENT", os.getenv("APP_ENV", "development")).lower()
         if environment in {"production", "prod"} and self.storage_backend == "local":
             raise RuntimeError("TTS_STORAGE_BACKEND must be object storage in production, not local static/tts.")
-        self.default_voice = os.getenv("TTS_DEFAULT_VOICE", "en-US-AvaMultilingualNeural")
+        self.default_voice = os.getenv("TTS_DEFAULT_VOICE", "en-US-AvaNeural")
 
         # Default English voices by interviewer persona.
         self.voice_map = {
-            "friendly": os.getenv("TTS_VOICE_FRIENDLY", "en-US-AvaMultilingualNeural"),
-            "tough": os.getenv("TTS_VOICE_TOUGH", "en-US-AndrewMultilingualNeural"),
-            "neutral": os.getenv("TTS_VOICE_NEUTRAL", "en-US-EmmaMultilingualNeural"),
-            "technical": os.getenv("TTS_VOICE_TECHNICAL", "en-US-BrianMultilingualNeural"),
-            "executive": os.getenv("TTS_VOICE_EXECUTIVE", "en-US-AndrewMultilingualNeural"),
+            "friendly": os.getenv("TTS_VOICE_FRIENDLY", "en-US-AvaNeural"),
+            "tough": os.getenv("TTS_VOICE_TOUGH", "en-US-AndrewNeural"),
+            "neutral": os.getenv("TTS_VOICE_NEUTRAL", "en-US-EmmaNeural"),
+            "technical": os.getenv("TTS_VOICE_TECHNICAL", "en-US-BrianNeural"),
+            "executive": os.getenv("TTS_VOICE_EXECUTIVE", "en-US-AndrewNeural"),
         }
         self.voice_style_map = {
             "friendly": {"rate": "-5%", "pitch": "+3Hz"},

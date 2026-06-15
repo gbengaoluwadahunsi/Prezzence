@@ -3081,12 +3081,12 @@ fun PrezzenceInterviewRoomScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                             InterviewTopGlassLabel("Camera Presence Coach", cameraStatus)
-                            InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 66.dp))
+                            InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 10.dp))
                             Row(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(10.dp),
+                                    .padding(start = 10.dp, end = 10.dp, bottom = 52.dp),
                                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                             ) {
                                 PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
