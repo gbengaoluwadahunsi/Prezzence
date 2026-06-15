@@ -3068,15 +3068,40 @@ fun PrezzenceInterviewRoomScreen(
                                 if (answering && !processing) {
                                     Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
                                 } else {
-                                    // Increased height: 5:4 aspect ratio (taller than 4:3)
+                                    // Processing or listening: 5:4 aspect ratio
                                     Modifier.aspectRatio(4f / 5f)
                                 }
                             )
                             .clip(RoundedCornerShape(stageRadius))
                             .background(Color(0xFF050509))
-                            .border(1.dp, Accent.copy(alpha = if (answering && !processing && cameraCoachEnabled) 0.72f else 0.28f), RoundedCornerShape(stageRadius)),
+                            .border(1.dp, Accent.copy(alpha = when {
+                                processing -> 0.55f
+                                answering && cameraCoachEnabled -> 0.72f
+                                else -> 0.28f
+                            }), RoundedCornerShape(stageRadius)),
                     ) {
-                        if (answering && !processing && cameraCoachEnabled) {
+                        if (processing) {
+                            // Processing/transcribing state - clean centered indicator
+                            Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(
+                                        color = Accent,
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.size(36.dp),
+                                    )
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        processingStage.ifBlank { "Transcribing" },
+                                        color = TextPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        } else if (answering && cameraCoachEnabled) {
                             // Show camera coach for presence feedback
                             AndroidView(
                                 factory = { createCameraView() },
@@ -3098,30 +3123,37 @@ fun PrezzenceInterviewRoomScreen(
                                     ),
                             )
                             InterviewTopGlassLabel("Camera Presence Coach", cameraStatus)
-                            InterviewerChip(
-                                interviewerName,
-                                interviewerTitle,
-                                Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 10.dp),
-                            )
-                            // Presence metrics bar - positioned above interviewer chip
-                            Row(
+                            // Presence metrics row and interviewer chip in a single bottom container
+                            Column(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(start = 10.dp, end = 10.dp, bottom = 58.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
                             ) {
-                                PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
-                                PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
-                                PresenceMetricPill("Head", headStability, Modifier.weight(1f))
-                                PresenceMetricPill("Posture", posture, Modifier.weight(1f))
-                                PresenceMetricPill("Energy", expressionEnergy, Modifier.weight(1f))
+                                // Presence metrics bar
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
+                                    PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
+                                    PresenceMetricPill("Head", headStability, Modifier.weight(1f))
+                                    PresenceMetricPill("Posture", posture, Modifier.weight(1f))
+                                    PresenceMetricPill("Energy", expressionEnergy, Modifier.weight(1f))
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                // Interviewer chip - centered below metrics
+                                InterviewerChip(
+                                    interviewerName,
+                                    interviewerTitle,
+                                    Modifier.align(Alignment.Start),
+                                )
                             }
                         } else {
-                            // Show avatar (whether answering, processing, or listening)
+                            // Show avatar (whether answering or listening)
                             AndroidView(
                                 factory = { createAvatarView() },
-                                modifier = if (answering && !processing) {
+                                modifier = if (answering) {
                                     Modifier.fillMaxSize()
                                 } else {
                                     Modifier
@@ -3542,11 +3574,11 @@ private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = 
     }
     Column(
         modifier
-            .height(44.dp)
+            .height(46.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(Color.White.copy(alpha = 0.06f))
             .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 6.dp, vertical = 5.dp),
+            .padding(horizontal = 4.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -3554,11 +3586,13 @@ private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = 
             label.uppercase(java.util.Locale.US),
             color = TextSecondary,
             fontSize = 8.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.6.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.4.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(2.dp))
-        Text(display, color = scoreColor, fontSize = 14.sp, fontWeight = FontWeight.Black)
+        Text(display, color = scoreColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
