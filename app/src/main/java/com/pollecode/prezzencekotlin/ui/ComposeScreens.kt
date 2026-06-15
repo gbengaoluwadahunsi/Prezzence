@@ -2696,10 +2696,14 @@ fun PrezzenceEnteringRoomScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(color = TextPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(12.dp))
-                            Text("Preparing session...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("Preparing...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {
-                        Text("Join Interview", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Join Interview", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(10.dp))
+                            Text("→", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        }
                     }
                 }
             }
@@ -3010,13 +3014,6 @@ fun PrezzenceInterviewRoomScreen(
     cameraCoachEnabled: Boolean,
     recordingDuration: Int = 0,
     isRecording: Boolean = false,
-    faceMetric: Int = 0,
-    eyesMetric: Int = 0,
-    headMetric: Int = 0,
-    postureMetric: Int = 0,
-    energyMetric: Int = 0,
-    isAvatarLoading: Boolean = false,
-    isStartingAnswer: Boolean = false,
     createAvatarView: () -> View,
     createCameraView: () -> View,
     onExit: () -> Unit,
@@ -3076,7 +3073,6 @@ fun PrezzenceInterviewRoomScreen(
                             AndroidView(
                                 factory = { createCameraView() },
                                 modifier = Modifier.fillMaxSize(),
-                                update = { /* Don't recreate on recomposition */ }
                             )
                             InterviewTopGlassLabel("Camera Presence Coach", "Starting camera. Position your face in frame")
                             InterviewerChip(interviewerName, interviewerTitle, Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 66.dp))
@@ -3085,82 +3081,25 @@ fun PrezzenceInterviewRoomScreen(
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
                                     .padding(10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
                             ) {
-                                listOf(
-                                    "Face" to faceMetric,
-                                    "Eyes" to eyesMetric,
-                                    "Head" to headMetric,
-                                    "Posture" to postureMetric,
-                                    "Energy" to energyMetric,
-                                ).forEach { (label, value) ->
-                                    PresenceMetricPill(
-                                        label,
-                                        if (value > 0) value.toString() else "--",
-                                        Modifier.weight(1f),
-                                    )
+                                listOf("Face", "Eyes", "Head", "Posture", "Energy").forEach { label ->
+                                    PresenceMetricPill(label, "--", Modifier.weight(1f))
                                 }
                             }
-                        } else if (answering) {
-                            // Show avatar during answering when camera coach disabled
-                            if (isAvatarLoading) {
-                                // Show minimal loading state - just dark background with subtle pulse
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFF050509))
-                                        .clip(RoundedCornerShape(stageRadius))
-                                ) {
-                                    // Subtle pulse animation in center
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .align(Alignment.Center)
-                                            .clip(CircleShape)
-                                            .background(Accent.copy(alpha = 0.2f))
-                                    )
-                                }
-                            } else {
-                                AndroidView(
-                                    factory = { createAvatarView() },
-                                    modifier = Modifier.fillMaxSize(),
-                                    update = { /* Don't recreate on recomposition */ }
-                                )
-                            }
-                            InterviewerChip(
-                                interviewerName,
-                                interviewerTitle,
-                                Modifier.align(Alignment.BottomStart).padding(start = interviewerChipBottom, end = interviewerChipBottom, bottom = interviewerChipBottom),
-                            )
                         } else {
-                            // Show avatar while listening to question
-                            if (isAvatarLoading) {
-                                // Show minimal loading state
-                                Box(
+                            // Show avatar (whether answering or listening)
+                            AndroidView(
+                                factory = { createAvatarView() },
+                                modifier = if (answering) {
+                                    Modifier.fillMaxSize()
+                                } else {
                                     Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xFF050509))
-                                        .clip(RoundedCornerShape(stageRadius))
-                                ) {
-                                    // Subtle pulse animation in center
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .align(Alignment.Center)
-                                            .clip(CircleShape)
-                                            .background(Accent.copy(alpha = 0.2f))
-                                    )
-                                }
-                            } else {
-                                AndroidView(
-                                    factory = { createAvatarView() },
-                                    modifier = Modifier
                                         .fillMaxWidth()
                                         .height(maxHeight + avatarTopCrop)
-                                        .offset(y = -avatarTopCrop),
-                                    update = { /* Don't recreate on recomposition */ }
-                                )
-                            }
+                                        .offset(y = -avatarTopCrop)
+                                },
+                            )
                             InterviewerChip(
                                 interviewerName,
                                 interviewerTitle,
@@ -3183,14 +3122,7 @@ fun PrezzenceInterviewRoomScreen(
                                 InterviewSmallButton("Repeat", "repeat", Modifier.weight(1f), onRepeat, compact = compactWidth)
                                 InterviewSmallButton("Clarify", "clarify", Modifier.weight(1f), onClarify, compact = compactWidth)
                             }
-                            InterviewPrimaryButton(
-                                "Answer Now",
-                                "mic",
-                                onAnswerNow,
-                                Modifier.fillMaxWidth(),
-                                compact = compactWidth || compactHeight,
-                                enabled = !isStartingAnswer
-                            )
+                            InterviewPrimaryButton("Answer Now", "mic", onAnswerNow, Modifier.fillMaxWidth(), compact = compactWidth || compactHeight)
 
                             Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
                         }
@@ -3393,21 +3325,21 @@ private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier
 }
 
 @Composable
-private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false, enabled: Boolean = true) {
+private fun InterviewPrimaryButton(label: String, icon: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = Accent, compact: Boolean = false) {
     Row(
         modifier
             .height(if (compact) 52.dp else 56.dp)
             .clip(RoundedCornerShape(if (compact) 26.dp else 28.dp))
-            .background(if (enabled) color else color.copy(alpha = 0.5f))
-            .clickable(enabled = enabled, onClick = onClick)
+            .background(color)
+            .clickable(onClick = onClick)
             .padding(horizontal = if (compact) 20.dp else 28.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = if (enabled) TextPrimary else TextPrimary.copy(alpha = 0.6f), fontSize = if (compact) 15.sp else 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = TextPrimary, fontSize = if (compact) 15.sp else 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
         Canvas(Modifier.size(if (compact) 18.dp else 20.dp)) {
-            val c = if (enabled) TextPrimary else TextPrimary.copy(alpha = 0.6f)
+            val c = TextPrimary
             val s = Stroke(width = 2.4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             when (icon) {
                 "mic" -> {
@@ -3499,63 +3431,17 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
 }
 
 @Composable
-private fun AvatarLoadingSkeleton(modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(Color(0xFF050509)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            // Animated shimmer circle
-            Box(
-                Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.2f),
-                                Color.White.copy(alpha = 0.05f),
-                            ),
-                        ),
-                    ),
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Loading avatar...",
-                color = TextSecondary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
 private fun PresenceMetricPill(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-            .padding(vertical = 6.dp),
+            .height(38.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.06f)),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(label, color = TextSecondary, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
-        Spacer(Modifier.height(2.dp))
-        Text(
-            if (value == "--") "--" else value,
-            color = if (value == "--") TextSecondary else TextPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Black,
-        )
+        Text(label, color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
+        Text(value, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black)
     }
 }
 

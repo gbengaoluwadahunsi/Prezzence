@@ -71,8 +71,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private var playToken = AtomicInteger(0)
     private val duixSampleRate = 16_000
 
-    private val modelRoot = File(context.getExternalFilesDir("duix")?.apply { mkdirs() } ?: File(context.cacheDir, "duix/model"), "model").apply { mkdirs() }
-    private val cacheRoot = File(context.cacheDir, "duix-audio").apply { mkdirs() }
+    private val modelRoot = File(context.getExternalFilesDir("duix"), "model")
+    private val cacheRoot = File(context.cacheDir, "duix-audio")
     private val apiBase = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"
 
     init {
@@ -110,11 +110,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     ensureModelAvailable(modelName)
                 }
                 bindDuix(modelName, dirs.first, dirs.second)
-                // NOTE: Do NOT call listener?.onModelReady() here — bindDuix starts the
-                // render thread asynchronously; onModelReady fires from CALLBACK_EVENT_INIT_READY
-                // inside bindDuix when the renderer is actually ready to draw frames.
                 preparedModelName = modelName
                 preparingModelName = null
+                listener?.onModelReady(modelName)
             } catch (error: Throwable) {
                 preparingModelName = null
                 Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)
@@ -182,6 +180,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     runCatching { duix?.setVolume(1.0f) }
                     runCatching { duix?.startRandomMotion(false) }
                     textureView.requestRender()
+                    hideOverlay()
                     listener?.onModelReady(modelName)
                 }
                 Constant.CALLBACK_EVENT_INIT_ERROR -> {
@@ -522,13 +521,59 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         else -> "S"
     }
 
-    // No overlay - models load silently in background
     private fun showOverlay(text: String) {
-        // Do nothing - models load silently
+        mainHandler.post {
+            val existing = findViewWithTag<LinearLayout>("duixOverlay")
+            if (existing == null) {
+                val accent = Color.rgb(108, 99, 255)
+                addView(LinearLayout(context).apply {
+                    tag = "duixOverlay"
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(24), dp(24), dp(24), dp(24))
+                    setBackgroundColor(Color.rgb(8, 8, 14))
+                    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+                    addView(TextView(context).apply {
+                        this.text = displayInitialForModel()
+                        gravity = Gravity.CENTER
+                        textSize = 34f
+                        setTextColor(Color.WHITE)
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            shape = android.graphics.drawable.GradientDrawable.OVAL
+                            setColor(Color.rgb(30, 29, 48))
+                            setStroke(dp(2), accent)
+                        }
+                        layoutParams = LinearLayout.LayoutParams(dp(92), dp(92)).apply {
+                            bottomMargin = dp(16)
+                        }
+                    })
+                    addView(TextView(context).apply {
+                        this.text = text.ifBlank { "Preparing avatar" }
+                        gravity = Gravity.CENTER
+                        textSize = 15f
+                        setTextColor(Color.WHITE)
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    })
+                    addView(TextView(context).apply {
+                        this.text = "Loading interviewer model"
+                        gravity = Gravity.CENTER
+                        textSize = 12f
+                        setTextColor(Color.rgb(150, 150, 168))
+                        layoutParams = LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(6)
+                        }
+                    })
+                })
+            } else {
+                (existing.getChildAt(0) as? TextView)?.text = displayInitialForModel()
+                (existing.getChildAt(1) as? TextView)?.text = text.ifBlank { "Preparing avatar" }
+            }
+        }
     }
 
     private fun hideOverlay() {
-        // Do nothing - no overlay to hide
+        mainHandler.post { findViewWithTag<LinearLayout>("duixOverlay")?.let { removeView(it) } }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -568,14 +613,8 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             return baseDir to modelDir
         }
 
-        private fun modelRootFor(context: Context): File {
-            val externalDir = context.getExternalFilesDir("duix")
-            return if (externalDir != null) {
-                File(externalDir, "model").apply { mkdirs() }
-            } else {
-                File(context.cacheDir, "duix/model").apply { mkdirs() }
-            }
-        }
+        private fun modelRootFor(context: Context): File =
+            File(context.getExternalFilesDir("duix"), "model").apply { mkdirs() }
 
         private fun apiBaseStatic(): String =
             BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models/download/"

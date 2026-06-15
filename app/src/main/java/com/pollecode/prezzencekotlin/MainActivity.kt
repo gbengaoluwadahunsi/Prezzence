@@ -15,9 +15,6 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -126,22 +123,6 @@ class MainActivity : ComponentActivity() {
     private var recordingStartTime: Long = 0L
     private var recordingDuration: Int = 0
     private var recordingTimer: android.os.CountDownTimer? = null
-    private var recordingDurationState: androidx.compose.runtime.MutableState<Int>? = null
-    private var metricsState: androidx.compose.runtime.MutableState<MetricsSnapshot>? = null
-    private var cameraMetrics: Pair<String, Int>? = null
-    private var faceMetric: Int = 0
-    private var eyesMetric: Int = 0
-    private var headMetric: Int = 0
-    private var postureMetric: Int = 0
-    private var energyMetric: Int = 0
-
-    data class MetricsSnapshot(
-        val face: Int = 0,
-        val eyes: Int = 0,
-        val head: Int = 0,
-        val posture: Int = 0,
-        val energy: Int = 0,
-    )
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -164,9 +145,6 @@ class MainActivity : ComponentActivity() {
     private var onboardingMicError: String? = null
     private var continueToRoomAfterMicPermission = false
     private var suppressNativeAvatarForEntry = false
-    private var readyDuixModelName: String? = null
-    private var isAvatarLoading: Boolean = false
-    private var isStartingAnswer: Boolean = false
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -3325,7 +3303,7 @@ class MainActivity : ComponentActivity() {
                 PrezzenceEnteringRoomScreen(
                     isPanel = appState.interviewMode == InterviewMode.PANEL,
                     interviewers = interviewers.map { it.name to it.title },
-                    preparing = preparing && !isSessionReady,
+                    preparing = preparing && !isSessionReady, // Only show spinner while session/questions load
                     setupStatus = setupStatus,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
@@ -3333,7 +3311,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         
-        // Prepare backend session (fetch questions)
+        // Prepare backend session (fetch questions) - avatars will load on-demand during interview
         if (preparing && !isSessionReady) {
             prepareBackendSessionForEntering()
         }
@@ -3374,10 +3352,6 @@ class MainActivity : ComponentActivity() {
             showEnteringRoom(preparing = false, setupStatus = "Interview room prepared with the standard setup.")
             return
         }
-        
-        // Start preloading avatar models for current interviewers while backend session loads
-        preloadAvatarModelsForInterviewers()
-        
         scope.launch {
             try {
                 val remote = tryCreateSession()
@@ -3408,36 +3382,6 @@ class MainActivity : ComponentActivity() {
                 }
                 showSessionCreateError(e.reason)
             }
-        }
-    }
-
-    private fun preloadAvatarModelsForInterviewers() {
-        try {
-            val interviewers = if (appState.interviewMode == InterviewMode.PANEL) {
-                PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
-            } else {
-                listOf(appState.interviewerFor())
-            }
-            
-            // Preload models for all interviewers in background coroutine
-            scope.launch {
-                interviewers.forEach { interviewer ->
-                    try {
-                        // Create a temporary avatar view just to preload the model
-                        val preloadAvatar = NativeDuixAvatarView(this@MainActivity)
-                        preloadAvatar.prepareModel(interviewer.modelName)
-                        // Keep reference briefly to ensure model loads, then clean up
-                        // The model stays cached after this, so subsequent interviews load instantly
-                        Log.i("PrezzenceEntering", "Preloading avatar model: ${interviewer.modelName}")
-                    } catch (e: Exception) {
-                        Log.w("PrezzenceEntering", "Failed to preload avatar model: ${interviewer.modelName}", e)
-                        // Non-critical - model will load on-demand if preload fails
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("PrezzenceEntering", "Avatar preload setup failed", e)
-            // Non-critical - models will load on-demand if preload fails entirely
         }
     }
 
@@ -3520,54 +3464,27 @@ class MainActivity : ComponentActivity() {
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
         
-        // Start recording timer and metrics state if answering
+        // Start recording timer if answering
         if (answering) {
-            if (recordingStartTime == 0L) {
-                recordingStartTime = System.currentTimeMillis()
-                recordingDuration = 0
-            }
-            
-            // Only create timer once, don't call showInterview repeatedly
-            if (recordingTimer == null) {
-                recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 500) {
-                    override fun onTick(millisUntilFinished: Long) {
-                        recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                        recordingDurationState?.value = recordingDuration
-                    }
-                    override fun onFinish() {}
-                }.start()
-            }
-            
-            // Initialize Compose state for metrics if needed
-            if (metricsState == null) {
-                metricsState = androidx.compose.runtime.mutableStateOf(
-                    MetricsSnapshot(faceMetric, eyesMetric, headMetric, postureMetric, energyMetric)
-                )
-            }
+            recordingStartTime = System.currentTimeMillis()
+            recordingDuration = 0
+            recordingTimer?.cancel()
+            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 100) {
+                override fun onTick(millisUntilFinished: Long) {
+                    recordingDuration = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
+                    // Refresh screen to update timer display
+                    showInterview(answering = true)
+                }
+                override fun onFinish() {}
+            }.start()
         } else {
             recordingTimer?.cancel()
             recordingTimer = null
-            recordingStartTime = 0L
             recordingDuration = 0
-            recordingDurationState?.value = 0
-            metricsState = null
-            faceMetric = 0
-            eyesMetric = 0
-            headMetric = 0
-            postureMetric = 0
-            energyMetric = 0
         }
         
         setScreen(ComposeView(this).apply {
             setContent {
-                // Use remember for state that persists across recompositions
-                val recordingDurationRemembered = androidx.compose.runtime.remember { recordingDurationState ?: androidx.compose.runtime.mutableStateOf(recordingDuration) }
-                val metricsRemembered = androidx.compose.runtime.remember { metricsState ?: androidx.compose.runtime.mutableStateOf(MetricsSnapshot()) }
-                
-                // Update stored state references
-                recordingDurationState = recordingDurationRemembered
-                metricsState = metricsRemembered
-                
                 PrezzenceInterviewRoomScreen(
                     currentStep = appState.currentQuestionIndex + 1,
                     totalSteps = appState.questions().size,
@@ -3585,59 +3502,16 @@ class MainActivity : ComponentActivity() {
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
-                    recordingDuration = recordingDurationRemembered.value,
+                    recordingDuration = recordingDuration,
                     isRecording = answering && activeTranscriber != null,
-                    faceMetric = metricsRemembered.value.face,
-                    eyesMetric = metricsRemembered.value.eyes,
-                    headMetric = metricsRemembered.value.head,
-                    postureMetric = metricsRemembered.value.posture,
-                    energyMetric = metricsRemembered.value.energy,
-                    isAvatarLoading = isAvatarLoading,
-                    isStartingAnswer = isStartingAnswer,
                     createAvatarView = {
-                        // Container holds both avatar (underneath) and static card (on top)
-                        // Avatar must be in the view hierarchy so GLSurfaceView gets a window
-                        // and EGL context for proper Duix SDK initialization.
-                        val container = FrameLayout(this@MainActivity)
-
-                        // Static card sits on top until avatar renderer is ready
-                        // Declared before listener so it can be referenced in onModelReady
-                        val staticCard = interviewerReadyCard(interviewer)
-
-                        // Create avatar view and add it immediately (underneath the static card)
-                        val avatar = NativeDuixAvatarView(this@MainActivity).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.MATCH_PARENT,
-                                FrameLayout.LayoutParams.MATCH_PARENT
-                            )
-                            listener = object : NativeDuixAvatarView.Listener {
-                                override fun onModelReady(modelName: String) {
-                                    // Avatar renderer is ready — reveal it by removing static card overlay
-                                    Handler(Looper.getMainLooper()).post {
-                                        container.removeView(staticCard)
-                                        Log.i("PrezzenceAvatar", "Avatar model ready: $modelName — static card removed")
-                                    }
-                                }
-                                override fun onModelError(modelName: String, message: String?) {
-                                    // Avatar failed — keep showing static card
-                                    Log.w("PrezzenceAvatar", "Avatar failed to load: $message")
-                                }
-                            }
+                        if (suppressNativeAvatarForEntry) {
+                            suppressNativeAvatarForEntry = false
+                            interviewerReadyCard(interviewer)
+                        } else {
+                            runCatching { duixAvatarCard(interviewer, "speaking", true) }
+                                .getOrElse { interviewerReadyCard(interviewer) }
                         }
-                        container.addView(avatar)
-
-                        container.addView(staticCard)
-
-                        // Start model preparation in background
-                        scope.launch {
-                            try {
-                                avatar.setModelName(interviewer.modelName)
-                            } catch (e: Exception) {
-                                Log.e("PrezzenceAvatar", "Failed to start avatar loading", e)
-                            }
-                        }
-
-                        container
                     },
                     createCameraView = { cameraCoachCard(interviewer) },
                     onExit = { showHome() },
@@ -3893,8 +3767,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensurePermissionsThenAnswer() {
-        if (isStartingAnswer) return  // Prevent multiple clicks
-        
         val required = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (appState.cameraCoachEnabled) required.add(Manifest.permission.CAMERA)
         val needed = required.filter {
@@ -3905,29 +3777,7 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), 100)
             return
         }
-        beginAnswer()
-    }
-
-    private fun beginAnswer() {
-        if (isStartingAnswer) return
-        isStartingAnswer = true
-        
-        // Update UI to show loading state
         showInterview(true)
-        
-        // Start speech capture and recording
-        scope.launch {
-            try {
-                startSpeechCapture()
-                isStartingAnswer = false
-                // Update UI to show recording state
-                showInterview(true)
-            } catch (e: Exception) {
-                isStartingAnswer = false
-                Log.e("PrezzenceAnswer", "Error starting recording", e)
-                showAppToast("Recording error: ${e.message}", ToastKind.WARNING)
-            }
-        }
     }
 
     override fun onRequestPermissionsResult(
@@ -3971,22 +3821,16 @@ class MainActivity : ComponentActivity() {
         if (appState.cameraCoachEnabled && !cameraGranted) {
             showAppToast("Answering without camera coach until camera access is allowed.", ToastKind.WARNING)
         }
-        beginAnswer()
+        showInterview(true)
     }
 
     private fun finishAnswer(questionText: String) {
         val transcriber = activeTranscriber
         activeTranscriber = null
         currentAnswerResult = null
-        recordingTimer?.cancel()
-        recordingTimer = null
-        recordingStartTime = 0L
-        recordingDuration = 0
-        activeCamera = null
-        
         val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Processing answer", 28))
-        column.addView(body("Analyzing your response"))
+        column.addView(title("Transcribing", 28))
+        column.addView(body("Transcribing"))
         setScreen(column)
 
         scope.launch {
@@ -4006,45 +3850,24 @@ class MainActivity : ComponentActivity() {
             val result = if (localResult.score <= 15 && (remoteResult?.score ?: 0) > 20) {
                 localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
             } else if (remoteResult != null) {
+                // Use backend result, but fallback to local coaching if backend didn't provide one
                 remoteResult.copy(
                     coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
                 )
             } else {
                 localResult
             }
-            
+            // If both local and remote scoring failed, show timeout / save error
             if (result.score <= 5 && result.transcript.isBlank()) {
                 showProcessingTimeout()
                 return@launch
             }
-            
             appState.markAnswered(result.score, result.transcript)
             currentAnswerResult = result
             sessionAnswers.add(result)
             activeTranscript = ""
             speechError = ""
-            coachingMessage = result.coachingMessage
-            
-            // Skip result screen - go directly to next question (like React Native)
-            val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
-            appState.saveSessionAnswers(sessionId, sessionAnswers.toList())
-            sessionAnswers.clear()
-            val done = appState.advanceOrComplete()
-            
-            if (done) {
-                if (appState.authToken.isNotBlank() && appState.activeSessionId.isNotBlank()) {
-                    showHome()
-                } else {
-                    showSessionSaveError()
-                }
-            } else {
-                val nextColumn = baseColumn().apply { gravity = Gravity.CENTER }
-                nextColumn.addView(title("Preparing next question", 28))
-                nextColumn.addView(body("Loading the interviewer"))
-                setScreen(nextColumn)
-                prepareCurrentQuestionSpeech()
-                showInterview(false)
-            }
+            showResult()
         }
     }
 
@@ -4224,39 +4047,21 @@ class MainActivity : ComponentActivity() {
         val questionText = appState.currentQuestion().text
         val token = speechGenerationToken
         var speechQueued = false
-        
-        // Add placeholder/preview while avatar model loads
-        val placeholderView = View(this@MainActivity).apply {
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            setBackgroundColor(Color.rgb(20, 20, 35))
-        }
-        addView(placeholderView)
-        
         val avatar = NativeDuixAvatarView(this@MainActivity).apply avatarView@{
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
-                    readyDuixModelName = modelName
-                    isAvatarLoading = false
-                    // Hide placeholder when avatar is ready
-                    placeholderView.visibility = View.GONE
                     if (!live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
                 }
                 override fun onModelError(modelName: String, message: String?) {
-                    readyDuixModelName = modelName
-                    isAvatarLoading = false
-                    // Keep placeholder visible on error
-                    placeholderView.visibility = View.VISIBLE
                     showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)
                 }
             }
-            // Model loads silently in background without showing overlay
-            isAvatarLoading = true
             setModelName(interviewer.modelName)
         }
         activeAvatar = avatar
@@ -4281,29 +4086,6 @@ class MainActivity : ComponentActivity() {
         if (hasCameraPermission) {
             val camera = NativePresenceCameraView(this@MainActivity).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-                listener = object : NativePresenceCameraView.Listener {
-                    override fun onMetrics(metrics: NativePresenceCameraView.Metrics) {
-                        faceMetric = metrics.faceVisibility
-                        eyesMetric = metrics.eyeContact
-                        headMetric = metrics.headStability
-                        postureMetric = metrics.posture
-                        energyMetric = metrics.expressionEnergy
-                        // Update state WITHOUT recreating screen
-                        metricsState?.value = MetricsSnapshot(
-                            face = metrics.faceVisibility,
-                            eyes = metrics.eyeContact,
-                            head = metrics.headStability,
-                            posture = metrics.posture,
-                            energy = metrics.expressionEnergy
-                        )
-                    }
-                    override fun onStatus(message: String) {
-                        Log.i("PrezzenceCamera", message)
-                    }
-                    override fun onError(message: String) {
-                        showAppToast(message, ToastKind.WARNING)
-                    }
-                }
             }
             activeCamera = camera
             addView(camera)
