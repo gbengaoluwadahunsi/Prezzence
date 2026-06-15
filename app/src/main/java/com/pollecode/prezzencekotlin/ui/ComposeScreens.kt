@@ -2601,7 +2601,6 @@ fun PrezzenceEnteringRoomScreen(
     interviewers: List<Pair<String, String>>,
     preparing: Boolean,
     setupStatus: String,
-    isAvatarReady: Boolean = false,
     onBack: () -> Unit,
     onJoin: () -> Unit,
 ) {
@@ -2689,8 +2688,8 @@ fun PrezzenceEnteringRoomScreen(
                         .fillMaxWidth()
                         .height(62.dp)
                         .clip(RoundedCornerShape(31.dp))
-                        .background(Accent.copy(alpha = if (preparing || !isAvatarReady) 0.45f else 1f))
-                        .clickable(enabled = !preparing && isAvatarReady, onClick = onJoin),
+                        .background(Accent.copy(alpha = if (preparing) 0.45f else 1f))
+                        .clickable(enabled = !preparing, onClick = onJoin),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (preparing) {
@@ -2699,33 +2698,8 @@ fun PrezzenceEnteringRoomScreen(
                             Spacer(Modifier.width(12.dp))
                             Text("Preparing session...", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         }
-                    } else if (!isAvatarReady) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                                Text("Loading avatar", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                Text("0%", color = TextPrimary, fontSize = 14.sp)
-                            }
-                            // Progress bar - horizontal line filling up
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(3.dp)
-                                    .background(Color(0xFF2A2A3E), shape = RoundedCornerShape(2.dp))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(0.3f)
-                                        .background(Accent, shape = RoundedCornerShape(2.dp))
-                                )
-                            }
-                        }
                     } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Join Interview", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(10.dp))
-                            Text("→", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                        }
+                        Text("Join Interview", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

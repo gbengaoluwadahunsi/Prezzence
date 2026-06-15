@@ -110,9 +110,11 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     ensureModelAvailable(modelName)
                 }
                 bindDuix(modelName, dirs.first, dirs.second)
+                // NOTE: Do NOT call listener?.onModelReady() here — bindDuix starts the
+                // render thread asynchronously; onModelReady fires from CALLBACK_EVENT_INIT_READY
+                // inside bindDuix when the renderer is actually ready to draw frames.
                 preparedModelName = modelName
                 preparingModelName = null
-                listener?.onModelReady(modelName)
             } catch (error: Throwable) {
                 preparingModelName = null
                 Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)

@@ -166,9 +166,7 @@ class MainActivity : ComponentActivity() {
     private var suppressNativeAvatarForEntry = false
     private var readyDuixModelName: String? = null
     private var isAvatarLoading: Boolean = false
-    private var isAvatarReadyForEntering: Boolean = false  // Track if avatar is ready before joining
     private var isStartingAnswer: Boolean = false
-    private var preloadingAvatarView: NativeDuixAvatarView? = null  // Keep reference during preloading
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
@@ -3322,9 +3320,6 @@ class MainActivity : ComponentActivity() {
         // Check if backend session is ready (questions loaded)
         val isSessionReady = appState.activeSessionId.isNotBlank() && appState.questions().isNotEmpty()
         
-        // Reset avatar ready flag - it will be set when avatar loads
-        isAvatarReadyForEntering = false
-        
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceEnteringRoomScreen(
@@ -3332,7 +3327,6 @@ class MainActivity : ComponentActivity() {
                     interviewers = interviewers.map { it.name to it.title },
                     preparing = preparing && !isSessionReady,
                     setupStatus = setupStatus,
-                    isAvatarReady = isAvatarReadyForEntering,
                     onBack = { showHome() },
                     onJoin = { beginInterviewFromEntering() },
                 )
@@ -3342,37 +3336,6 @@ class MainActivity : ComponentActivity() {
         // Prepare backend session (fetch questions)
         if (preparing && !isSessionReady) {
             prepareBackendSessionForEntering()
-        }
-        
-        // Start avatar preloading immediately
-        preloadAvatarsForEnteringRoom(interviewers)
-    }
-    
-    private fun preloadAvatarsForEnteringRoom(interviewers: List<Interviewer>) {
-        // Create avatar immediately and keep it for interview
-        try {
-            val interviewer = interviewers.firstOrNull() ?: return
-            
-            preloadingAvatarView = NativeDuixAvatarView(this@MainActivity)
-            preloadingAvatarView?.listener = object : NativeDuixAvatarView.Listener {
-                override fun onModelReady(modelName: String) {
-                    isAvatarReadyForEntering = true
-                    Log.i("PrezzenceAvatarReady", "Avatar ready: $modelName")
-                }
-                override fun onModelError(modelName: String, message: String?) {
-                    // Allow join even if preload fails
-                    isAvatarReadyForEntering = true
-                    Log.w("PrezzenceAvatarError", "Avatar failed: $message")
-                }
-            }
-            
-            // Start model preparation
-            preloadingAvatarView?.setModelName(interviewer.modelName)
-            Log.i("PrezzenceAvatarLoading", "Starting avatar preload: ${interviewer.modelName}")
-            
-        } catch (e: Exception) {
-            Log.e("PrezzenceAvatarError", "Failed to start avatar preload", e)
-            isAvatarReadyForEntering = true  // Allow join anyway
         }
     }
 
@@ -3632,34 +3595,39 @@ class MainActivity : ComponentActivity() {
                     isAvatarLoading = isAvatarLoading,
                     isStartingAnswer = isStartingAnswer,
                     createAvatarView = {
-                        // Create a container view that will hold static card initially, then avatar when ready
+                        // Container holds both avatar (underneath) and static card (on top)
+                        // Avatar must be in the view hierarchy so GLSurfaceView gets a window
+                        // and EGL context for proper Duix SDK initialization.
                         val container = FrameLayout(this@MainActivity)
-                        
-                        // Show static interviewer card immediately (no blank screen)
+
+                        // Static card sits on top until avatar renderer is ready
+                        // Declared before listener so it can be referenced in onModelReady
                         val staticCard = interviewerReadyCard(interviewer)
-                        container.addView(staticCard)
-                        
-                        // Create avatar view
+
+                        // Create avatar view and add it immediately (underneath the static card)
                         val avatar = NativeDuixAvatarView(this@MainActivity).apply {
                             layoutParams = FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.MATCH_PARENT, 
+                                FrameLayout.LayoutParams.MATCH_PARENT,
                                 FrameLayout.LayoutParams.MATCH_PARENT
                             )
                             listener = object : NativeDuixAvatarView.Listener {
                                 override fun onModelReady(modelName: String) {
-                                    // Avatar loaded successfully - replace static card with avatar
+                                    // Avatar renderer is ready — reveal it by removing static card overlay
                                     Handler(Looper.getMainLooper()).post {
-                                        container.removeAllViews()
-                                        container.addView(this@apply)
+                                        container.removeView(staticCard)
+                                        Log.i("PrezzenceAvatar", "Avatar model ready: $modelName — static card removed")
                                     }
                                 }
                                 override fun onModelError(modelName: String, message: String?) {
-                                    // Avatar failed - keep showing static card
+                                    // Avatar failed — keep showing static card
                                     Log.w("PrezzenceAvatar", "Avatar failed to load: $message")
                                 }
                             }
                         }
-                        
+                        container.addView(avatar)
+
+                        container.addView(staticCard)
+
                         // Start model preparation in background
                         scope.launch {
                             try {
@@ -3668,7 +3636,7 @@ class MainActivity : ComponentActivity() {
                                 Log.e("PrezzenceAvatar", "Failed to start avatar loading", e)
                             }
                         }
-                        
+
                         container
                     },
                     createCameraView = { cameraCoachCard(interviewer) },
