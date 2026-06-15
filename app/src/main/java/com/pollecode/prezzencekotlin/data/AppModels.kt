@@ -139,6 +139,7 @@ object PrezzenceDefaults {
                 "Describe a technical tradeoff you made.",
                 "How do you explain technical work to non-technical people?",
             )
+
             else -> listOf(
                 "Please introduce yourself and give me a quick overview of your background.",
                 "Tell me about a time you handled a frustrated customer.",

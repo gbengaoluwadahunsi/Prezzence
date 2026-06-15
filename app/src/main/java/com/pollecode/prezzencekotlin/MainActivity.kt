@@ -4700,7 +4700,7 @@ class MainActivity : ComponentActivity() {
 
     private fun cameraCoachCard(interviewer: Interviewer) = FrameLayout(this).apply {
         background = rounded(Color.BLACK)
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(450)).apply {
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(320)).apply {
             setMargins(0, dp(10), 0, dp(10))
         }
         val hasCameraPermission = ContextCompat.checkSelfPermission(
@@ -4730,116 +4730,6 @@ class MainActivity : ComponentActivity() {
             }
             activeCamera = camera
             addView(camera)
-            
-            // Add scoring overlay at bottom
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, dp(70)).apply {
-                    gravity = Gravity.BOTTOM
-                }
-                setPadding(dp(16), dp(12), dp(16), dp(12))
-                setBackgroundColor(Color.argb(200, 30, 30, 40))
-                
-                // Face visibility
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "FACE"
-                        textSize = 11f
-                        setTextColor(Color.rgb(200, 200, 200))
-                        gravity = Gravity.CENTER
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${faceVisibilityState.value ?: 0}"
-                        textSize = 20f
-                        setTextColor(green)
-                        typeface = interBold
-                        gravity = Gravity.CENTER
-                    })
-                })
-                
-                // Eye contact
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "EYES"
-                        textSize = 11f
-                        setTextColor(Color.rgb(200, 200, 200))
-                        gravity = Gravity.CENTER
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${eyeContactState.value ?: 0}"
-                        textSize = 20f
-                        setTextColor(green)
-                        typeface = interBold
-                        gravity = Gravity.CENTER
-                    })
-                })
-                
-                // Head stability
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "HEAD"
-                        textSize = 11f
-                        setTextColor(Color.rgb(200, 200, 200))
-                        gravity = Gravity.CENTER
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${headStabilityState.value ?: 0}"
-                        textSize = 20f
-                        setTextColor(green)
-                        typeface = interBold
-                        gravity = Gravity.CENTER
-                    })
-                })
-                
-                // Posture
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "POSTURE"
-                        textSize = 11f
-                        setTextColor(Color.rgb(200, 200, 200))
-                        gravity = Gravity.CENTER
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${postureState.value ?: 0}"
-                        textSize = 20f
-                        setTextColor(green)
-                        typeface = interBold
-                        gravity = Gravity.CENTER
-                    })
-                })
-                
-                // Energy
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "ENERGY"
-                        textSize = 11f
-                        setTextColor(Color.rgb(200, 200, 200))
-                        gravity = Gravity.CENTER
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${expressionEnergyState.value ?: 0}"
-                        textSize = 20f
-                        setTextColor(green)
-                        typeface = interBold
-                        gravity = Gravity.CENTER
-                    })
-                })
-            })
         } else {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL

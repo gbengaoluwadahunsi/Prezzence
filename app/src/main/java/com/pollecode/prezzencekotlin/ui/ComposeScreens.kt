@@ -3137,12 +3137,12 @@ fun PrezzenceInterviewRoomScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+                                    .padding(start = 2.dp, end = 2.dp, bottom = 6.dp),
                             ) {
                                 // Presence metrics bar
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
                                     PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
                                     PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
