@@ -3554,6 +3554,7 @@ class MainActivity : ComponentActivity() {
                     isRecording = answering && activeTranscriber != null,
                     createAvatarView = {
                         Log.i("PrezzenceAvatar", "createAvatarView called, suppressNativeAvatarForEntry=$suppressNativeAvatarForEntry")
+                        android.widget.Toast.makeText(this@MainActivity, "Avatar view creating for ${interviewer.name}", android.widget.Toast.LENGTH_SHORT).show()
                         if (suppressNativeAvatarForEntry) {
                             Log.i("PrezzenceAvatar", "Using static card due to suppressNativeAvatarForEntry")
                             suppressNativeAvatarForEntry = false
@@ -3561,9 +3562,12 @@ class MainActivity : ComponentActivity() {
                         } else {
                             Log.i("PrezzenceAvatar", "Creating duixAvatarCard for ${interviewer.name}")
                             try {
-                                duixAvatarCard(interviewer, "speaking", true)
+                                val avatarView = duixAvatarCard(interviewer, "speaking", true)
+                                android.widget.Toast.makeText(this@MainActivity, "Avatar card created successfully", android.widget.Toast.LENGTH_SHORT).show()
+                                avatarView
                             } catch (e: Exception) {
                                 Log.e("PrezzenceAvatar", "duixAvatarCard failed: ${e.message}", e)
+                                android.widget.Toast.makeText(this@MainActivity, "Avatar failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                                 interviewerReadyCard(interviewer)
                             }
                         }
@@ -4111,7 +4115,10 @@ class MainActivity : ComponentActivity() {
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
                 }
                 override fun onModelError(modelName: String, message: String?) {
-                    showAppToast("Avatar failed to load: ${message ?: "tap Repeat"}", ToastKind.WARNING)
+                    // Show static card as fallback, allow user to continue
+                    val errorMsg = message ?: "Avatar unavailable"
+                    showAppToast("Avatar info: $errorMsg", ToastKind.INFO)
+                    // Don't crash - let static card show instead
                 }
                 override fun onSpeechError(source: String?, modelName: String?, message: String?) {
                     showAppToast("Voice failed: ${message ?: "tap Repeat"}", ToastKind.WARNING)

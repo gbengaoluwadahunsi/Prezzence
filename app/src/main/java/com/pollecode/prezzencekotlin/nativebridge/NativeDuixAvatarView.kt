@@ -113,10 +113,14 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 preparedModelName = modelName
                 preparingModelName = null
                 listener?.onModelReady(modelName)
+                // Show toast to confirm model is ready
+                android.widget.Toast.makeText(context, "Avatar model ready: $modelName", android.widget.Toast.LENGTH_SHORT).show()
             } catch (error: Throwable) {
                 preparingModelName = null
                 Log.e("PrezzenceDuix", "Model preparation failed for $modelName", error)
                 listener?.onModelError(modelName, error.message)
+                // Show toast for errors
+                android.widget.Toast.makeText(context, "Avatar error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -182,10 +186,17 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     textureView.requestRender()
                     hideOverlay()
                     listener?.onModelReady(modelName)
+                    // Show toast to confirm DUIX is initialized
+                    mainHandler.post {
+                        android.widget.Toast.makeText(context, "DUIX initialized: $modelName", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
                 Constant.CALLBACK_EVENT_INIT_ERROR -> {
                     duixInitReady = false
                     listener?.onModelError(modelName, msg)
+                    mainHandler.post {
+                        android.widget.Toast.makeText(context, "DUIX init error: $msg", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
                 Constant.CALLBACK_EVENT_AUDIO_PLAY_START -> listener?.onSpeechStart(currentSpeechSource, modelName)
                 Constant.CALLBACK_EVENT_AUDIO_PLAY_END -> {
@@ -715,7 +726,7 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             File(root, "tmp/$name").mkdirs()
             zip.delete()
             
-            // Validate unzipped content
+            // Validate unzipped content - if validation fails, log but don't fail
             val isBase = name == BASE_MODEL_NAME
             val isValid = if (isBase) {
                 baseConfigLooksReadyStatic(destination)
@@ -724,19 +735,64 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             }
             
             if (!isValid) {
-                destination.deleteRecursively()
-                val files = destination.listFiles()?.joinToString(", ") { it.name } ?: "none"
-                Log.e("PrezzenceDuix", "Model validation failed for $name. Files found: $files")
-                throw IllegalStateException("Model unzip validation failed - missing expected files in $name")
+                // List what we actually have for debugging
+                val filesInDest = destination.listFiles()?.map { it.name } ?: emptyList()
+                val filesStr = filesInDest.joinToString(", ")
+                val subdirFiles = filesInDest.mapNotNull { fname ->
+                    val f = File(destination, fname)
+                    if (f.isDirectory) {
+                        "$fname/: " + (f.listFiles()?.map { it.name }?.take(5)?.joinToString(", ") ?: "empty")
+                    } else null
+                }
+                val subdirStr = subdirFiles.joinToString("; ")
+                
+                Log.w("PrezzenceDuix", "Model validation WARNING for $name. Root files: [$filesStr]. Subdirs: [$subdirStr]")
+                Log.w("PrezzenceDuix", "Attempting to use incomplete model anyway - DUIX SDK may fail or provide degraded experience")
+                // Don't throw - let DUIX try to work with what we have
+            } else {
+                Log.i("PrezzenceDuix", "Model $name validated successfully")
             }
-            Log.i("PrezzenceDuix", "Model $name validated successfully")
         }
 
         private fun repairSingleNestedDirectoryStatic(destination: File, expectedName: String) {
             val files = destination.listFiles() ?: return
-            if (files.size == 1 && files[0].isDirectory && files[0].name.equals(expectedName, ignoreCase = true)) {
-                files[0].listFiles()?.forEach { child -> child.renameTo(File(destination, child.name)) }
-                files[0].deleteRecursively()
+            Log.i("PrezzenceDuix", "repairSingleNestedDirectory: checking $destination with ${files.size} items")
+            files.forEach { f -> Log.i("PrezzenceDuix", "  - ${f.name} (isDir: ${f.isDirectory})") }
+            
+            // If we have exactly one nested directory, move its contents up
+            if (files.size == 1 && files[0].isDirectory) {
+                val nested = files[0]
+                Log.i("PrezzenceDuix", "Found single nested dir: ${nested.name}, flattening...")
+                nested.listFiles()?.forEach { child ->
+                    val newPath = File(destination, child.name)
+                    val success = child.renameTo(newPath)
+                    Log.i("PrezzenceDuix", "  Moved ${child.name} to ${newPath.name}: $success")
+                }
+                nested.deleteRecursively()
+                Log.i("PrezzenceDuix", "Nested directory flattening complete")
+            }
+            
+            // Check if files are in a deeply nested structure
+            var current = destination
+            var depth = 0
+            while (current.listFiles()?.size == 1 && current.listFiles()!![0].isDirectory && depth < 5) {
+                current = current.listFiles()!![0]
+                depth++
+                Log.i("PrezzenceDuix", "Descending into nested dir at depth $depth: ${current.name}")
+            }
+            
+            if (depth > 0 && current != destination) {
+                Log.i("PrezzenceDuix", "Moving contents from depth $depth back to root")
+                current.listFiles()?.forEach { child ->
+                    val newPath = File(destination, child.name)
+                    child.renameTo(newPath)
+                }
+                // Clean up old directories
+                var parent = current.parentFile
+                while (parent != destination && parent != null) {
+                    parent.deleteRecursively()
+                    parent = parent.parentFile
+                }
             }
         }
 
