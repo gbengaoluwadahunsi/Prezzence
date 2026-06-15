@@ -3137,12 +3137,12 @@ fun PrezzenceInterviewRoomScreen(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                                    .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
                             ) {
                                 // Presence metrics bar
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                                 ) {
                                     PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
                                     PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
@@ -3170,11 +3170,6 @@ fun PrezzenceInterviewRoomScreen(
                                         .height(maxHeight + avatarTopCrop)
                                         .offset(y = -avatarTopCrop)
                                 },
-                            )
-                            InterviewerChip(
-                                interviewerName,
-                                interviewerTitle,
-                                Modifier.align(Alignment.BottomStart).padding(start = interviewerChipBottom, end = interviewerChipBottom, bottom = interviewerChipBottom),
                             )
                         }
                     }
@@ -3584,19 +3579,19 @@ private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = 
     Column(
         modifier
             .height(46.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.06f))
-            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 4.dp, vertical = 5.dp),
+            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 2.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
             label.uppercase(java.util.Locale.US),
             color = TextSecondary,
-            fontSize = 8.sp,
+            fontSize = 7.5.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.4.sp,
+            letterSpacing = 0.2.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

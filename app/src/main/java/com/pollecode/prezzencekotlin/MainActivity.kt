@@ -4075,17 +4075,15 @@ class MainActivity : ComponentActivity() {
         
         coachingMessage = result.coachingMessage
         
-        // Build the feedback overlay matching React Native design
         val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(173, 0, 0, 0)) // rgba(0,0,0,0.68)
-            setPadding(dp(12), dp(54), dp(12), dp(12))
+            setBackgroundColor(Color.argb(173, 0, 0, 0))
+            setPadding(dp(14), dp(60), dp(14), dp(14))
         }
         
-        // Main card
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(18, 18, 29), radius = 26, strokeColor = Color.argb(76, 108, 99, 255))
-            setPadding(0, dp(10), 0, 0)
+            background = rounded(Color.rgb(18, 18, 29), radius = 28, strokeColor = Color.argb(76, 108, 99, 255))
+            setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.BOTTOM
             }
@@ -4093,52 +4091,62 @@ class MainActivity : ComponentActivity() {
         
         // Drag handle
         card.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(42), dp(4)).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                setMargins(0, 0, 0, dp(2))
+                setMargins(0, dp(10), 0, dp(6))
             }
-            background = rounded(Color.argb(56, 255, 255, 255), radius = 2, strokeColor = Color.TRANSPARENT)
+            background = rounded(Color.argb(50, 255, 255, 255), radius = 2, strokeColor = Color.TRANSPARENT)
         })
         
         // Scrollable content
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-            isVerticalScrollBarEnabled = true
-            overScrollMode = View.OVER_SCROLL_ALWAYS
+            isVerticalScrollBarEnabled = false
             isNestedScrollingEnabled = true
+            clipToPadding = false
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(12))
+            setPadding(dp(18), dp(8), dp(18), dp(12))
         }
         
-        // ── Hero section: Score badge + feedback ──
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            background = rounded(Color.argb(30, 108, 99, 255), radius = 20, strokeColor = Color.argb(61, 108, 99, 255))
+        // ════════════════════════════════════════
+        // TITLE
+        // ════════════════════════════════════════
+        content.addView(TextView(this@MainActivity).apply {
+            text = "Answer result"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(14))
+        })
+        
+        // ════════════════════════════════════════
+        // HERO: Score row
+        // ════════════════════════════════════════
+        val hero = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, dp(12))
+                setMargins(0, 0, 0, dp(14))
             }
         }
         
-        // Score badge
         val scoreBadge = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(12), dp(8), dp(12))
-            background = rounded(Color.argb(199, 10, 10, 15), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(dp(86), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, dp(12), 0)
+            setPadding(0, dp(14), 0, dp(14))
+            background = rounded(Color.argb(199, 10, 10, 15), radius = 20, strokeColor = Color.argb(25, 255, 255, 255))
+            layoutParams = FrameLayout.LayoutParams(dp(96), dp(96)).apply {
+                gravity = Gravity.START
             }
         }
         scoreBadge.addView(TextView(this@MainActivity).apply {
             text = result.score.toString()
-            textSize = 42f
+            textSize = 48f
             setTextColor(accent)
             typeface = interBold
             gravity = Gravity.CENTER
-            letterSpacing = -0.04f
+            includeFontPadding = false
         })
         scoreBadge.addView(TextView(this@MainActivity).apply {
             text = "SCORE /100"
@@ -4146,67 +4154,66 @@ class MainActivity : ComponentActivity() {
             setTextColor(muted)
             typeface = interBold
             gravity = Gravity.CENTER
-            letterSpacing = 0.08f
-            setPadding(0, dp(2), 0, 0)
+            includeFontPadding = false
+            setPadding(dp(4), dp(2), dp(4), 0)
         })
         hero.addView(scoreBadge)
         
-        // Hero copy
-        val heroCopy = LinearLayout(this).apply {
+        // Feedback text positioned to the right of the score badge
+        hero.addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        heroCopy.addView(TextView(this@MainActivity).apply {
-            text = "Answer result"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            setPadding(0, 0, 0, dp(6))
+            setPadding(dp(16), dp(10), dp(0), dp(10))
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(96 + 16), dp(0), dp(0), dp(0))
+            }
+            addView(TextView(this@MainActivity).apply {
+                text = result.feedback
+                textSize = 12.5f
+                setTextColor(Color.argb(220, 255, 255, 255))
+                setLineSpacing(0f, 1.4f)
+                typeface = interRegular
+            })
         })
-        heroCopy.addView(TextView(this@MainActivity).apply {
-            text = result.feedback
-            textSize = 13f
-            setTextColor(Color.argb(216, 255, 255, 255))
-            setLineSpacing(0f, 1.35f)
-        })
-        hero.addView(heroCopy)
         content.addView(hero)
         
-        // ── Transcript box ──
+        // ════════════════════════════════════════
+        // TRANSCRIPT BOX
+        // ════════════════════════════════════════
         val transcriptBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = rounded(Color.argb(12, 255, 255, 255), radius = 18, strokeColor = Color.argb(18, 255, 255, 255))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, dp(12))
+                setMargins(0, 0, 0, dp(14))
             }
         }
         transcriptBox.addView(TextView(this@MainActivity).apply {
             text = "YOUR ANSWER"
-            textSize = 11f
-            setTextColor(Color.rgb(255, 209, 102)) // Yellow label
+            textSize = 10f
+            setTextColor(Color.rgb(255, 209, 102))
             typeface = interBold
-            letterSpacing = 0.09f
-            setPadding(0, 0, 0, dp(7))
+            setPadding(0, 0, 0, dp(6))
         })
         transcriptBox.addView(TextView(this@MainActivity).apply {
             text = result.transcript.ifBlank { "No clear transcript was captured for this answer." }
             textSize = 13f
-            setTextColor(Color.WHITE)
+            setTextColor(Color.argb(220, 255, 255, 255))
             setLineSpacing(0f, 1.45f)
-            typeface = interBold
+            typeface = interRegular
         })
         content.addView(transcriptBox)
         
-        // ── Improved answer box ──
+        // ════════════════════════════════════════
+        // IMPROVED ANSWER BOX
+        // ════════════════════════════════════════
         if (result.improvedAnswer.isNotBlank()) {
             val improvedBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(14), dp(14), dp(14))
-                background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
+                setPadding(dp(16), dp(12), dp(16), dp(14))
+                background = rounded(Color.argb(12, 255, 255, 255), radius = 18, strokeColor = Color.argb(18, 255, 255, 255))
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    setMargins(0, 0, 0, dp(12))
+                    setMargins(0, 0, 0, dp(14))
                 }
             }
             
@@ -4214,76 +4221,83 @@ class MainActivity : ComponentActivity() {
             val improvedHeader = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    setMargins(0, 0, 0, dp(8))
-                }
             }
             improvedHeader.addView(TextView(this@MainActivity).apply {
                 text = "STRONGER ANSWER"
-                textSize = 11f
+                textSize = 10f
                 setTextColor(accent)
                 typeface = interBold
-                letterSpacing = 0.09f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             improvedHeader.addView(TextView(this@MainActivity).apply {
-                text = " 🔊 Listen"
+                text = " Listen"
                 textSize = 10f
                 setTextColor(Color.WHITE)
                 typeface = interBold
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                background = rounded(accent, radius = 15, strokeColor = accent)
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+                background = rounded(accent, radius = 14, strokeColor = accent)
                 setOnClickListener { playCoachingAudio(result.improvedAnswer) }
             })
             improvedBox.addView(improvedHeader)
             
             improvedBox.addView(TextView(this@MainActivity).apply {
                 text = result.improvedAnswer
-                textSize = 13f
-                setTextColor(Color.rgb(231, 231, 243))
+                textSize = 12.5f
+                setTextColor(Color.rgb(220, 220, 240))
                 setLineSpacing(0f, 1.4f)
                 typeface = interRegular
+                setPadding(0, dp(8), 0, 0)
             })
             content.addView(improvedBox)
         }
         
-        // ── Presence summary ──
+        // ════════════════════════════════════════
+        // PRESENCE SUMMARY
+        // ════════════════════════════════════════
         content.addView(enhancedPresenceSummary(result))
         
-        // Action buttons container
+        scrollView.addView(content)
+        card.addView(scrollView)
+        
+        // ════════════════════════════════════════
+        // ACTION BUTTONS
+        // ════════════════════════════════════════
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(16), dp(12), dp(16), dp(16))
+            setPadding(dp(18), dp(14), dp(18), dp(18))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            gravity = Gravity.CENTER
         }
+        card.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (dp(1) * 0.5f).toInt())
+            setBackgroundColor(Color.argb(20, 255, 255, 255))
+        })
         
-        // Only show Retry if score < 70 (matching RN behavior)
         if (result.score < 70) {
             actions.addView(TextView(this@MainActivity).apply {
-                text = "↻  Retry question"
+                text = "Retry question"
                 textSize = 13f
                 setTextColor(Color.WHITE)
                 typeface = interBold
                 gravity = Gravity.CENTER
-                setPadding(dp(16), dp(12), dp(16), dp(12))
+                setPadding(dp(16), dp(13), dp(16), dp(13))
                 background = rounded(accent, radius = 22, strokeColor = accent)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
                     setMargins(0, 0, dp(10), 0)
                 }
                 setOnClickListener { showInterview(false) }
             })
         }
+        
         actions.addView(TextView(this@MainActivity).apply {
             text = "Continue"
             textSize = 13f
             setTextColor(Color.WHITE)
             typeface = interBold
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(20, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(if (result.score < 70) 0 else 0, 0, 0, 0)
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                if (result.score >= 70) setMargins(dp(30), 0, dp(30), 0)
             }
             setOnClickListener {
                 val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
@@ -4297,19 +4311,12 @@ class MainActivity : ComponentActivity() {
                         showSessionSaveError()
                     }
                 } else {
-                    // Prepare next question inline - update the interview screen
                     scope.launch { prepareCurrentQuestionSpeech() }
                     showInterview(false)
                 }
             }
         })
         
-        scrollView.addView(content)
-        card.addView(scrollView)
-        card.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
-            setBackgroundColor(Color.argb(20, 255, 255, 255))
-        })
         card.addView(actions)
         root.addView(card)
         setScreen(root)
