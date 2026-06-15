@@ -14,6 +14,11 @@ import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.content.res.ColorStateList
 import ai.guiji.duix.sdk.client.Constant
 import ai.guiji.duix.sdk.client.DUIX
 import ai.guiji.duix.sdk.client.render.DUIXRenderer
@@ -552,11 +557,21 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private fun showOverlay(progress: Int) {
         mainHandler.post {
             val existing = findViewWithTag<LinearLayout>("duixOverlay")
-            val messageText = "Since it's your first time using the app, let's take a while to set up the avatar once and for all."
+            val messageText = "Setting up 3D neural engine for first-time use. This takes a moment..."
             val progressText = "$progress%"
+            val phaseMessage = when (progress) {
+                in 0..15 -> "Initializing neural rendering pipeline..."
+                in 16..35 -> "Downloading 3D geometry & textures..."
+                in 36..55 -> "Extracting mesh structures & textures..."
+                in 56..75 -> "Decompressing skeletal rig & blendshapes..."
+                in 76..90 -> "Compiling shader graphic engines..."
+                in 91..99 -> "Calibrating real-time audio sync..."
+                else -> "Initializing 3D neural avatar..."
+            }
 
             if (existing == null) {
-                val accent = Color.rgb(108, 99, 255)
+                val accentColor = Color.rgb(108, 99, 255)
+                val cyberCyan = Color.rgb(26, 216, 166)
                 addView(LinearLayout(context).apply {
                     tag = "duixOverlay"
                     orientation = LinearLayout.VERTICAL
@@ -564,43 +579,85 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     setPadding(dp(32), dp(32), dp(32), dp(32))
                     setBackgroundColor(Color.rgb(8, 8, 14))
                     layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
-                    addView(TextView(context).apply {
-                        this.text = displayInitialForModel()
-                        gravity = Gravity.CENTER
-                        textSize = 34f
-                        setTextColor(Color.WHITE)
-                        typeface = android.graphics.Typeface.DEFAULT_BOLD
-                        background = android.graphics.drawable.GradientDrawable().apply {
-                            shape = android.graphics.drawable.GradientDrawable.OVAL
-                            setColor(Color.rgb(30, 29, 48))
-                            setStroke(dp(2), accent)
-                        }
-                        layoutParams = LinearLayout.LayoutParams(dp(92), dp(92)).apply {
-                            bottomMargin = dp(24)
+
+                    // 3D Avatar Compiling HUD Image
+                    val imageResId = context.resources.getIdentifier("avatar_compiling_hud", "drawable", context.packageName)
+                    if (imageResId != 0) {
+                        addView(ImageView(context).apply {
+                            tag = "avatarHudImage"
+                            setImageResource(imageResId)
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            layoutParams = LinearLayout.LayoutParams(dp(180), dp(180)).apply {
+                                bottomMargin = dp(24)
+                            }
+                            // Start pulsing micro-animation
+                            ObjectAnimator.ofFloat(this, "alpha", 0.5f, 1.0f).apply {
+                                duration = 1500
+                                repeatMode = ValueAnimator.REVERSE
+                                repeatCount = ValueAnimator.INFINITE
+                                start()
+                            }
+                        })
+                    }
+
+                    // Progress Bar
+                    addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        tag = "progressBar"
+                        max = 100
+                        setProgress(progress)
+                        progressTintList = ColorStateList.valueOf(accentColor)
+                        progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(30, 29, 48))
+                        layoutParams = LinearLayout.LayoutParams(dp(240), dp(6)).apply {
+                            bottomMargin = dp(12)
                         }
                     })
+
+                    // Progress Percentage Text
                     addView(TextView(context).apply {
+                        tag = "progressPercentage"
                         this.text = progressText
                         gravity = Gravity.CENTER
-                        textSize = 36f
+                        textSize = 24f
                         setTextColor(Color.WHITE)
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
                     })
+
+                    // Compilation Phase Message (Tech-Cyan)
                     addView(TextView(context).apply {
-                        this.text = messageText
+                        tag = "compilationPhase"
+                        this.text = phaseMessage
                         gravity = Gravity.CENTER
                         textSize = 14f
-                        setTextColor(Color.rgb(150, 150, 168))
-                        setLineSpacing(dp(4).toFloat(), 1f)
+                        setTextColor(cyberCyan)
+                        typeface = android.graphics.Typeface.MONOSPACE
                         layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                             topMargin = dp(16)
                         }
                     })
+
+                    // Disclaimer text
+                    addView(TextView(context).apply {
+                        tag = "disclaimerText"
+                        this.text = messageText
+                        gravity = Gravity.CENTER
+                        textSize = 12f
+                        setTextColor(Color.rgb(150, 150, 168))
+                        setLineSpacing(dp(4).toFloat(), 1f)
+                        layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(12)
+                        }
+                    })
                 })
             } else {
-                (existing.getChildAt(0) as? TextView)?.text = displayInitialForModel()
-                (existing.getChildAt(1) as? TextView)?.text = progressText
-                (existing.getChildAt(2) as? TextView)?.text = messageText
+                val progressBar = existing.findViewWithTag<ProgressBar>("progressBar")
+                val progressTextView = existing.findViewWithTag<TextView>("progressPercentage")
+                val phaseTextView = existing.findViewWithTag<TextView>("compilationPhase")
+                val disclaimerTextView = existing.findViewWithTag<TextView>("disclaimerText")
+
+                progressBar?.progress = progress
+                progressTextView?.text = progressText
+                phaseTextView?.text = phaseMessage
+                disclaimerTextView?.text = messageText
             }
         }
     }
