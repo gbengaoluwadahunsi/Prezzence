@@ -3009,6 +3009,8 @@ fun PrezzenceInterviewRoomScreen(
     panelInterviewers: List<Pair<String, String>> = emptyList(),
     questionText: String,
     answering: Boolean,
+    processing: Boolean = false,
+    processingStage: String = "",
     transcript: String,
     error: String,
     cameraCoachEnabled: Boolean,
@@ -3063,7 +3065,7 @@ fun PrezzenceInterviewRoomScreen(
                         Modifier
                             .fillMaxWidth()
                             .then(
-                                if (answering) {
+                                if (answering && !processing) {
                                     Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
                                 } else {
                                     // Increased height: 5:4 aspect ratio (taller than 4:3)
@@ -3072,9 +3074,9 @@ fun PrezzenceInterviewRoomScreen(
                             )
                             .clip(RoundedCornerShape(stageRadius))
                             .background(Color(0xFF050509))
-                            .border(1.dp, Accent.copy(alpha = if (answering && cameraCoachEnabled) 0.72f else 0.28f), RoundedCornerShape(stageRadius)),
+                            .border(1.dp, Accent.copy(alpha = if (answering && !processing && cameraCoachEnabled) 0.72f else 0.28f), RoundedCornerShape(stageRadius)),
                     ) {
-                        if (answering && cameraCoachEnabled) {
+                        if (answering && !processing && cameraCoachEnabled) {
                             // Show camera coach for presence feedback
                             AndroidView(
                                 factory = { createCameraView() },
@@ -3116,10 +3118,10 @@ fun PrezzenceInterviewRoomScreen(
                                 PresenceMetricPill("Energy", expressionEnergy, Modifier.weight(1f))
                             }
                         } else {
-                            // Show avatar (whether answering or listening)
+                            // Show avatar (whether answering, processing, or listening)
                             AndroidView(
                                 factory = { createAvatarView() },
-                                modifier = if (answering) {
+                                modifier = if (answering && !processing) {
                                     Modifier.fillMaxSize()
                                 } else {
                                     Modifier
@@ -3140,7 +3142,13 @@ fun PrezzenceInterviewRoomScreen(
                         InterviewSupportingPanelRow(panelInterviewers, interviewerName, compact = compactWidth || compactHeight)
                     }
 
-                    StatusStrip(if (answering) "YOU ARE SPEAKING" else "INTERVIEWER SPEAKING")
+                    StatusStrip(
+                        when {
+                            processing -> "PROCESSING"
+                            answering -> "YOU ARE SPEAKING"
+                            else -> "INTERVIEWER SPEAKING"
+                        }
+                    )
 
                     if (!answering) {
                         // No question text display - avatar speaks the question
@@ -3164,29 +3172,59 @@ fun PrezzenceInterviewRoomScreen(
                             .padding(start = if (compactWidth) 16.dp else 22.dp, end = if (compactWidth) 16.dp else 22.dp, top = 2.dp, bottom = if (compactHeight) 12.dp else 18.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        RecorderBar(recordingDuration = recordingDuration, isRecording = isRecording)
-                        
-                        // Coaching feedback display
-                        if (coachingMessage.isNotBlank()) {
-                            Text(
-                                coachingMessage,
-                                color = Color(0xFF00D68F),
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                fontWeight = FontWeight.Medium,
+                        if (processing) {
+                            // Processing/transcribing state - show animated indicator
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF00D68F).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                    .padding(14.dp),
-                            )
-                        }
-                        
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            InterviewSmallButton("Pause", "pause", Modifier.weight(0.85f), onPause, height = 54, compact = compactWidth)
-                            InterviewPrimaryButton("Finish", "check", onFinish, Modifier.weight(1.15f), Color(0xFFFF4757), compact = compactWidth)
-
+                                    .height(54.dp)
+                                    .clip(RoundedCornerShape(27.dp))
+                                    .background(Accent.copy(alpha = 0.18f))
+                                    .border(1.dp, Accent.copy(alpha = 0.40f), RoundedCornerShape(27.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = Accent,
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        processingStage.ifBlank { "Transcribing" },
+                                        color = TextPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        } else {
+                            RecorderBar(recordingDuration = recordingDuration, isRecording = isRecording)
+                            
+                            // Coaching feedback display
+                            if (coachingMessage.isNotBlank()) {
+                                Text(
+                                    coachingMessage,
+                                    color = Color(0xFF00D68F),
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF00D68F).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                        .padding(14.dp),
+                                )
+                            }
+                            
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                InterviewSmallButton("Pause", "pause", Modifier.weight(0.85f), onPause, height = 54, compact = compactWidth)
+                                InterviewPrimaryButton("Finish", "check", onFinish, Modifier.weight(1.15f), Color(0xFFFF4757), compact = compactWidth)
+                            }
                         }
                     }
                 }

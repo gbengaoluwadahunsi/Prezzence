@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
     private val faceVisibleState = androidx.compose.runtime.mutableStateOf(false)
     private val cameraStatusState = androidx.compose.runtime.mutableStateOf("Starting camera. Position your face in frame")
     private val cameraErrorState = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val processingAnswerState = androidx.compose.runtime.mutableStateOf(false)
+    private val processingStageState = androidx.compose.runtime.mutableStateOf("")
     private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
@@ -3545,23 +3547,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showInterview(answering: Boolean) {
-        coachingMessage = ""
-        faceVisibilityState.value = null
-        eyeContactState.value = null
-        headStabilityState.value = null
-        postureState.value = null
-        expressionEnergyState.value = null
-        faceVisibleState.value = false
-        cameraStatusState.value = "Starting camera. Position your face in frame"
-        cameraErrorState.value = null
-        presenceSamples.clear()
+    private fun showInterview(answering: Boolean, processing: Boolean = false) {
+        if (!processing) {
+            coachingMessage = ""
+            faceVisibilityState.value = null
+            eyeContactState.value = null
+            headStabilityState.value = null
+            postureState.value = null
+            expressionEnergyState.value = null
+            faceVisibleState.value = false
+            cameraStatusState.value = "Starting camera. Position your face in frame"
+            cameraErrorState.value = null
+            presenceSamples.clear()
+        }
 
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
         
-        // Start recording timer if answering
-        if (answering) {
+        // Start recording timer if answering (not when processing)
+        if (answering && !processing) {
             recordingStartTime = System.currentTimeMillis()
             recordingDurationState.intValue = 0
             recordingTimer?.cancel()
@@ -3571,7 +3575,7 @@ class MainActivity : ComponentActivity() {
                 }
                 override fun onFinish() {}
             }.start()
-        } else {
+        } else if (!answering) {
             recordingTimer?.cancel()
             recordingTimer = null
             recordingDurationState.intValue = 0
@@ -3593,11 +3597,13 @@ class MainActivity : ComponentActivity() {
                     },
                     questionText = question.text,
                     answering = answering,
+                    processing = processing,
+                    processingStage = processingStageState.value,
                     transcript = activeTranscript,
                     error = speechError,
                     cameraCoachEnabled = appState.cameraCoachEnabled,
                     recordingDuration = recordingDurationState.intValue,
-                    isRecording = answering && activeTranscriber != null,
+                    isRecording = answering && !processing && activeTranscriber != null,
                     createAvatarView = {
                         Log.i("PrezzenceAvatar", "createAvatarView called, suppressNativeAvatarForEntry=$suppressNativeAvatarForEntry")
                         android.widget.Toast.makeText(this@MainActivity, "Avatar view creating for ${interviewer.name}", android.widget.Toast.LENGTH_SHORT).show()
@@ -3635,7 +3641,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         })
-        if (answering) {
+        if (answering && !processing) {
             startSpeechCapture()
             scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
         }
@@ -3957,14 +3963,21 @@ class MainActivity : ComponentActivity() {
         showInterview(true)
     }
 
+    private fun refreshInterviewForProcessing() {
+        showInterview(answering = true, processing = true)
+    }
+
     private fun finishAnswer(questionText: String) {
         val transcriber = activeTranscriber
         activeTranscriber = null
         currentAnswerResult = null
-        val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Transcribing", 28))
-        column.addView(body("Transcribing"))
-        setScreen(column)
+        
+        // Stay on the interview screen and show processing state
+        recordingTimer?.cancel()
+        recordingTimer = null
+        processingAnswerState.value = true
+        processingStageState.value = "Transcribing"
+        refreshInterviewForProcessing()
 
         scope.launch {
             val capturedTranscript = withContext(Dispatchers.IO) {
@@ -3972,6 +3985,7 @@ class MainActivity : ComponentActivity() {
             }
             activeTranscript = capturedTranscript.ifBlank { activeTranscript }
             val transcript = activeTranscript.ifBlank { speechError }.ifBlank { "No clear speech was captured." }
+            processingStageState.value = "Transcribing"
             val localResult = backend.scoreLocalTranscript(questionText, transcript)
             val remoteResult = backend.scoreWithBackend(
                 bearerToken = appState.authToken.ifBlank { null },
@@ -3992,6 +4006,8 @@ class MainActivity : ComponentActivity() {
             }
             // If both local and remote scoring failed, show timeout / save error
             if (result.score <= 5 && result.transcript.isBlank()) {
+                processingAnswerState.value = false
+                processingStageState.value = ""
                 showProcessingTimeout()
                 return@launch
             }
@@ -4005,6 +4021,8 @@ class MainActivity : ComponentActivity() {
             sessionAnswers.add(finalResult)
             activeTranscript = ""
             speechError = ""
+            processingAnswerState.value = false
+            processingStageState.value = ""
             showResult()
         }
     }
