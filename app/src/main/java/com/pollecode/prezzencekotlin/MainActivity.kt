@@ -798,7 +798,13 @@ class MainActivity : ComponentActivity() {
                         appState.previewGender = gender
                     },
                     onIncludeTechnicalChange = { enabled -> onboardingIncludeTechnical = enabled },
-                    onEnableWebResearchChange = { enabled -> onboardingEnableWebResearch = enabled },
+                    onEnableWebResearchChange = { enabled ->
+                        if (enabled && !appState.subscriptionEntitled) {
+                            showAppToast("Company web research is a Pro feature.", ToastKind.WARNING)
+                            return@PrezzenceOnboardingRoleScreen
+                        }
+                        onboardingEnableWebResearch = enabled
+                    },
                     onContinue = { showMicPermission() },
                 )
             }
@@ -2359,6 +2365,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportSessionPdf(sessionId: String) {
+        if (!appState.subscriptionEntitled) {
+            showAppToast("PDF export is a Pro feature. Subscribe to unlock.", ToastKind.WARNING)
+            showPaywall()
+            return
+        }
         scope.launch {
             try {
                 val session = appState.sessionHistory().find { it.id == sessionId } ?: return@launch
@@ -2598,23 +2609,29 @@ class MainActivity : ComponentActivity() {
     private fun showPaywall() {
         val column = baseColumn()
         column.addView(backButton { showSettings() })
-        column.addView(title("Practice more deeply", 36))
-        column.addView(body("Pro is for candidates who want more sessions, stronger reports, company research, and advanced practice options."))
-        column.addView(card("Pro", "Final pricing appears through Google Play or App Store checkout."))
-        val benefits = listOf(
-            "Unlimited sessions",
-            "Role skills and leadership practice",
-            "More interviewer styles",
-            "Interview countdown plan",
-            "PDF export for session reports",
-            "Online company research",
-            "Deeper session reports and trend coaching",
-            "Higher usage limits for scoring and voice",
-        )
-        benefits.forEach { b -> column.addView(pill(b, accent)) }
+        column.addView(title("Upgrade to Pro", 36))
+        column.addView(body("Get unlimited interview practice, AI coaching, and advanced features."))
+        
+        if (appState.subscriptionEntitled) {
+            column.addView(card("You're a Pro member", "Thank you for subscribing! All features are unlocked."))
+        } else {
+            column.addView(card("Prezzence Pro", "Subscribe to unlock everything."))
+            val benefits = listOf(
+                "Unlimited interview sessions",
+                "All interviewers: Maya, Jonas, Sophia, Oliver, Lily",
+                "AI-powered scoring and deep coaching",
+                "Panel mode with multiple interviewers",
+                "Full session reports with radar charts",
+                "PDF export for session reports",
+                "Company web research",
+                "Interview countdown plan",
+            )
+            benefits.forEach { b -> column.addView(pill(b, accent)) }
+        }
+        
         column.addView(spacer(12))
         column.addView(card("Subscription details", "Your subscription is managed through Google Play. You can cancel anytime by visiting the Google Play Store app on this device."))
-        column.addView(primaryButton("Start Pro") { purchaseSubscription() })
+        column.addView(primaryButton(if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro") { purchaseSubscription() })
         column.addView(secondaryButton("Restore purchases") { restoreSubscription() })
         setScreen(scroll(column))
     }
@@ -3400,6 +3417,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showEnteringRoom(preparing: Boolean = true, setupStatus: String = "Preparing your questions and interview room.") {
+        // Free tier: limit to 3 completed sessions
+        if (!appState.subscriptionEntitled && appState.completedSessions >= 3) {
+            showAppToast("Free plan: 3 sessions/month. Upgrade to Pro for unlimited practice.", ToastKind.WARNING)
+            showPaywall()
+            return
+        }
         val interviewers = if (appState.interviewMode == InterviewMode.PANEL) {
             PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
         } else {

@@ -329,7 +329,7 @@ class AppState(context: Context) {
 
     fun sessionHistory(): List<SessionSummary> {
         val raw = prefs.getString("sessionHistory", "[]") ?: "[]"
-        return runCatching {
+        val all = runCatching {
             val array = JSONArray(raw)
             (0 until array.length()).map { index ->
                 val item = array.getJSONObject(index)
@@ -343,6 +343,8 @@ class AppState(context: Context) {
                 )
             }
         }.getOrDefault(emptyList())
+        // Free tier: only show last 5 sessions
+        return if (!subscriptionEntitled) all.takeLast(5) else all
     }
 
     fun deleteSession(id: String) {
