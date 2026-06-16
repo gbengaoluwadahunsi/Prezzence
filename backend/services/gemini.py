@@ -426,23 +426,29 @@ class GeminiService:
             4. Confidence: direct ownership, calm delivery, and no evasive filler.
             5. Knowledge: role-specific depth, tradeoffs, and sound judgment.
 
-            Score rigor:
-            - 90-100: hire/no-concerns answer with strong evidence and crisp structure.
-            - 75-89: solid answer with minor missing evidence or structure.
-            - 60-74: plausible but generic, light on metrics, ownership, or tradeoffs.
-            - 40-59: unclear, rambling, or weakly connected to the question.
-            - 0-39: non-answer, empty, incoherent, or technically unusable.
+            CRITICAL SCORING RULES — follow strictly to avoid grade inflation:
+            - 85-100: RARE. Only when the answer has concrete metrics, clear personal ownership,
+              and flawless structure. Do NOT award this to generic or vague answers.
+            - 65-84: Solid but missing at least one key element (no metric, weak ownership, or
+              shallow reasoning). This is where MOST decent answers should land.
+            - 40-64: Vague, rambling, uses filler, or avoids directly answering the question.
+            - 15-39: Mostly off-topic, incoherent, or just a few words with no substance.
+            - 0-14: Empty, "I don't know" with no attempt, or technically unusable audio.
+            DEFAULT assumption: start at 55 and move up ONLY when the answer proves it
+            deserves a higher score with specific evidence. Be skeptical, not generous.
 
             First, precisely transcribe the audio into text.
             Then provide scores, feedback, and one sharp follow-up question that a real interviewer would ask next.
             Feedback must cite the strongest evidence and the highest-leverage improvement.
-            Also rewrite the answer into a stronger interview-ready version.
-            The improved_answer must be a complete first-person answer the candidate could say aloud.
-            It must directly answer the question in full, not explain how to answer.
-            Use only real details from the candidate transcript. Do not invent facts and do not use bracketed
-            placeholders such as [specific project] or [specific metric]. If facts are missing, keep the
-            improved answer shorter and put the missing details in missing_evidence instead.
-            Do not write "A stronger answer would..." or coaching instructions inside improved_answer.
+            CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
+            Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
+            candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
+            seconds spoken aloud). Think about what a strong candidate WOULD say — use realistic, plausible
+            details: concrete metrics, specific actions, clear personal ownership, and measurable outcomes
+            that are credible for this role and industry. Do NOT reference the candidate's transcript. Do NOT
+            use bracketed placeholders like [specific project] — invent plausible, realistic specifics instead.
+            The improved_answer must directly answer the question in full as a complete spoken response.
+            Do not write "A stronger answer would..." or any coaching language inside improved_answer.
             Also teach the candidate how to improve: explain what information to include, how to structure it,
             and why that structure makes the answer stronger.
 
@@ -488,19 +494,26 @@ class GeminiService:
             4. Confidence: direct ownership, calm delivery, and no evasive filler.
             5. Knowledge: role-specific depth, tradeoffs, and sound judgment.
 
-            Use the same scoring rigor:
-            - 90-100: hire/no-concerns answer with strong evidence and crisp structure.
-            - 75-89: solid answer with minor missing evidence or structure.
-            - 60-74: plausible but generic, light on metrics, ownership, or tradeoffs.
-            - 40-59: unclear, rambling, or weakly connected to the question.
-            - 0-39: non-answer, empty, incoherent, or technically unusable.
+            CRITICAL SCORING RULES — follow strictly to avoid grade inflation:
+            - 85-100: RARE. Only when the answer has concrete metrics, clear personal ownership,
+              and flawless structure. Do NOT award this to generic or vague answers.
+            - 65-84: Solid but missing at least one key element (no metric, weak ownership, or
+              shallow reasoning). This is where MOST decent answers should land.
+            - 40-64: Vague, rambling, uses filler, or avoids directly answering the question.
+            - 15-39: Mostly off-topic, incoherent, or just a few words with no substance.
+            - 0-14: Empty, "I don't know" with no attempt, or technically unusable audio.
+            DEFAULT assumption: start at 55 and move up ONLY when the answer proves it
+            deserves a higher score with specific evidence. Be skeptical, not generous.
 
-            The improved_answer must be a complete first-person answer the candidate could say aloud.
-            It must directly answer the question in full, not explain how to answer.
-            Use only real details from the candidate answer. Do not invent facts and do not use bracketed
-            placeholders such as [specific project] or [specific metric]. If facts are missing, keep the
-            improved answer shorter and put the missing details in missing_evidence instead.
-            Do not write "A stronger answer would..." or coaching instructions inside improved_answer.
+            CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
+            Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
+            candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
+            seconds spoken aloud). Think about what a strong candidate WOULD say — use realistic, plausible
+            details: concrete metrics, specific actions, clear personal ownership, and measurable outcomes
+            that are credible for this role and industry. Do NOT reference or reuse the candidate's transcript.
+            Do NOT use bracketed placeholders like [specific project] — invent plausible, realistic specifics
+            instead. The improved_answer must directly answer the question in full as a complete spoken response.
+            Do not write "A stronger answer would..." or any coaching language inside improved_answer.
             Also teach the candidate how to improve: explain what information to include, how to structure it,
             and why that structure makes the answer stronger.
 

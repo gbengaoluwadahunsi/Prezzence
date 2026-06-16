@@ -90,10 +90,25 @@ class ClaudeService:
         4. Confidence: Does the answer sound assured and professional?
         5. Knowledge: Does the candidate demonstrate subject matter expertise?
 
-        Also return improved_answer as a complete first-person answer the candidate could say aloud.
-        It must directly answer the question in full, not explain how to answer.
-        Use only real details from the candidate answer. If key facts are missing, use concise placeholders
-        like [specific project], [specific action], [specific metric], or [business result] instead of inventing facts.
+        CRITICAL SCORING RULES — follow strictly to avoid grade inflation:
+        - 85-100: RARE. Only when the answer has concrete metrics, clear personal ownership,
+          and flawless structure. Do NOT award this to generic or vague answers.
+        - 65-84: Solid but missing at least one key element (no metric, weak ownership, or
+          shallow reasoning). This is where MOST decent answers should land.
+        - 40-64: Vague, rambling, uses filler, or avoids directly answering the question.
+        - 15-39: Mostly off-topic, incoherent, or just a few words with no substance.
+        - 0-14: Empty, "I don't know" with no attempt, or technically unusable.
+        DEFAULT assumption: start at 55 and move up ONLY when the answer proves it
+        deserves a higher score with specific evidence. Be skeptical, not generous.
+
+        CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
+        Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
+        candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
+        seconds spoken aloud). Use realistic, plausible details: concrete metrics, specific actions, clear
+        personal ownership, and measurable outcomes credible for this role and industry. Do NOT reference
+        or reuse the candidate's transcript. Do NOT use bracketed placeholders — invent plausible, realistic
+        specifics instead. The improved_answer must directly answer the question in full as a complete
+        spoken response. Do not include coaching language inside improved_answer.
         Also teach the candidate how to improve: explain what to include, how to structure it, and why it works.
 
         Return ONLY valid JSON, no markdown, no preamble:
