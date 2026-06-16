@@ -4486,7 +4486,7 @@ class MainActivity : ComponentActivity() {
                 sessionAnswers.clear()
                 val done = appState.advanceOrComplete()
                 if (done) {
-                    showHome(PrezzenceTab.PROGRESS)
+                    showSessionReport(sessionId)
                 } else {
                     scope.launch { prepareCurrentQuestionSpeech() }
                     showInterview(false)

@@ -3173,10 +3173,10 @@ fun PrezzenceInterviewRoomScreen(
                                     .background(
                                         Brush.verticalGradient(
                                             listOf(
-                                                Color.Black.copy(alpha = 0.35f),
+                                                Color.Black.copy(alpha = 0.60f),
                                                 Color.Transparent,
                                                 Color.Transparent,
-                                                Color.Black.copy(alpha = 0.50f),
+                                                Color.Black.copy(alpha = 0.75f),
                                             ),
                                         ),
                                     ),
@@ -3629,7 +3629,7 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
             .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.horizontalGradient(
-                    listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.55f)),
+                    listOf(Color.Black.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.70f)),
                 ),
             )
             .border(0.5.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
