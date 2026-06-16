@@ -4432,6 +4432,11 @@ class MainActivity : ComponentActivity() {
             content.addView(improvedBox)
         }
         
+        // ════════════════════════════════════════
+        // PRESENCE SUMMARY
+        // ════════════════════════════════════════
+        content.addView(enhancedPresenceSummary(result))
+        
         scrollView.addView(content)
         card.addView(scrollView)
         
