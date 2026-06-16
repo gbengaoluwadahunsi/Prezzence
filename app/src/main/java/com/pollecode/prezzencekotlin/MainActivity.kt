@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
-    private var remoteHistory: List<SessionSummary> = emptyList()
+    private val remoteHistoryState = androidx.compose.runtime.mutableStateOf<List<SessionSummary>>(emptyList())
     private var oauthCodeVerifier: String = ""
     private var passwordResetAccessToken: String = ""
     private var onboardingTrack: String = "job"
@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var unreadNotifications: Int = 0
-    private var practiceRemoteSessions: List<PracticeSessionItem> = emptyList()
+    private val practiceRemoteSessionsState = androidx.compose.runtime.mutableStateOf<List<PracticeSessionItem>>(emptyList())
     private var coachingMessage: String = ""
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -796,6 +796,10 @@ class MainActivity : ComponentActivity() {
                     onCompanyWebsiteChange = { companyWebsite -> onboardingCompanyWebsite = companyWebsite },
                     onCompanyContextChange = { companyContext -> onboardingCompanyContext = companyContext },
                     onInterviewerStyleChange = { style ->
+                        if (!appState.subscriptionEntitled && !style.equals("Balanced", ignoreCase = true)) {
+                            showAppToast("Only Balanced style is available on the Free plan. Upgrade to Pro for Supportive and Challenging styles.", ToastKind.WARNING)
+                            return@PrezzenceOnboardingRoleScreen
+                        }
                         onboardingInterviewerStyle = style
                         appState.interviewerStyle = style
                     },
@@ -858,7 +862,7 @@ class MainActivity : ComponentActivity() {
     private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME) {
         activeTab = tab
         val firstName = appState.userFullName.ifBlank { appState.userEmail.substringBefore('@') }.takeIf { it.isNotBlank() }
-        val history = if (remoteHistory.isNotEmpty()) remoteHistory else appState.sessionHistory()
+        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
         val questions = appState.questions()
         val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
             appState.currentQuestionIndex < questions.size
@@ -907,7 +911,7 @@ class MainActivity : ComponentActivity() {
                                 onNotifications = { showNotifications() },
                             )
                             PrezzenceTab.PRACTICE -> {
-                                val practiceSessions = practiceRemoteSessions.ifEmpty {
+                                val practiceSessions = practiceRemoteSessionsState.value.ifEmpty {
                                     history.map { s ->
                                         PracticeSessionItem(
                                             id = s.id, title = s.role, type = "interview",
@@ -920,11 +924,10 @@ class MainActivity : ComponentActivity() {
                                     onSessionTap = { sessionId -> showSessionReport(sessionId) },
                                     onDeleteSession = { sessionId ->
                                         scope.launch {
-                                            val deleted = backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
-                                            if (!deleted) appState.deleteSession(sessionId)
-                                            remoteHistory = remoteHistory.filterNot { it.id == sessionId }
-                                            practiceRemoteSessions = practiceRemoteSessions.filterNot { it.id == sessionId }
-                                            showHome(PrezzenceTab.PRACTICE)
+                                            backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
+                                            appState.deleteSession(sessionId)
+                                            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
+                                            practiceRemoteSessionsState.value = practiceRemoteSessionsState.value.filterNot { it.id == sessionId }
                                         }
                                     },
                                     onSelectMode = { modeId ->
@@ -934,7 +937,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             PrezzenceTab.PROGRESS -> {
-                                val historyItems = (if (remoteHistory.isNotEmpty()) remoteHistory else appState.sessionHistory())
+                                val historyItems = (if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory())
                                     .map { s ->
                                         SessionHistoryItem(id = s.id, role = s.role, score = s.score, date = s.date, answered = s.answered, total = s.total)
                                     }
@@ -955,10 +958,9 @@ class MainActivity : ComponentActivity() {
                                     onNewSession = { showOnboardingType() },
                                     onDeleteSession = { sessionId ->
                                         scope.launch {
-                                            val deleted = backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
-                                            if (!deleted) appState.deleteSession(sessionId)
-                                            remoteHistory = remoteHistory.filterNot { it.id == sessionId }
-                                            showHome(PrezzenceTab.PROGRESS)
+                                            backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
+                                            appState.deleteSession(sessionId)
+                                            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
                                         }
                                     },
                                 )
@@ -1026,11 +1028,11 @@ class MainActivity : ComponentActivity() {
         })
 
         // Lazy-fetch remote history for progress tab
-        if (appState.authToken.isNotBlank() && remoteHistory.isEmpty() && (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE)) {
+        if (appState.authToken.isNotBlank() && remoteHistoryState.value.isEmpty() && (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE)) {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
                 if (fetched.isNotEmpty()) {
-                    remoteHistory = fetched
+                    remoteHistoryState.value = fetched
                     showHome(tab)
                 }
             }
@@ -1212,7 +1214,6 @@ class MainActivity : ComponentActivity() {
             settingsRow("App Settings", "Wi-Fi only downloads", icon = SettingsIcon.Settings) { showAppSettings() },
             settingsRow("Resume / CV profile", "Tune questions with your resume", icon = SettingsIcon.File) { showResumeProfile() },
             settingsRow("Help & FAQ", "Search support topics and tutorials", icon = SettingsIcon.Help) { showHelp() },
-            settingsRow("Visual parity", "React Native route coverage", icon = SettingsIcon.Eye) { showVisualParity() },
         )))
         column.addView(spacer(8))
 
@@ -2615,30 +2616,195 @@ class MainActivity : ComponentActivity() {
     private fun showPaywall() {
         val column = baseColumn()
         column.addView(backButton { showSettings() })
-        column.addView(title("Upgrade to Pro", 36))
-        column.addView(body("Get unlimited interview practice, AI coaching, and advanced features."))
+        
+        // ── Hero section with star icon ──
+        column.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(16), 0, dp(8))
+            layoutParams = blockParams()
+            // Star icon
+            addView(LinearLayout(this@MainActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(72), dp(72)).apply { setMargins(0, 0, 0, dp(16)) }
+                gravity = Gravity.CENTER
+                background = rounded(Color.argb(30, 108, 99, 255), radius = 36, strokeColor = Color.argb(60, 108, 99, 255))
+                addView(TextView(this@MainActivity).apply {
+                    text = "\u2B50"
+                    textSize = 28f
+                    gravity = Gravity.CENTER
+                })
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Upgrade to Pro"
+                textSize = 30f
+                setTextColor(Color.WHITE)
+                typeface = interBold
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Unlock unlimited interview practice"
+                textSize = 14f
+                setTextColor(muted)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+            })
+        })
         
         if (appState.subscriptionEntitled) {
-            column.addView(card("You're a Pro member", "Thank you for subscribing! All features are unlocked."))
+            // Already subscribed state
+            column.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(32), dp(32), dp(32), dp(32))
+                background = rounded(Color.argb(12, 0, 214, 143), radius = 24, strokeColor = Color.argb(38, 0, 214, 143))
+                layoutParams = blockParams()
+                addView(TextView(this@MainActivity).apply {
+                    text = "\u2713"
+                    textSize = 36f
+                    setTextColor(green)
+                    gravity = Gravity.CENTER
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = "You're a Pro member"
+                    textSize = 22f
+                    setTextColor(Color.WHITE)
+                    typeface = interBold
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(12), 0, dp(4))
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = "All features are unlocked. Thank you for subscribing!"
+                    textSize = 14f
+                    setTextColor(Color.argb(180, 255, 255, 255))
+                    gravity = Gravity.CENTER
+                })
+            })
         } else {
-            column.addView(card("Prezzence Pro", "Subscribe to unlock everything."))
+            // ── Price card ──
+            column.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(24), dp(24), dp(24), dp(24))
+                background = rounded(Color.argb(12, 108, 99, 255), radius = 24, strokeColor = Color.argb(40, 108, 99, 255))
+                layoutParams = blockParams()
+                addView(TextView(this@MainActivity).apply {
+                    text = "$9.99"
+                    textSize = 48f
+                    setTextColor(Color.WHITE)
+                    typeface = interBold
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = "per month \u00B7 Cancel anytime"
+                    textSize = 13f
+                    setTextColor(muted)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(4), 0, 0)
+                })
+            })
+            
+            // ── What you get ──
+            column.addView(TextView(this@MainActivity).apply {
+                text = "WHAT YOU GET"
+                textSize = 11f
+                setTextColor(accent)
+                typeface = interBold
+                setPadding(0, dp(16), 0, dp(8))
+            })
+            
             val benefits = listOf(
-                "Unlimited interview sessions",
-                "All interviewers: Maya, Jonas, Sophia, Oliver, Lily",
-                "AI-powered scoring and deep coaching",
-                "Panel mode with multiple interviewers",
-                "Full session reports with radar charts",
-                "PDF export for session reports",
-                "Company web research",
-                "Interview countdown plan",
+                "Unlimited interview sessions" to "Practice as much as you need",
+                "All 5 interviewers" to "Maya, Jonas, Sophia, Oliver & Lily",
+                "AI-powered scoring" to "Deep coaching with improved answers",
+                "Panel mode" to "Multiple interviewers at once",
+                "Camera presence coach" to "Real-time face, eyes & posture scoring",
+                "Full session reports" to "Radar charts & PDF export",
+                "Company web research" to "Tailored questions for your target role",
             )
-            benefits.forEach { b -> column.addView(pill(b, accent)) }
+            benefits.forEach { (title, desc) ->
+                column.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                    background = rounded(Color.argb(8, 255, 255, 255), radius = 14)
+                    layoutParams = blockParams()
+                    addView(TextView(this@MainActivity).apply {
+                        text = "\u2713"
+                        textSize = 14f
+                        setTextColor(green)
+                        typeface = interBold
+                        setPadding(0, 0, dp(12), 0)
+                    })
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        addView(TextView(this@MainActivity).apply {
+                            text = title
+                            textSize = 14f
+                            setTextColor(Color.WHITE)
+                            typeface = interBold
+                            includeFontPadding = false
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            text = desc
+                            textSize = 12f
+                            setTextColor(muted)
+                            includeFontPadding = false
+                            setPadding(0, dp(2), 0, 0)
+                        })
+                    })
+                })
+                column.addView(spacer(4))
+            }
+            
+            // ── Free reminder ──
+            column.addView(spacer(8))
+            column.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = rounded(Color.argb(10, 255, 255, 255), radius = 16)
+                layoutParams = blockParams()
+                addView(TextView(this@MainActivity).apply {
+                    text = "Free plan: 3 sessions/month with Sophia"
+                    textSize = 12f
+                    setTextColor(Color.argb(180, 255, 255, 255))
+                    gravity = Gravity.CENTER
+                })
+            })
         }
         
-        column.addView(spacer(12))
-        column.addView(card("Subscription details", "Your subscription is managed through Google Play. You can cancel anytime by visiting the Google Play Store app on this device."))
-        column.addView(primaryButton(if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro") { purchaseSubscription() })
-        column.addView(secondaryButton("Restore purchases") { restoreSubscription() })
+        column.addView(spacer(16))
+        
+        // ── CTA Button ──
+        column.addView(LinearLayout(this).apply {
+            layoutParams = blockParams()
+            setPadding(dp(4), 0, dp(4), 0)
+            addView(TextView(this@MainActivity).apply {
+                text = if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro - $9.99 / month"
+                textSize = 17f
+                setTextColor(Color.WHITE)
+                typeface = interBold
+                gravity = Gravity.CENTER
+                setPadding(0, dp(16), 0, dp(16))
+                background = rounded(accent, radius = 28, strokeColor = accent)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
+                setOnClickListener { purchaseSubscription() }
+            })
+        })
+        
+        column.addView(spacer(10))
+        column.addView(TextView(this@MainActivity).apply {
+            text = "Restore purchases"
+            textSize = 14f
+            setTextColor(muted)
+            typeface = interMedium
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(24))
+            setOnClickListener { restoreSubscription() }
+        })
+        
         setScreen(scroll(column))
     }
 
@@ -2827,49 +2993,6 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private fun showVisualParity() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Visual parity", 34))
-        column.addView(body("Route-by-route coverage against the React Native app. Close/wired means the UI exists and actions are connected, but final 100% status still requires screenshot comparison on this device."))
-        visualParityRows().forEach { row ->
-            column.addView(card(row.first, "React Native: ${row.second}\nKotlin: ${row.third}"))
-        }
-        setScreen(scroll(column))
-    }
-
-    private fun visualParityRows(): List<Triple<String, String, String>> = listOf(
-        Triple("Splash / landing", "/", "Near replica / wired: Compose landing and auth navigation"),
-        Triple("Language", "/auth/language", "Functional / close: language selection saved locally"),
-        Triple("Sign in", "/auth/sign-in", "Near replica / wired: email/password, Google, forgot password"),
-        Triple("Sign up", "/auth/sign-up", "Near replica / wired: email signup, Google, verify panel, legal links"),
-        Triple("Forgot password", "/auth/forgot-password", "Near replica / wired: Supabase reset email"),
-        Triple("Reset password", "/auth/reset-password", "Close / wired: recovery deep link updates password"),
-        Triple("Verify / email confirmed", "/verify", "Close / wired: Android App Link opens verify screen"),
-        Triple("Home", "/(tabs)/home", "Functional / not full RN replica: start, questions, progress, settings, QA"),
-        Triple("Question selection", "/(tabs)/questions and /onboarding/role", "Functional / partial RN replica: role and question selection"),
-        Triple("Onboarding type", "/onboarding/type", "Close / wired: track and mode selection"),
-        Triple("Mic permission", "/onboarding/mic-permission", "Close / wired: Android permission flow"),
-        Triple("Interview setup", "/interview/entering", "Close / wired: creates backend session, uses RN persona images"),
-        Triple("Interview room", "/interview/speaking", "Functional / closer: avatar, cached TTS, mic, camera coach, panel support"),
-        Triple("Answer result", "/interview/speaking result state", "Functional / partial RN replica: scoring and continue/retry"),
-        Triple("Progress", "/(tabs)/progress", "Functional / not visually matched: local and remote history"),
-        Triple("Practice history", "/(tabs)/practice and /sessions", "Partial: history exists through progress screen"),
-        Triple("Session report", "/sessions/[sessionId]", "Partial: no dedicated report route"),
-        Triple("Profile", "/(tabs)/profile", "Functional / not visually matched: combined settings/profile surfaces"),
-        Triple("Settings", "/settings", "Functional / not visually matched"),
-        Triple("Account", "/settings/account", "Functional / not visually matched: sign out and delete"),
-        Triple("Notifications", "/profile/notifications and /settings/notifications", "Functional / not visually matched: fetch, mark read, delete"),
-        Triple("Resume / CV", "Profile resume card", "Functional / not visually matched: upload, text save, fetch, delete"),
-        Triple("Subscription", "/profile/subscription and /(modals)/paywall", "Functional / not visually matched: Google Play Billing wired"),
-        Triple("Privacy / Terms", "/profile/privacy, /settings/privacy, /legal/privacy, /legal/terms", "Functional / not visually matched: combined legal page"),
-        Triple("Feedback", "/feedback", "Functional / not visually matched: backend submit"),
-        Triple("Profile edit", "/profile/edit", "Missing dedicated route"),
-        Triple("Accessibility", "/settings/accessibility", "Missing dedicated route"),
-        Triple("Payment green", "/profile/payment-green", "Missing dedicated route"),
-        Triple("Help", "/profile/help", "Missing dedicated route"),
-        Triple("Device failure states", "/errors/*", "Partial: toasts, QA, and fallbacks; no dedicated RN error screens")
-    )
     private var privacyImprovementEnabled = true
     private var privacyRetentionEnabled = false
 
@@ -3059,7 +3182,7 @@ class MainActivity : ComponentActivity() {
 
     private fun showProgress() {
         val column = baseColumn()
-        val history = if (remoteHistory.isNotEmpty()) remoteHistory else appState.sessionHistory()
+        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
         column.addView(backButton { showHome() })
         column.addView(title("Progress", 36))
         column.addView(body(if (history.isEmpty()) {
@@ -3185,7 +3308,7 @@ class MainActivity : ComponentActivity() {
                                     setPositiveButton("Delete") { _, _ ->
                                         scope.launch {
                                             backend.deleteSession(appState.authToken, session.id)
-                                            remoteHistory = remoteHistory.filter { it.id != session.id }
+                                            remoteHistoryState.value = remoteHistoryState.value.filter { it.id != session.id }
                                             showProgress()
                                         }
                                     }
@@ -3203,18 +3326,18 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
                 if (fetched.isNotEmpty()) {
-                    remoteHistory = fetched
+                    remoteHistoryState.value = fetched
                 } else {
-                    remoteHistory = appState.sessionHistory()
+                    remoteHistoryState.value = appState.sessionHistory()
                 }
                 showProgress()
             }
         })
-        if (appState.authToken.isNotBlank() && remoteHistory.isEmpty()) {
+        if (appState.authToken.isNotBlank() && remoteHistoryState.value.isEmpty()) {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
                 if (fetched.isNotEmpty()) {
-                    remoteHistory = fetched
+                    remoteHistoryState.value = fetched
                     showProgress()
                 }
             }
@@ -3223,7 +3346,7 @@ class MainActivity : ComponentActivity() {
 
     private fun showAllHistory() {
         val column = baseColumn()
-        val history = if (remoteHistory.isNotEmpty()) remoteHistory else appState.sessionHistory()
+        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
         column.addView(backButton { showHome(PrezzenceTab.PRACTICE) })
         column.addView(TextView(this).apply {
             text = "${history.size} SESSIONS"
@@ -3331,7 +3454,7 @@ class MainActivity : ComponentActivity() {
                                     setPositiveButton("Delete") { _, _ ->
                                         scope.launch {
                                             backend.deleteSession(appState.authToken, session.id)
-                                            remoteHistory = remoteHistory.filter { it.id != session.id }
+                                            remoteHistoryState.value = remoteHistoryState.value.filter { it.id != session.id }
                                             showAllHistory()
                                         }
                                     }
@@ -3350,9 +3473,9 @@ class MainActivity : ComponentActivity() {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
                 if (fetched.isNotEmpty()) {
-                    remoteHistory = fetched
+                    remoteHistoryState.value = fetched
                 } else {
-                    remoteHistory = appState.sessionHistory()
+                    remoteHistoryState.value = appState.sessionHistory()
                 }
                 showAllHistory()
             }
@@ -3661,21 +3784,13 @@ class MainActivity : ComponentActivity() {
                     recordingDuration = recordingDurationState.intValue,
                     isRecording = answering && !processing && activeTranscriber != null,
                     createAvatarView = {
-                        Log.i("PrezzenceAvatar", "createAvatarView called, suppressNativeAvatarForEntry=$suppressNativeAvatarForEntry")
-                        android.widget.Toast.makeText(this@MainActivity, "Avatar view creating for ${interviewer.name}", android.widget.Toast.LENGTH_SHORT).show()
                         if (suppressNativeAvatarForEntry) {
-                            Log.i("PrezzenceAvatar", "Using static card due to suppressNativeAvatarForEntry")
                             suppressNativeAvatarForEntry = false
                             interviewerReadyCard(interviewer)
                         } else {
-                            Log.i("PrezzenceAvatar", "Creating duixAvatarCard for ${interviewer.name}")
                             try {
-                                val avatarView = duixAvatarCard(interviewer, "speaking", true)
-                                android.widget.Toast.makeText(this@MainActivity, "Avatar card created successfully", android.widget.Toast.LENGTH_SHORT).show()
-                                avatarView
+                                duixAvatarCard(interviewer, "speaking", true)
                             } catch (e: Exception) {
-                                Log.e("PrezzenceAvatar", "duixAvatarCard failed: ${e.message}", e)
-                                android.widget.Toast.makeText(this@MainActivity, "Avatar failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                                 interviewerReadyCard(interviewer)
                             }
                         }
@@ -4317,11 +4432,6 @@ class MainActivity : ComponentActivity() {
             content.addView(improvedBox)
         }
         
-        // ════════════════════════════════════════
-        // PRESENCE SUMMARY
-        // ════════════════════════════════════════
-        content.addView(enhancedPresenceSummary(result))
-        
         scrollView.addView(content)
         card.addView(scrollView)
         
@@ -4371,11 +4481,7 @@ class MainActivity : ComponentActivity() {
                 sessionAnswers.clear()
                 val done = appState.advanceOrComplete()
                 if (done) {
-                    if (appState.authToken.isNotBlank() && appState.activeSessionId.isNotBlank()) {
-                        showHome()
-                    } else {
-                        showSessionSaveError()
-                    }
+                    showHome(PrezzenceTab.PROGRESS)
                 } else {
                     scope.launch { prepareCurrentQuestionSpeech() }
                     showInterview(false)
@@ -5215,7 +5321,7 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     val deletedRemote = backend.deleteSession(appState.authToken.ifBlank { null }, session.id)
                     if (!deletedRemote) appState.deleteSession(session.id)
-                    remoteHistory = remoteHistory.filterNot { it.id == session.id }
+                    remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == session.id }
                     showProgress()
                 }
             },

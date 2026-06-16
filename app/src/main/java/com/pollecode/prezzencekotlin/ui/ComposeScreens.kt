@@ -3654,33 +3654,41 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
 @Composable
 private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = Modifier) {
     val display = value?.toString() ?: "--"
+    val interpretation = when {
+        value == null -> "Detecting..."
+        value >= 80 -> "Excellent"
+        value >= 60 -> "Good"
+        value >= 40 -> "Fair"
+        else -> "Needs work"
+    }
     val scoreColor = when {
         value == null -> TextSecondary
-        value >= 75 -> Color(0xFF00D68F)
-        value >= 50 -> Color(0xFFFFB347)
+        value >= 80 -> Color(0xFF00D68F)
+        value >= 60 -> Color(0xFF8BC34A)
+        value >= 40 -> Color(0xFFFFB347)
         else -> Color(0xFFFF3B6B)
     }
     Column(
         modifier
-            .height(44.dp)
+            .height(48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(Color.White.copy(alpha = 0.06f))
             .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 1.dp, vertical = 4.dp),
+            .padding(horizontal = 2.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
             label.uppercase(java.util.Locale.US),
             color = TextSecondary,
-            fontSize = 7.5.sp,
+            fontSize = 7.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.2.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
-        Text(display, color = scoreColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(1.dp))
+        Text(interpretation, color = scoreColor, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
