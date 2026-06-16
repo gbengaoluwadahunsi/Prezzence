@@ -66,7 +66,9 @@ class AppState(context: Context) {
 
     var interviewMode: InterviewMode
         get() = runCatching {
-            InterviewMode.valueOf(prefs.getString("interviewMode", InterviewMode.SINGLE.name) ?: InterviewMode.SINGLE.name)
+            val mode = InterviewMode.valueOf(prefs.getString("interviewMode", InterviewMode.SINGLE.name) ?: InterviewMode.SINGLE.name)
+            // Free tier: single mode only (Sophia)
+            if (!subscriptionEntitled && mode == InterviewMode.PANEL) InterviewMode.SINGLE else mode
         }.getOrDefault(InterviewMode.SINGLE)
         set(value) = prefs.edit().putString("interviewMode", value.name).apply()
 
@@ -200,6 +202,11 @@ class AppState(context: Context) {
     }
 
     fun interviewerFor(question: InterviewQuestion = currentQuestion()): Interviewer {
+        // Free tier: only Sophia (amina) is available
+        if (!subscriptionEntitled) {
+            return PrezzenceDefaults.interviewers.firstOrNull { it.id == "amina" }
+                ?: PrezzenceDefaults.interviewers.last()
+        }
         val selected = if (interviewMode == InterviewMode.SINGLE) {
             when (interviewerStyle.lowercase(Locale.US)) {
                 "supportive", "friendly", "warm", "encouraging" -> "maya"

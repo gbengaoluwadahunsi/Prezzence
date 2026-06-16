@@ -779,6 +779,10 @@ class MainActivity : ComponentActivity() {
                     onIndustryChange = { industry -> onboardingIndustry = industry },
                     onSeniorityChange = { seniority -> onboardingSeniority = seniority },
                     onInterviewModeChange = { mode ->
+                        if (mode.equals("Panel", ignoreCase = true) && !appState.subscriptionEntitled) {
+                            showAppToast("Panel interviews are a Pro feature. Subscribe to unlock all interviewers.", ToastKind.WARNING)
+                            return@PrezzenceOnboardingRoleScreen
+                        }
                         appState.interviewMode = if (mode.equals("Panel", ignoreCase = true)) InterviewMode.PANEL else InterviewMode.SINGLE
                     },
                     onDifficultyChange = { difficulty -> onboardingDifficulty = difficulty },
