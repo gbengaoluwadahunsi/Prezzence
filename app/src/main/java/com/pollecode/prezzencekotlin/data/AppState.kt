@@ -137,7 +137,12 @@ class AppState(context: Context) {
         set(value) = prefs.edit().putString("activeSessionId", value).apply()
 
     var subscriptionEntitled: Boolean
-        get() = prefs.getBoolean("subscriptionEntitled", false)
+        get() {
+            // Test user override - always Pro
+            val email = userEmail.lowercase().trim()
+            if (email == "gbengaoluwadahunsicodes@gmail.com" || email == "gbengaoluwadahunsicode@gmail.com") return true
+            return prefs.getBoolean("subscriptionEntitled", false)
+        }
         set(value) = prefs.edit().putBoolean("subscriptionEntitled", value).apply()
 
     var subscriptionStatus: String

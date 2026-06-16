@@ -721,6 +721,12 @@ class MainActivity : ComponentActivity() {
                     selectedTrack = onboardingTrack,
                     onBack = { showLanding() },
                     onSelectTrack = { track ->
+                        // Free tier: only "job" track available
+                        if (!appState.subscriptionEntitled && !track.equals("job", ignoreCase = true)) {
+                            showAppToast("Only the Job Interview track is available on the Free plan. Upgrade to Pro for all tracks.", ToastKind.WARNING)
+                            showPaywall()
+                            return@PrezzenceOnboardingTypeScreen
+                        }
                         onboardingTrack = track
                         appState.interviewMode = if (track == "leadership") InterviewMode.PANEL else InterviewMode.SINGLE
                         applyTrackDefaults(track)
