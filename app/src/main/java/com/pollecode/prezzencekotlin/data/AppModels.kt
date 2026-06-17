@@ -49,6 +49,7 @@ data class AnswerResult(
     val coachingFeedback: String = "",
     val coachingMessage: String = "",
     val presenceMetrics: PresenceMetrics? = null,
+    val retryRequired: Boolean = false,
 )
 
 data class SessionSummary(

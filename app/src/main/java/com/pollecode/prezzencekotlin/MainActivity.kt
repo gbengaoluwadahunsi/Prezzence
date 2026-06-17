@@ -60,6 +60,7 @@ import com.pollecode.prezzencekotlin.data.SessionSummary
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
 import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
 import com.pollecode.prezzencekotlin.nativebridge.NativeSpeechTranscriber
+import com.pollecode.prezzencekotlin.nativebridge.SpeechCaptureResult
 import com.pollecode.prezzencekotlin.qa.DeviceQaResult
 import com.pollecode.prezzencekotlin.qa.DeviceQaRunner
 import com.pollecode.prezzencekotlin.ui.PrezzenceEnteringRoomScreen
@@ -1557,20 +1558,22 @@ class MainActivity : ComponentActivity() {
         setScreen(scroll(column))
     }
 
-    private fun showProcessingTimeout() {
+    private fun showAnswerRetryRequired(message: String) {
         val column = baseColumn()
-        column.addView(headerWithHome("Processing Timeout") { showProcessingTimeout() })
+        column.addView(headerWithHome("Answer Not Processed") { showAnswerRetryRequired(message) })
         column.addView(progressSegments(3, 7))
-        column.addView(title("Still processing.", 34))
-        column.addView(body("This is taking longer than usual."))
-        // Avatar stage
-        column.addView(avatarStageHero())
-        // Action card
+        column.addView(title("We couldn't process your answer.", 34))
+        column.addView(body(message))
         column.addView(label("WHAT YOU CAN DO"))
-        column.addView(errorItemRow("R", "Retry analysis", "Recommended", green))
-        column.addView(errorItemRow("S", "Skip scoring", "Ready", accent))
+        column.addView(body("Speak for at least a few seconds, hold the phone close to your mouth, and answer in a quiet place."))
         column.addView(spacer(8))
-        column.addView(primaryButton("Continue Waiting") { showHome() })
+        column.addView(primaryButton("Retry question") {
+            activeTranscript = ""
+            speechError = ""
+            showInterview(answering = false)
+        })
+        column.addView(spacer(8))
+        column.addView(secondaryButton("Go home") { showHome() })
         setScreen(scroll(column))
     }
 
@@ -3814,6 +3817,16 @@ class MainActivity : ComponentActivity() {
                 )
             }
         })
+        if (!processing) {
+            scope.launch(Dispatchers.IO) {
+                NativeSpeechTranscriber(
+                    context = this@MainActivity,
+                    onPartial = {},
+                    onFinal = {},
+                    onError = {},
+                ).warmupWhisperModel()
+            }
+        }
         if (answering && !processing) {
             startSpeechCapture()
             scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
@@ -4144,6 +4157,7 @@ class MainActivity : ComponentActivity() {
         val transcriber = activeTranscriber
         activeTranscriber = null
         currentAnswerResult = null
+        val capturedSpeechError = speechError
         
         // Stay on the interview screen and show processing state
         recordingTimer?.cancel()
@@ -4163,13 +4177,15 @@ class MainActivity : ComponentActivity() {
                     processingProgressState.intValue = p
                 }
             }
-            val capturedTranscript = withContext(Dispatchers.IO) {
-                transcriber?.stop(appState.language).orEmpty()
+            val capture = withContext(Dispatchers.IO) {
+                transcriber?.stop(appState.language) ?: SpeechCaptureResult("")
             }
             progressJob.cancel()
             processingProgressState.intValue = 95
-            activeTranscript = capturedTranscript.ifBlank { activeTranscript }
-            val transcript = activeTranscript.ifBlank { speechError }.ifBlank { "No clear speech was captured." }
+            activeTranscript = capture.transcript.ifBlank { activeTranscript }
+            val rawTranscript = activeTranscript.trim()
+            val hadCapturableSpeech = !NativeSpeechTranscriber.isPlaceholderTranscript(rawTranscript)
+            val transcript = rawTranscript.ifBlank { capturedSpeechError }.ifBlank { "No clear speech was captured." }
             processingStageState.value = "Analyzing answer"
             processingProgressState.intValue = 97
             val localResult = backend.scoreLocalTranscript(questionText, transcript)
@@ -4178,24 +4194,45 @@ class MainActivity : ComponentActivity() {
                 sessionId = appState.activeSessionId,
                 questionId = appState.currentQuestionIndex + 1,
                 questionText = questionText,
-                transcript = transcript,
+                transcript = if (hadCapturableSpeech) transcript else "",
+                audioBase64 = capture.audioBase64,
+                audioDurationSeconds = capture.audioDurationSeconds,
             )
-            val result = if (localResult.score <= 15 && (remoteResult?.score ?: 0) > 20) {
-                localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
-            } else if (remoteResult != null) {
-                // Use backend result, but fallback to local coaching if backend didn't provide one
-                remoteResult.copy(
-                    coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
+            val backendRecovered = remoteResult != null &&
+                !remoteResult.retryRequired &&
+                !NativeSpeechTranscriber.isPlaceholderTranscript(remoteResult.transcript)
+            val result = when {
+                backendRecovered -> {
+                    remoteResult!!.copy(
+                        coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
+                    )
+                }
+                hadCapturableSpeech && remoteResult != null && remoteResult.retryRequired -> localResult.copy(
+                    feedback = remoteResult.feedback.ifBlank { localResult.feedback },
+                    coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage },
                 )
-            } else {
-                localResult
+                localResult.score <= 15 && (remoteResult?.score ?: 0) > 20 -> {
+                    localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
+                }
+                remoteResult != null -> {
+                    remoteResult.copy(
+                        coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
+                    )
+                }
+                else -> localResult
             }
-            // If both local and remote scoring failed, show timeout / save error
-            if (result.score <= 5 && result.transcript.isBlank()) {
+            val needsRetry = !backendRecovered && (
+                !hadCapturableSpeech ||
+                result.retryRequired ||
+                NativeSpeechTranscriber.isPlaceholderTranscript(result.transcript)
+            )
+            if (needsRetry) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
-                showProcessingTimeout()
+                val message = result.feedback.ifBlank { capturedSpeechError }
+                    .ifBlank { "We could not detect a clear answer. Please speak closer to the microphone and try again." }
+                showAnswerRetryRequired(message)
                 return@launch
             }
             

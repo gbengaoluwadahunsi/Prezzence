@@ -12,10 +12,18 @@ import android.speech.SpeechRecognizer
 import com.pollecode.prezzencekotlin.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+
+data class SpeechCaptureResult(
+    val transcript: String,
+    val audioBase64: String? = null,
+    val audioDurationSeconds: Int = 0,
+)
 
 class NativeSpeechTranscriber(
     private val context: Context,
@@ -86,14 +94,14 @@ class NativeSpeechTranscriber(
         recognizer?.startListening(intent)
     }
 
-    fun stop(languageTag: String = "en-US"): String {
+    fun stop(languageTag: String = "en-US"): SpeechCaptureResult {
         if (BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) return stopWhisperCapture(languageTag)
         val text = latestText
         runCatching { recognizer?.stopListening() }
         runCatching { recognizer?.cancel() }
         runCatching { recognizer?.destroy() }
         recognizer = null
-        return text
+        return SpeechCaptureResult(transcript = text)
     }
 
     private fun startWhisperCapture() {
@@ -151,7 +159,7 @@ class NativeSpeechTranscriber(
         }
     }
 
-    private fun stopWhisperCapture(languageTag: String): String {
+    private fun stopWhisperCapture(languageTag: String): SpeechCaptureResult {
         recording.set(false)
         runCatching { recorder?.stop() }
         runCatching { recordingThread?.join(1500) }
@@ -160,14 +168,29 @@ class NativeSpeechTranscriber(
         recordingThread = null
 
         val samples = synchronized(pcmLock) { pcmSamples.toFloatArray() }
+        val durationSeconds = (samples.size / WHISPER_SAMPLE_RATE.toFloat()).toInt().coerceAtLeast(0)
+        val audioBase64 = if (samples.size >= WHISPER_SAMPLE_RATE / 2) {
+            encodePcmToWavBase64(samples, WHISPER_SAMPLE_RATE)
+        } else {
+            null
+        }
+
         if (samples.size < WHISPER_SAMPLE_RATE / 2) {
             onError("No clear speech was captured.")
-            return latestText
+            return SpeechCaptureResult(
+                transcript = latestText,
+                audioBase64 = audioBase64,
+                audioDurationSeconds = durationSeconds,
+            )
         }
 
         val modelPath = runCatching { ensureWhisperModel() }.getOrElse { error ->
             onError(error.message ?: "Whisper model is not available.")
-            return latestText
+            return SpeechCaptureResult(
+                transcript = latestText,
+                audioBase64 = audioBase64,
+                audioDurationSeconds = durationSeconds,
+            )
         }
 
         val text = runCatching {
@@ -183,7 +206,57 @@ class NativeSpeechTranscriber(
         } else if (latestText.isBlank()) {
             onError("No clear speech was captured.")
         }
-        return latestText
+        return SpeechCaptureResult(
+            transcript = latestText,
+            audioBase64 = audioBase64,
+            audioDurationSeconds = durationSeconds,
+        )
+    }
+
+    private fun encodePcmToWavBase64(samples: FloatArray, sampleRate: Int): String {
+        val pcmBytes = ByteArray(samples.size * 2)
+        samples.forEachIndexed { index, sample ->
+            val clipped = (sample * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            pcmBytes[index * 2] = (clipped.toInt() and 0xFF).toByte()
+            pcmBytes[index * 2 + 1] = ((clipped.toInt() shr 8) and 0xFF).toByte()
+        }
+
+        val header = ByteArrayOutputStream(44)
+        val dataSize = pcmBytes.size
+        val riffSize = 36 + dataSize
+        header.write("RIFF".toByteArray())
+        header.write(intToLittleEndian(riffSize))
+        header.write("WAVE".toByteArray())
+        header.write("fmt ".toByteArray())
+        header.write(intToLittleEndian(16))
+        header.write(shortToLittleEndian(1))
+        header.write(shortToLittleEndian(1))
+        header.write(intToLittleEndian(sampleRate))
+        header.write(intToLittleEndian(sampleRate * 2))
+        header.write(shortToLittleEndian(2))
+        header.write(shortToLittleEndian(16))
+        header.write("data".toByteArray())
+        header.write(intToLittleEndian(dataSize))
+
+        val wavBytes = header.toByteArray() + pcmBytes
+        val encoded = Base64.encodeToString(wavBytes, Base64.NO_WRAP)
+        return "data:audio/wav;base64,$encoded"
+    }
+
+    private fun intToLittleEndian(value: Int): ByteArray {
+        return byteArrayOf(
+            (value and 0xFF).toByte(),
+            ((value shr 8) and 0xFF).toByte(),
+            ((value shr 16) and 0xFF).toByte(),
+            ((value shr 24) and 0xFF).toByte(),
+        )
+    }
+
+    private fun shortToLittleEndian(value: Int): ByteArray {
+        return byteArrayOf(
+            (value and 0xFF).toByte(),
+            ((value shr 8) and 0xFF).toByte(),
+        )
     }
 
     private fun ensureWhisperModel(): File {
@@ -227,6 +300,11 @@ class NativeSpeechTranscriber(
         }
     }
 
+    fun warmupWhisperModel() {
+        if (!BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) return
+        runCatching { ensureWhisperModel() }
+    }
+
     companion object {
         private const val WHISPER_SAMPLE_RATE = 16000
         private const val MIN_MODEL_BYTES = 1024 * 1024
@@ -234,5 +312,10 @@ class NativeSpeechTranscriber(
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.MINUTES)
             .build()
+
+        fun isPlaceholderTranscript(text: String): Boolean {
+            val normalized = text.trim().lowercase()
+            return normalized.isBlank() || normalized == "no clear speech was captured."
+        }
     }
 }

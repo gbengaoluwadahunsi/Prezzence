@@ -594,21 +594,29 @@ class PrezzenceBackendClient {
         questionId: Int,
         questionText: String,
         transcript: String,
+        audioBase64: String? = null,
+        audioDurationSeconds: Int = 0,
     ): AnswerResult? = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank() || sessionId.isBlank()) return@withContext null
         runCatching {
             val body = JSONObject()
                 .put("question_id", questionId)
                 .put("question_text", questionText)
-                .put("transcript", transcript)
                 .put("transcript_source", "native-local")
-                .toString()
-                .toRequestBody(jsonMediaType)
+            if (transcript.isNotBlank()) {
+                body.put("transcript", transcript)
+            }
+            if (!audioBase64.isNullOrBlank()) {
+                body.put("audio_base64", audioBase64)
+                body.put("audio_mime_type", "audio/wav")
+                body.put("audio_duration_seconds", audioDurationSeconds.coerceAtLeast(1))
+            }
+            val requestBody = body.toString().toRequestBody(jsonMediaType)
 
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/$sessionId/answers")
                 .header("Authorization", "Bearer $bearerToken")
-                .post(body)
+                .post(requestBody)
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -624,6 +632,7 @@ class PrezzenceBackendClient {
                     how = analysis.optJSONObject("coaching_breakdown")?.optString("how_to_structure", "") ?: "",
                     why = analysis.optJSONObject("coaching_breakdown")?.optString("why_it_works", "") ?: "",
                     coachingMessage = analysis.optString("coaching_message", ""),
+                    retryRequired = root.optBoolean("retry_required", false),
                 )
             }
         }.getOrNull()
