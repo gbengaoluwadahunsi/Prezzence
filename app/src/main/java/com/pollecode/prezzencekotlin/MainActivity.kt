@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import com.pollecode.prezzencekotlin.billing.BillingUiState
 import com.pollecode.prezzencekotlin.billing.PrezzenceBillingManager
 import com.pollecode.prezzencekotlin.data.AnswerResult
+import com.pollecode.prezzencekotlin.data.AuthSession
 import com.pollecode.prezzencekotlin.data.PresenceMetrics
 import com.pollecode.prezzencekotlin.data.AppState
 import com.pollecode.prezzencekotlin.data.InterviewMode
@@ -305,28 +306,68 @@ class MainActivity : ComponentActivity() {
             showResetPassword(accessToken)
             return true
         }
-        showSignIn(loading = true)
+        val refreshToken = params["refresh_token"].orEmpty()
+        val alreadySignedIn = appState.authToken.isNotBlank()
+        if (!alreadySignedIn) {
+            showSignIn(loading = true)
+        }
         scope.launch {
-            val session = if (authCode.isNotBlank()) {
-                backend.exchangePkceCode(authCode, oauthCodeVerifier)
-            } else {
-                backend.sessionFromAccessToken(accessToken)
-            }
-            oauthCodeVerifier = ""
-            if (session == null) {
-                showSignIn(error = "Google sign-in finished, but the session could not be loaded.")
-                return@launch
-            }
-            saveAuthSession(session)
-            if (isVerify) {
-                showVerify()
-            } else if (appState.onboardingComplete) {
-                showHome()
-            } else {
-                showOnboardingType()
-            }
+            completeOAuthCallback(authCode, accessToken, refreshToken, isVerify)
         }
         return true
+    }
+
+    private fun routeAfterAuth(isVerify: Boolean) {
+        if (isVerify) {
+            showVerify()
+        } else if (appState.onboardingComplete) {
+            showHome()
+        } else {
+            showOnboardingType()
+        }
+    }
+
+    private suspend fun resolveOAuthSession(authCode: String, accessToken: String, refreshToken: String): AuthSession? {
+        val codeVerifier = appState.oauthPkceVerifier.ifBlank { oauthCodeVerifier }
+        if (authCode.isNotBlank() && codeVerifier.isNotBlank()) {
+            backend.exchangePkceCode(authCode, codeVerifier)?.let { return it }
+        }
+        if (accessToken.isNotBlank()) {
+            val session = backend.sessionFromAccessToken(accessToken) ?: return null
+            return if (refreshToken.isNotBlank()) session.copy(refreshToken = refreshToken) else session
+        }
+        return null
+    }
+
+    private suspend fun completeOAuthCallback(authCode: String, accessToken: String, refreshToken: String, isVerify: Boolean) {
+        val session = resolveOAuthSession(authCode, accessToken, refreshToken)
+        appState.oauthPkceVerifier = ""
+        oauthCodeVerifier = ""
+
+        if (session != null) {
+            saveAuthSession(session)
+            routeAfterAuth(isVerify)
+            return
+        }
+
+        if (appState.authToken.isNotBlank()) {
+            val existing = backend.sessionFromAccessToken(appState.authToken)
+            if (existing != null) {
+                saveAuthSession(existing)
+                routeAfterAuth(isVerify)
+                return
+            }
+            val storedRefresh = appState.authRefreshToken
+            if (storedRefresh.isNotBlank()) {
+                backend.refreshSession(storedRefresh)?.let {
+                    saveAuthSession(it)
+                    routeAfterAuth(isVerify)
+                    return
+                }
+            }
+        }
+
+        showSignIn(error = "Google sign-in finished, but the session could not be loaded.")
     }
 
     private fun authParams(uri: Uri): Map<String, String> {
@@ -347,9 +388,12 @@ class MainActivity : ComponentActivity() {
     private fun startGoogleAuth() {
         runCatching {
             oauthCodeVerifier = backend.newPkceVerifier()
+            appState.oauthPkceVerifier = oauthCodeVerifier
             val url = backend.googleOAuthUrl("prezzence://auth/callback", oauthCodeVerifier)
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }.onFailure {
+            appState.oauthPkceVerifier = ""
+            oauthCodeVerifier = ""
             showAppToast("Could not open Google sign-in.", ToastKind.ERROR)
         }
     }
@@ -417,7 +461,13 @@ class MainActivity : ComponentActivity() {
             showForgotPassword()
             return
         }
-        if (appState.onboardingComplete || appState.authToken.isNotBlank()) showHome() else showLanding()
+        if (appState.authToken.isNotBlank()) {
+            if (appState.onboardingComplete) showHome() else showOnboardingType()
+        } else if (appState.onboardingComplete) {
+            showHome()
+        } else {
+            showLanding()
+        }
     }
 
     private fun showLanding() {
@@ -3780,6 +3830,7 @@ class MainActivity : ComponentActivity() {
 
     private fun beginInterviewFromEntering() {
         oauthCodeVerifier = ""
+        appState.oauthPkceVerifier = ""
         activeTranscript = ""
         speechError = ""
         currentAnswerResult = null

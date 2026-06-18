@@ -51,33 +51,57 @@ class PrezzenceBackendClient {
         return "$supabaseUrl/auth/v1/authorize?provider=google&redirect_to=$encodedRedirect&code_challenge=$codeChallenge&code_challenge_method=s256"
     }
 
-    suspend fun exchangePkceCode(authCode: String, codeVerifier: String): AuthSession? = withContext(Dispatchers.IO) {
+    suspend fun exchangePkceCode(
+        authCode: String,
+        codeVerifier: String,
+        redirectUri: String = "prezzence://auth/callback",
+    ): AuthSession? = withContext(Dispatchers.IO) {
         if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank() || authCode.isBlank() || codeVerifier.isBlank()) return@withContext null
-        runCatching {
-            val body = JSONObject()
-                .put("auth_code", authCode)
-                .put("code_verifier", codeVerifier)
-                .toString()
-                .toRequestBody(jsonMediaType)
-            val request = Request.Builder()
-                .url("$supabaseUrl/auth/v1/token?grant_type=pkce")
-                .header("apikey", supabaseAnonKey)
-                .header("Authorization", "Bearer $supabaseAnonKey")
-                .post(body)
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val json = JSONObject(response.body?.string().orEmpty())
-                val user = json.optJSONObject("user")
-                AuthSession(
-                    accessToken = json.optString("access_token"),
-                    userId = user?.optString("id").orEmpty(),
-                    email = user?.optString("email").orEmpty(),
-                    fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
-                    focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
-                    refreshToken = json.optString("refresh_token", ""),
-                ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
+        parsePkceTokenResponse(exchangePkceToken(authCode, codeVerifier, redirectUri, codeField = "auth_code"))
+            ?: parsePkceTokenResponse(exchangePkceToken(authCode, codeVerifier, redirectUri, codeField = "code"))
+    }
+
+    private fun exchangePkceToken(
+        authCode: String,
+        codeVerifier: String,
+        redirectUri: String,
+        codeField: String,
+    ): String? = runCatching {
+        val body = JSONObject()
+            .put(codeField, authCode)
+            .put("code_verifier", codeVerifier)
+            .put("redirect_to", redirectUri)
+            .toString()
+            .toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url("$supabaseUrl/auth/v1/token?grant_type=pkce")
+            .header("apikey", supabaseAnonKey)
+            .header("Authorization", "Bearer $supabaseAnonKey")
+            .post(body)
+            .build()
+        client.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                Log.w("PrezzenceAuth", "PKCE exchange failed (${response.code}) with $codeField: $raw")
+                return@use null
             }
+            raw
+        }
+    }.getOrNull()
+
+    private fun parsePkceTokenResponse(raw: String?): AuthSession? {
+        if (raw.isNullOrBlank()) return null
+        return runCatching {
+            val json = JSONObject(raw)
+            val user = json.optJSONObject("user")
+            AuthSession(
+                accessToken = json.optString("access_token"),
+                userId = user?.optString("id").orEmpty(),
+                email = user?.optString("email").orEmpty(),
+                fullName = user?.optJSONObject("user_metadata")?.optString("full_name").orEmpty(),
+                focus = user?.optJSONObject("user_metadata")?.optString("focus").orEmpty(),
+                refreshToken = json.optString("refresh_token", ""),
+            ).takeIf { it.accessToken.isNotBlank() && it.userId.isNotBlank() }
         }.getOrNull()
     }
 

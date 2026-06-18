@@ -134,6 +134,10 @@ class AppState(context: Context) {
         get() = prefs.getString("authRefreshToken", "") ?: ""
         set(value) = prefs.edit().putString("authRefreshToken", value).apply()
 
+    var oauthPkceVerifier: String
+        get() = prefs.getString("oauthPkceVerifier", "") ?: ""
+        set(value) = prefs.edit().putString("oauthPkceVerifier", value).apply()
+
     var userId: String
         get() = prefs.getString("userId", "") ?: ""
         set(value) = prefs.edit().putString("userId", value).apply()
@@ -360,6 +364,8 @@ class AppState(context: Context) {
 
     fun signOut() {
         authToken = ""
+        authRefreshToken = ""
+        oauthPkceVerifier = ""
         userId = ""
         userEmail = ""
         userFullName = ""
