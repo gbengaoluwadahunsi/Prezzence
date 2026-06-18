@@ -4267,12 +4267,10 @@ class MainActivity : ComponentActivity() {
                     .orEmpty()
                     .ifBlank { mergedBase.improvedAnswer.trim() },
             )
-            val substantive = SessionScoring.isSubstantiveAnswer(result.transcript)
-            val needsRetry = result.retryRequired ||
-                SessionScoring.isBlankTranscript(result.transcript) ||
-                !substantive ||
-                result.score <= 0
-            if (needsRetry) {
+            val hardCaptureFailure = result.retryRequired &&
+                SessionScoring.isBlankTranscript(result.transcript) &&
+                capture.audioBase64.isNullOrBlank()
+            if (hardCaptureFailure) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
@@ -4491,8 +4489,8 @@ class MainActivity : ComponentActivity() {
         // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // ACTION BUTTONS
         // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val actionsColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(18))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
@@ -4500,36 +4498,17 @@ class MainActivity : ComponentActivity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (dp(1) * 0.5f).toInt())
             setBackgroundColor(Color.argb(20, 255, 255, 255))
         })
-        
-        if (result.score < 70) {
-            actions.addView(TextView(this@MainActivity).apply {
-                text = "Retry question"
-                textSize = 13f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                setPadding(dp(16), dp(13), dp(16), dp(13))
-                background = rounded(accent, radius = 22, strokeColor = accent)
-                layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                    setMargins(0, 0, dp(10), 0)
-                }
-                setOnClickListener {
-                    dismissResultOverlay()
-                    showInterview(false)
-                }
-            })
-        }
-        
-        actions.addView(TextView(this@MainActivity).apply {
-            text = if (result.improvedAnswer.isNotBlank()) "Hear model answer" else "Continue"
-            textSize = 13f
+
+        actionsColumn.addView(TextView(this@MainActivity).apply {
+            text = "Listen to model answer"
+            textSize = 14f
             setTextColor(Color.WHITE)
             typeface = interBold
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(13), dp(16), dp(13))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                if (result.score >= 70) setMargins(dp(30), 0, dp(30), 0)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(accent, radius = 22, strokeColor = accent)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                setMargins(0, 0, 0, dp(10))
             }
             setOnClickListener {
                 dismissResultOverlay()
@@ -4538,8 +4517,51 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
-        
-        card.addView(actions)
+
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        buttonRow.addView(TextView(this@MainActivity).apply {
+            text = "Try again"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(0, 0, dp(10), 0)
+            }
+            setOnClickListener {
+                dismissResultOverlay()
+                showInterview(false)
+            }
+        })
+
+        val nextStep = appState.currentQuestionIndex + 1
+        val totalQs = appState.questions().size
+        val isLastQuestion = nextStep >= totalQs
+        val continueLabel = if (isLastQuestion) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
+
+        buttonRow.addView(TextView(this@MainActivity).apply {
+            text = continueLabel
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
+            setOnClickListener {
+                dismissResultOverlay()
+                advanceAfterAnswerReview()
+            }
+        })
+
+        actionsColumn.addView(buttonRow)
+        card.addView(actionsColumn)
         overlay.addView(card)
         dismissResultOverlay()
         resultOverlay = overlay
@@ -4580,6 +4602,7 @@ class MainActivity : ComponentActivity() {
         onContinue: () -> Unit,
     ) {
         val modelAnswer = result.improvedAnswer.trim()
+        val scoredWell = result.score >= 70
         val overlay = FrameLayout(this).apply {
             setBackgroundColor(Color.argb(120, 0, 0, 0))
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -4595,8 +4618,15 @@ class MainActivity : ComponentActivity() {
             ).apply { gravity = Gravity.BOTTOM }
         }
 
+        val titleText = if (scoredWell) "Great answer!" else "Listen to a stronger answer"
+        val subtitleText = if (scoredWell) {
+            "You answered this question well. Here's how a perfect answer sounds."
+        } else {
+            "Your interviewer will speak the model answer now."
+        }
+
         panel.addView(TextView(this@MainActivity).apply {
-            text = "Listen to a stronger answer"
+            text = titleText
             textSize = 18f
             setTextColor(Color.WHITE)
             typeface = interBold
@@ -4604,7 +4634,7 @@ class MainActivity : ComponentActivity() {
             setPadding(0, 0, 0, dp(6))
         })
         panel.addView(TextView(this@MainActivity).apply {
-            text = "Your interviewer will speak the model answer now."
+            text = subtitleText
             textSize = 13f
             setTextColor(muted)
             gravity = Gravity.CENTER
@@ -4612,6 +4642,24 @@ class MainActivity : ComponentActivity() {
         })
 
         if (modelAnswer.isNotBlank()) {
+            val scroll = ScrollView(this@MainActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { setMargins(0, 0, 0, dp(12)) }
+                isNestedScrollingEnabled = true
+            }
+            scroll.addView(TextView(this@MainActivity).apply {
+                text = modelAnswer
+                textSize = 13f
+                setTextColor(Color.argb(200, 255, 255, 255))
+                setLineSpacing(0f, 1.45f)
+                typeface = interRegular
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                background = rounded(Color.argb(12, 255, 255, 255), radius = 14, strokeColor = Color.argb(18, 255, 255, 255))
+            })
+            panel.addView(scroll)
+
             panel.addView(TextView(this@MainActivity).apply {
                 text = "Play again"
                 textSize = 12f
@@ -4631,16 +4679,46 @@ class MainActivity : ComponentActivity() {
             })
         }
 
-        panel.addView(TextView(this@MainActivity).apply {
-            text = "Next question"
-            textSize = 14f
+        val teachButtonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        teachButtonRow.addView(TextView(this@MainActivity).apply {
+            text = "Try again"
+            textSize = 13f
             setTextColor(Color.WHITE)
             typeface = interBold
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(16), dp(13), dp(16), dp(13))
             background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                setMargins(0, 0, dp(10), 0)
+            }
+            setOnClickListener {
+                dismissResultOverlay()
+                showInterview(false)
+            }
+        })
+
+        val nextStep = appState.currentQuestionIndex + 1
+        val totalQs = appState.questions().size
+        val isLastQuestion = nextStep >= totalQs
+        val continueLabel = if (isLastQuestion) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
+
+        teachButtonRow.addView(TextView(this@MainActivity).apply {
+            text = continueLabel
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
             setOnClickListener { onContinue() }
         })
+
+        panel.addView(teachButtonRow)
 
         overlay.addView(panel)
         dismissResultOverlay()
