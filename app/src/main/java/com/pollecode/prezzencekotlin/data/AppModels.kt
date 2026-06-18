@@ -59,7 +59,18 @@ data class SessionSummary(
     val answered: Int,
     val total: Int,
     val date: String,
+    val status: String = "",
 )
+
+fun SessionSummary.resolvedPracticeStatus(): String {
+    val backend = status.trim().lowercase()
+    return when {
+        total > 0 && answered >= total && score > 0 -> "Completed"
+        backend == "completed" && answered > 0 && score <= 0 -> "In progress"
+        answered > 0 -> "In progress"
+        else -> "Started"
+    }
+}
 
 data class ResumeProfile(
     val fileName: String,

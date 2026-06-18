@@ -57,6 +57,7 @@ import com.pollecode.prezzencekotlin.data.PrezzenceDefaults
 import com.pollecode.prezzencekotlin.data.SessionCreateException
 import com.pollecode.prezzencekotlin.data.SessionErrorReason
 import com.pollecode.prezzencekotlin.data.SessionSummary
+import com.pollecode.prezzencekotlin.data.resolvedPracticeStatus
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
 import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
 import com.pollecode.prezzencekotlin.nativebridge.NativeSpeechTranscriber
@@ -115,6 +116,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var billingManager: PrezzenceBillingManager
 
     private var activeAvatar: NativeDuixAvatarView? = null
+    private var resultOverlay: FrameLayout? = null
     private var activeCamera: NativePresenceCameraView? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
     private var speechGenerationToken = 0
@@ -145,6 +147,8 @@ class MainActivity : ComponentActivity() {
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
     private val remoteHistoryState = androidx.compose.runtime.mutableStateOf<List<SessionSummary>>(emptyList())
+    private val unreadNotificationsState = androidx.compose.runtime.mutableIntStateOf(0)
+    private val resumeFileNameState = androidx.compose.runtime.mutableStateOf<String?>(null)
     private var oauthCodeVerifier: String = ""
     private var passwordResetAccessToken: String = ""
     private var onboardingTrack: String = "job"
@@ -158,6 +162,7 @@ class MainActivity : ComponentActivity() {
     private var onboardingPreviewGender: String = "Female"
     private var onboardingIncludeTechnical: Boolean = false
     private var onboardingEnableWebResearch: Boolean = false
+    private var onboardingSessionLength: String = "standard"
     private var onboardingConsentAccepted: Boolean = false
     private var onboardingMicLoading: Boolean = false
     private var onboardingMicError: String? = null
@@ -172,8 +177,6 @@ class MainActivity : ComponentActivity() {
     private val interBlack: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_black)!! }
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
-    private var unreadNotifications: Int = 0
-    private val practiceRemoteSessionsState = androidx.compose.runtime.mutableStateOf<List<PracticeSessionItem>>(emptyList())
     private var coachingMessage: String = ""
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -271,7 +274,6 @@ class MainActivity : ComponentActivity() {
         if (session.email.isNotBlank()) appState.userEmail = session.email
         if (session.fullName.isNotBlank()) appState.userFullName = session.fullName
         if (session.focus.isNotBlank()) appState.userFocus = session.focus
-        appState.onboardingComplete = true
     }
 
     private fun handleAuthCallback(uri: Uri?): Boolean {
@@ -316,7 +318,13 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
             saveAuthSession(session)
-            if (isVerify) showVerify() else showHome()
+            if (isVerify) {
+                showVerify()
+            } else if (appState.onboardingComplete) {
+                showHome()
+            } else {
+                showOnboardingType()
+            }
         }
         return true
     }
@@ -346,7 +354,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun dismissResultOverlay() {
+        activeAvatar?.stopSpeaking()
+        resultOverlay?.let { runCatching { root.removeView(it) } }
+        resultOverlay = null
+    }
+
     private fun setScreen(view: View) {
+        dismissResultOverlay()
         releaseNativeSurfaces()
         root.removeAllViews()
         root.setBackgroundColor(bg)
@@ -402,7 +417,7 @@ class MainActivity : ComponentActivity() {
             showForgotPassword()
             return
         }
-        if (appState.onboardingComplete) showHome() else showLanding()
+        if (appState.onboardingComplete || appState.authToken.isNotBlank()) showHome() else showLanding()
     }
 
     private fun showLanding() {
@@ -553,7 +568,7 @@ class MainActivity : ComponentActivity() {
                             }
                             saveAuthSession(session)
                             if (appState.userEmail.isBlank()) appState.userEmail = email.trim()
-                            showHome()
+                            if (appState.onboardingComplete) showHome() else showOnboardingType()
                         }
                     },
                     onGoogleSignIn = { startGoogleAuth() },
@@ -598,7 +613,7 @@ class MainActivity : ComponentActivity() {
                 val session = backend.sessionFromAccessToken(token!!)
                 if (session != null) {
                     saveAuthSession(session)
-                    showHome()
+                    if (appState.onboardingComplete) showHome() else showOnboardingType()
                 } else {
                     showSignIn(error = "Unable to complete sign in.")
                 }
@@ -720,7 +735,13 @@ class MainActivity : ComponentActivity() {
             setContent {
                 PrezzenceOnboardingTypeScreen(
                     selectedTrack = onboardingTrack,
-                    onBack = { showLanding() },
+                    onBack = {
+                        if (appState.authToken.isNotBlank() || appState.onboardingComplete) {
+                            showHome()
+                        } else {
+                            showLanding()
+                        }
+                    },
                     onSelectTrack = { track ->
                         // Free tier: only "job" track available
                         if (!appState.subscriptionEntitled && !track.equals("job", ignoreCase = true)) {
@@ -898,9 +919,9 @@ class MainActivity : ComponentActivity() {
                                 hasIncompleteSession = hasIncomplete,
                                 currentQuestionIndex = appState.currentQuestionIndex,
                                 totalQuestions = questions.size.coerceAtLeast(1),
-                                unreadNotifications = unreadNotifications,
+                                unreadNotifications = unreadNotificationsState.intValue,
                                 onStart = { showOnboardingType() },
-                                onContinueSession = { showInterview(false) },
+                                onContinueSession = { resumeActiveSession() },
                                 onNewSession = {
                                     appState.resetActiveSession()
                                     showOnboardingType()
@@ -912,58 +933,92 @@ class MainActivity : ComponentActivity() {
                                 onNotifications = { showNotifications() },
                             )
                             PrezzenceTab.PRACTICE -> {
-                                val practiceSessions = practiceRemoteSessionsState.value.ifEmpty {
-                                    history.map { s ->
-                                        PracticeSessionItem(
-                                            id = s.id, title = s.role, type = "interview",
-                                            date = s.date, score = s.score, status = "completed"
-                                        )
-                                    }
+                                val practiceSessions = sessionHistoryItems().take(5).map { s ->
+                                    PracticeSessionItem(
+                                        id = s.id,
+                                        title = s.role,
+                                        type = "interview",
+                                        date = s.date,
+                                        score = s.score,
+                                        answered = s.answered,
+                                        total = s.total,
+                                        status = s.resolvedPracticeStatus(),
+                                    )
                                 }
                                 PrezzencePracticeScreen(
                                     recentSessions = practiceSessions,
-                                    onSessionTap = { sessionId -> showSessionReport(sessionId) },
+                                    onSessionTap = { sessionId -> showSessionReport(sessionId, PrezzenceTab.PRACTICE) },
                                     onDeleteSession = { sessionId ->
-                                        scope.launch {
-                                            backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
-                                            appState.deleteSession(sessionId)
-                                            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
-                                            practiceRemoteSessionsState.value = practiceRemoteSessionsState.value.filterNot { it.id == sessionId }
-                                        }
+                                        val sessionTitle = practiceSessions.firstOrNull { it.id == sessionId }?.title ?: "this session"
+                                        confirmDeleteSession(sessionId, sessionTitle, PrezzenceTab.PRACTICE)
                                     },
                                     onSelectMode = { modeId ->
-                                        appState.interviewMode = if (modeId == "full") InterviewMode.PANEL else InterviewMode.SINGLE
+                                        when (modeId) {
+                                            "full" -> {
+                                                onboardingTrack = "job"
+                                                onboardingSessionLength = "standard"
+                                                appState.interviewMode = InterviewMode.PANEL
+                                            }
+                                            "quick" -> {
+                                                onboardingTrack = "job"
+                                                onboardingSessionLength = "quick"
+                                                appState.interviewMode = InterviewMode.SINGLE
+                                            }
+                                            "behavioral" -> {
+                                                onboardingTrack = "behavioral"
+                                                onboardingSessionLength = "standard"
+                                                appState.interviewMode = InterviewMode.SINGLE
+                                            }
+                                            "technical" -> {
+                                                onboardingTrack = "technical"
+                                                onboardingSessionLength = "standard"
+                                                appState.interviewMode = InterviewMode.SINGLE
+                                            }
+                                            "promotion" -> {
+                                                onboardingTrack = "promotion"
+                                                onboardingSessionLength = "standard"
+                                                appState.interviewMode = InterviewMode.SINGLE
+                                            }
+                                            else -> {
+                                                onboardingTrack = "job"
+                                                onboardingSessionLength = "standard"
+                                                appState.interviewMode = InterviewMode.SINGLE
+                                            }
+                                        }
+                                        applyTrackDefaults(onboardingTrack)
                                         showOnboardingRole()
                                     },
                                 )
                             }
                             PrezzenceTab.PROGRESS -> {
-                                val historyItems = (if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory())
+                                val historyItems = sessionHistoryItems()
                                     .map { s ->
                                         SessionHistoryItem(id = s.id, role = s.role, score = s.score, date = s.date, answered = s.answered, total = s.total)
                                     }
+                                val scoredItems = historyItems.filter { it.score > 0 }
+                                val sessionAvgScore = if (scoredItems.isNotEmpty()) {
+                                    scoredItems.map { it.score }.average().toInt().coerceIn(0, 100)
+                                } else {
+                                    0
+                                }
+                                val progressReadinessLabel = when {
+                                    sessionAvgScore >= 75 -> "Interview Ready"
+                                    sessionAvgScore >= 45 -> "Building Confidence"
+                                    sessionAvgScore >= 25 -> "Building Momentum"
+                                    sessionAvgScore > 0 -> "Foundation Built"
+                                    historyItems.isNotEmpty() -> "Sessions Started"
+                                    else -> "No Baseline"
+                                }
                                 PrezzenceProgressScreen(
-                                    avgScore = if (historyItems.isEmpty()) 0 else historyItems.map { it.score }.average().toInt().coerceIn(0, 100),
+                                    avgScore = sessionAvgScore,
                                     sessions = historyItems.size,
-                                    practiceHours = 0f,
-                                    readinessLabel = when {
-                                        appState.readinessScore >= 75 -> "Interview Ready"
-                                        appState.readinessScore >= 45 -> "Building Confidence"
-                                        appState.readinessScore > 0 -> "Building Momentum"
-                                        else -> "No Baseline"
-                                    },
+                                    practiceMinutes = appState.practiceMinutes,
+                                    readinessLabel = progressReadinessLabel,
                                     recentSessions = historyItems,
                                     coachingTip = "",
                                     onSettings = { showSettings() },
-                                    onSessionTap = { /* session detail */ },
-                                    onNewSession = { showOnboardingType() },
-                                    onDeleteSession = { sessionId ->
-                                        scope.launch {
-                                            backend.deleteSession(appState.authToken.ifBlank { null }, sessionId)
-                                            appState.deleteSession(sessionId)
-                                            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
-                                        }
-                                    },
+                                    onSessionTap = { sessionId -> showSessionReport(sessionId, PrezzenceTab.PROGRESS) },
+                                    onViewAllHistory = { showAllHistory() },
                                 )
                             }
                             PrezzenceTab.PROFILE -> {
@@ -977,11 +1032,12 @@ class MainActivity : ComponentActivity() {
                                     initials = initials,
                                     avgScore = appState.readinessScore,
                                     sessions = appState.completedSessions,
+                                    practiceMinutes = appState.practiceMinutes,
                                     coachingTip = "",
                                     bestSkillLabel = null,
                                     bestSkillValue = null,
                                     cameraCoachEnabled = appState.cameraCoachEnabled,
-                                    resumeFileName = null,
+                                    resumeFileName = resumeFileNameState.value,
                                     language = appState.language,
                                     goalValue = appState.weeklyGoal,
                                     onToggleCameraCoach = {
@@ -992,19 +1048,20 @@ class MainActivity : ComponentActivity() {
                                     onDeleteResume = {
                                         scope.launch {
                                             backend.deleteResumeProfile(appState.authToken.ifBlank { null })
+                                            resumeFileNameState.value = null
                                             showHome(PrezzenceTab.PROFILE)
                                         }
                                     },
                                     onAccount = { showAccount() },
                                     onLanguage = { showLanguage() },
                                     onPrivacy = { showLegal() },
-                                    onHelp = { showAppToast("Help coming soon.", ToastKind.INFO) },
+                                    onHelp = { showHelp() },
                                     onSignOut = {
                                         appState.signOut()
                                         showLanding()
                                     },
                                     onSettings = { showSettings() },
-                                    onNotifications = { showAppToast("Notifications coming soon.", ToastKind.INFO) },
+                                    onNotifications = { showNotifications() },
                                     onGoalChange = { newGoal ->
                                         appState.weeklyGoal = newGoal
                                         showHome(PrezzenceTab.PROFILE)
@@ -1028,27 +1085,45 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        // Lazy-fetch remote history for progress tab
-        if (appState.authToken.isNotBlank() && remoteHistoryState.value.isEmpty() && (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE)) {
+        // Refresh remote history for progress/practice tabs
+        if (appState.authToken.isNotBlank() && (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE)) {
             scope.launch {
-                val fetched = backend.listSessions(appState.authToken)
-                if (fetched.isNotEmpty()) {
-                    remoteHistoryState.value = fetched
-                    showHome(tab)
-                }
+                refreshRemoteHistory()
             }
+        }
+        if (appState.authToken.isNotBlank() && tab == PrezzenceTab.PROFILE) {
+            scope.launch { refreshResumeProfileName() }
         }
         // Fetch unread notification count
         if (appState.authToken.isNotBlank() && tab == PrezzenceTab.HOME) {
             scope.launch {
                 val notifications = backend.getNotifications(appState.authToken)
-                val unread = notifications.count { !it.isRead }
-                if (unread != unreadNotifications) {
-                    unreadNotifications = unread
-                    showHome(PrezzenceTab.HOME)
-                }
+                unreadNotificationsState.intValue = notifications.count { !it.isRead }
             }
         }
+    }
+
+    private fun resumeActiveSession() {
+        val sessionId = appState.activeSessionId
+        sessionAnswers.clear()
+        if (sessionId.isNotBlank()) {
+            sessionAnswers.addAll(appState.getSessionAnswers(sessionId))
+        }
+        if (appState.questions().isEmpty()) {
+            showAppToast("This session could not be resumed. Start a new interview.", ToastKind.WARNING)
+            showOnboardingType()
+            return
+        }
+        showInterview(false)
+    }
+
+    private suspend fun refreshResumeProfileName() {
+        if (appState.authToken.isBlank()) {
+            resumeFileNameState.value = null
+            return
+        }
+        val profile = backend.getResumeProfile(appState.authToken)
+        resumeFileNameState.value = profile?.fileName?.takeIf { it.isNotBlank() }
     }
     private fun homeHeader() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -1559,22 +1634,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showAnswerRetryRequired(message: String) {
-        val column = baseColumn()
-        column.addView(headerWithHome("Answer Not Processed") { showAnswerRetryRequired(message) })
-        column.addView(progressSegments(3, 7))
-        column.addView(title("We couldn't process your answer.", 34))
-        column.addView(body(message))
-        column.addView(label("WHAT YOU CAN DO"))
-        column.addView(body("Speak for at least a few seconds, hold the phone close to your mouth, and answer in a quiet place."))
-        column.addView(spacer(8))
-        column.addView(primaryButton("Retry question") {
-            activeTranscript = ""
-            speechError = ""
-            showInterview(answering = false)
-        })
-        column.addView(spacer(8))
-        column.addView(secondaryButton("Go home") { showHome() })
-        setScreen(scroll(column))
+        speechError = message
+        activeTranscript = ""
+        processingAnswerState.value = false
+        processingStageState.value = ""
+        processingProgressState.intValue = 0
+        showAppToast(message, ToastKind.WARNING)
+        showInterview(answering = false)
     }
 
     private fun showSessionInterrupted() {
@@ -1969,10 +2035,120 @@ class MainActivity : ComponentActivity() {
         setScreen(scroll(column))
     }
 
-    private fun showSessionReport(sessionId: String) {
-        val session = appState.sessionHistory().find { it.id == sessionId }
+    private fun sessionHistoryItems(): List<SessionSummary> {
+        val local = appState.sessionHistory()
+        val remote = remoteHistoryState.value
+        if (remote.isEmpty()) return local
+        val localById = local.associateBy { it.id }
+        val mergedRemote = remote.map { remoteItem ->
+            val localItem = localById[remoteItem.id]
+            remoteItem.copy(
+                score = when {
+                    remoteItem.score > 0 -> remoteItem.score
+                    localItem != null && localItem.score > 0 -> localItem.score
+                    else -> remoteItem.score
+                },
+                answered = if (remoteItem.total > 0) remoteItem.answered else maxOf(remoteItem.answered, localItem?.answered ?: 0),
+                total = if (remoteItem.total > 0) remoteItem.total else (localItem?.total ?: remoteItem.total),
+                role = remoteItem.role.ifBlank { localItem?.role.orEmpty() }.ifBlank { "Interview" },
+                status = remoteItem.status.ifBlank { localItem?.status.orEmpty() },
+            )
+        }
+        val remoteIds = mergedRemote.map { it.id }.toSet()
+        return mergedRemote + local.filterNot { it.id in remoteIds }
+    }
+
+    private suspend fun deleteSessionEverywhere(sessionId: String): Boolean {
+        val localOnly = sessionId.startsWith("session-")
+        if (localOnly) {
+            appState.deleteSession(sessionId)
+            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
+            return true
+        }
+        if (appState.authToken.isBlank()) {
+            return false
+        }
+        val deleted = backend.deleteSessionWithAuthRetry(
+            bearerToken = appState.authToken,
+            refreshToken = appState.authRefreshToken,
+            sessionId = sessionId,
+            onTokenRefreshed = { refreshed ->
+                appState.authToken = refreshed.accessToken
+                appState.authRefreshToken = refreshed.refreshToken
+            },
+        )
+        if (!deleted) return false
+        appState.deleteSession(sessionId)
+        remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
+        return true
+    }
+
+    private fun confirmDeleteSession(sessionId: String, sessionTitle: String, onTab: PrezzenceTab = PrezzenceTab.PRACTICE) {
+        android.app.AlertDialog.Builder(this).apply {
+            setTitle("Delete session?")
+            setMessage("Remove \"$sessionTitle\" from your account? This permanently deletes it from the database.")
+            setPositiveButton("Delete") { _, _ ->
+                scope.launch {
+                    if (deleteSessionEverywhere(sessionId)) {
+                        showHome(onTab)
+                    } else {
+                        showAppToast(
+                            "Could not delete this session from your account. Check your connection and try again.",
+                            ToastKind.ERROR,
+                        )
+                    }
+                }
+            }
+            setNegativeButton("Cancel", null)
+            show()
+        }
+    }
+
+    private suspend fun refreshRemoteHistory() {
+        if (appState.authToken.isBlank()) {
+            remoteHistoryState.value = appState.sessionHistory()
+            return
+        }
+        val fetched = backend.listSessions(appState.authToken)
+        if (fetched.isNotEmpty()) {
+            remoteHistoryState.value = fetched
+            appState.mergeSessionHistory(fetched)
+        } else {
+            remoteHistoryState.value = appState.sessionHistory()
+        }
+    }
+
+    private fun resolveSessionSummary(sessionId: String): SessionSummary? {
+        sessionHistoryItems().find { it.id == sessionId }?.let { return it }
+        val answers = appState.getSessionAnswers(sessionId)
+        if (answers.isEmpty()) return null
+        val scored = answers.filter { it.score > 0 }
+        val score = if (scored.isNotEmpty()) {
+            scored.map { it.score }.average().toInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+        val total = appState.questions().size.coerceAtLeast(answers.size)
+        return SessionSummary(
+            id = sessionId,
+            role = appState.selectedRole,
+            score = score,
+            answered = answers.size,
+            total = total,
+            date = java.text.SimpleDateFormat("MMM d, yyyy", Locale.US).format(java.util.Date()),
+            status = when {
+                total > 0 && answers.size >= total && score > 0 -> "completed"
+                answers.isNotEmpty() -> "in_progress"
+                else -> "started"
+            },
+        )
+    }
+
+    private fun showSessionReport(sessionId: String, returnTab: PrezzenceTab = PrezzenceTab.HOME) {
+        val session = resolveSessionSummary(sessionId)
         if (session == null) {
-            showHome(PrezzenceTab.PRACTICE)
+            showAppToast("Session saved. You can review it from Progress.", ToastKind.INFO)
+            showHome(returnTab)
             return
         }
 
@@ -2006,8 +2182,8 @@ class MainActivity : ComponentActivity() {
         )
 
         val column = baseColumn()
-        column.addView(backButton { showHome(PrezzenceTab.PRACTICE) })
-        column.addView(title("Session Report", 34))
+        column.addView(backButton { showHome(returnTab) })
+        column.addView(title("Session complete", 34))
         column.addView(spacer(8))
 
         // Hero card
@@ -2038,7 +2214,7 @@ class MainActivity : ComponentActivity() {
                 })
                 if (hasSignal) {
                     addView(TextView(this@MainActivity).apply {
-                        text = "1 scored answer"
+                        text = "${session.answered} scored ${if (session.answered == 1) "answer" else "answers"}"
                         textSize = 12f; setTextColor(muted); typeface = interBold
                         setPadding(0, dp(8), 0, 0)
                     })
@@ -2369,6 +2545,10 @@ class MainActivity : ComponentActivity() {
         column.addView(primaryButton("Practice Again") {
             appState.resetActiveSession()
             showOnboardingRole()
+        })
+        column.addView(spacer(10))
+        column.addView(secondaryButton("View progress trends") {
+            showHome(PrezzenceTab.PROGRESS)
         })
 
         setScreen(scroll(column))
@@ -3095,7 +3275,12 @@ class MainActivity : ComponentActivity() {
                 if (saved != null) "CV profile saved." else "Could not process CV. Try PDF, DOCX, TXT, or MD.",
                 if (saved != null) ToastKind.green else ToastKind.ERROR,
             )
-            showResumeProfile()
+            if (saved != null) {
+                resumeFileNameState.value = saved.fileName
+                showHome(PrezzenceTab.PROFILE)
+            } else {
+                showResumeProfile()
+            }
         }
     }
 
@@ -3307,12 +3492,17 @@ class MainActivity : ComponentActivity() {
                             setOnClickListener {
                                 android.app.AlertDialog.Builder(this@MainActivity).apply {
                                     setTitle("Delete session?")
-                                    setMessage("Remove \"${session.role}\" from your interview record? This cannot be undone.")
+                                    setMessage("Remove \"${session.role}\" from your account? This permanently deletes it from the database.")
                                     setPositiveButton("Delete") { _, _ ->
                                         scope.launch {
-                                            backend.deleteSession(appState.authToken, session.id)
-                                            remoteHistoryState.value = remoteHistoryState.value.filter { it.id != session.id }
-                                            showProgress()
+                                            if (deleteSessionEverywhere(session.id)) {
+                                                showProgress()
+                                            } else {
+                                                showAppToast(
+                                                    "Could not delete this session from your account.",
+                                                    ToastKind.ERROR,
+                                                )
+                                            }
                                         }
                                     }
                                     setNegativeButton("Cancel", null)
@@ -3350,7 +3540,7 @@ class MainActivity : ComponentActivity() {
     private fun showAllHistory() {
         val column = baseColumn()
         val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
-        column.addView(backButton { showHome(PrezzenceTab.PRACTICE) })
+        column.addView(backButton { showHome(PrezzenceTab.PROGRESS) })
         column.addView(TextView(this).apply {
             text = "${history.size} SESSIONS"
             textSize = 11f; setTextColor(accent); typeface = interBold
@@ -3453,12 +3643,17 @@ class MainActivity : ComponentActivity() {
                             setOnClickListener {
                                 android.app.AlertDialog.Builder(this@MainActivity).apply {
                                     setTitle("Delete session?")
-                                    setMessage("Remove \"${session.role}\" from your interview record? This cannot be undone.")
+                                    setMessage("Remove \"${session.role}\" from your account? This permanently deletes it from the database.")
                                     setPositiveButton("Delete") { _, _ ->
                                         scope.launch {
-                                            backend.deleteSession(appState.authToken, session.id)
-                                            remoteHistoryState.value = remoteHistoryState.value.filter { it.id != session.id }
-                                            showAllHistory()
+                                            if (deleteSessionEverywhere(session.id)) {
+                                                showAllHistory()
+                                            } else {
+                                                showAppToast(
+                                                    "Could not delete this session from your account.",
+                                                    ToastKind.ERROR,
+                                                )
+                                            }
                                         }
                                     }
                                     setNegativeButton("Cancel", null)
@@ -3668,6 +3863,7 @@ class MainActivity : ComponentActivity() {
             includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
             interviewerStyle = onboardingInterviewerStyle,
             previewGender = onboardingPreviewGender,
+            length = onboardingSessionLength,
         )
     }
 
@@ -4018,18 +4214,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun playCoachingAudio(improvedAnswer: String) {
+        val modelAnswer = improvedAnswer.trim()
+        if (modelAnswer.isBlank()) {
+            showAppToast("No model answer is available yet.", ToastKind.WARNING)
+            return
+        }
+        val avatar = activeAvatar
+        if (avatar == null) {
+            showAppToast("Interviewer voice is loading. Tap Listen again in a moment.", ToastKind.INFO)
+            return
+        }
         scope.launch {
             try {
                 val currentInterviewer = appState.interviewerFor(appState.currentQuestion())
-                val coachingText = "A stronger answer would be: $improvedAnswer"
                 val backendSpeech = backend.synthesizeSpeechUrl(
                     bearerToken = appState.authToken.ifBlank { null },
-                    text = coachingText,
+                    text = modelAnswer,
                     language = appState.language,
                     personality = currentInterviewer.id,
                 )
                 if (!backendSpeech.isNullOrBlank()) {
-                    activeAvatar?.speakAudioUri(backendSpeech, "coaching")
+                    root.post {
+                        activeAvatar?.speakAudioUri(backendSpeech, "coaching")
+                    }
                 } else {
                     showAppToast("Could not generate coaching audio.", ToastKind.WARNING)
                 }
@@ -4158,6 +4365,7 @@ class MainActivity : ComponentActivity() {
         activeTranscriber = null
         currentAnswerResult = null
         val capturedSpeechError = speechError
+        val answerPracticeSeconds = recordingDurationState.intValue.coerceAtLeast(0)
         
         // Stay on the interview screen and show processing state
         recordingTimer?.cancel()
@@ -4180,6 +4388,14 @@ class MainActivity : ComponentActivity() {
             val capture = withContext(Dispatchers.IO) {
                 transcriber?.stop(appState.language) ?: SpeechCaptureResult("")
             }
+            val practiceSeconds = when {
+                answerPracticeSeconds > 0 -> answerPracticeSeconds
+                capture.audioDurationSeconds > 0 -> capture.audioDurationSeconds
+                else -> 0
+            }
+            if (practiceSeconds > 0) {
+                appState.addPracticeSeconds(practiceSeconds)
+            }
             progressJob.cancel()
             processingProgressState.intValue = 95
             activeTranscript = capture.transcript.ifBlank { activeTranscript }
@@ -4201,7 +4417,7 @@ class MainActivity : ComponentActivity() {
             val backendRecovered = remoteResult != null &&
                 !remoteResult.retryRequired &&
                 !NativeSpeechTranscriber.isPlaceholderTranscript(remoteResult.transcript)
-            val result = when {
+            val mergedBase = when {
                 backendRecovered -> {
                     remoteResult!!.copy(
                         coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
@@ -4221,6 +4437,9 @@ class MainActivity : ComponentActivity() {
                 }
                 else -> localResult
             }
+            val result = mergedBase.copy(
+                improvedAnswer = remoteResult?.improvedAnswer?.trim().orEmpty(),
+            )
             val needsRetry = !backendRecovered && (
                 !hadCapturableSpeech ||
                 result.retryRequired ||
@@ -4249,6 +4468,9 @@ class MainActivity : ComponentActivity() {
             processingAnswerState.value = false
             processingStageState.value = ""
             showResult()
+            if (appState.authToken.isNotBlank()) {
+                refreshRemoteHistory()
+            }
         }
     }
 
@@ -4284,7 +4506,7 @@ class MainActivity : ComponentActivity() {
             transcript = appState.lastTranscript,
             score = appState.lastScore,
             feedback = "Answer coaching is ready.",
-            improvedAnswer = "Use one specific example, your action, and the result.",
+            improvedAnswer = "",
             what = "Situation, action, and result.",
             how = "Keep it short and concrete.",
             why = "Specific proof makes the answer easier to trust.",
@@ -4293,7 +4515,7 @@ class MainActivity : ComponentActivity() {
         
         coachingMessage = result.coachingMessage
         
-        val root = FrameLayout(this).apply {
+        val overlay = FrameLayout(this).apply {
             setBackgroundColor(Color.argb(173, 0, 0, 0))
             setPadding(dp(14), dp(60), dp(14), dp(14))
         }
@@ -4441,14 +4663,14 @@ class MainActivity : ComponentActivity() {
                 gravity = Gravity.CENTER_VERTICAL
             }
             improvedHeader.addView(TextView(this@MainActivity).apply {
-                text = "STRONGER ANSWER"
+                text = "MODEL ANSWER"
                 textSize = 10f
                 setTextColor(accent)
                 typeface = interBold
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             improvedHeader.addView(TextView(this@MainActivity).apply {
-                text = " Listen"
+                text = " Hear answer"
                 textSize = 10f
                 setTextColor(Color.WHITE)
                 typeface = interBold
@@ -4502,7 +4724,10 @@ class MainActivity : ComponentActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
                     setMargins(0, 0, dp(10), 0)
                 }
-                setOnClickListener { showInterview(false) }
+                setOnClickListener {
+                    dismissResultOverlay()
+                    showInterview(false)
+                }
             })
         }
         
@@ -4518,12 +4743,21 @@ class MainActivity : ComponentActivity() {
                 if (result.score >= 70) setMargins(dp(30), 0, dp(30), 0)
             }
             setOnClickListener {
+                dismissResultOverlay()
                 val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
-                appState.saveSessionAnswers(sessionId, sessionAnswers.toList())
+                val answersSnapshot = sessionAnswers.toList()
+                appState.saveSessionAnswers(sessionId, answersSnapshot)
+                appState.finalizeSessionForId(sessionId, answersSnapshot)
                 sessionAnswers.clear()
                 val done = appState.advanceOrComplete()
                 if (done) {
-                    showSessionReport(sessionId)
+                    scope.launch {
+                        if (appState.authToken.isNotBlank() && !sessionId.startsWith("session-")) {
+                            backend.completeSession(appState.authToken, sessionId)
+                        }
+                        refreshRemoteHistory()
+                        showSessionReport(sessionId)
+                    }
                 } else {
                     scope.launch { prepareCurrentQuestionSpeech() }
                     showInterview(false)
@@ -4532,8 +4766,23 @@ class MainActivity : ComponentActivity() {
         })
         
         card.addView(actions)
-        root.addView(card)
-        setScreen(root)
+        overlay.addView(card)
+        dismissResultOverlay()
+        resultOverlay = overlay
+        if (::root.isInitialized) {
+            root.addView(overlay, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ))
+            if (result.improvedAnswer.isNotBlank()) {
+                scope.launch {
+                    delay(450)
+                    playCoachingAudio(result.improvedAnswer)
+                }
+            }
+        } else {
+            setScreen(overlay)
+        }
     }
 
     private fun enhancedPresenceSummary(result: AnswerResult) = LinearLayout(this).apply {
@@ -5360,12 +5609,7 @@ class MainActivity : ComponentActivity() {
         addView(body("${session.date}  |  ${session.score}/100  |  ${session.answered}/${session.total} answered"))
         addView(rowOf(
             secondaryButton("Delete") {
-                scope.launch {
-                    val deletedRemote = backend.deleteSession(appState.authToken.ifBlank { null }, session.id)
-                    if (!deletedRemote) appState.deleteSession(session.id)
-                    remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == session.id }
-                    showProgress()
-                }
+                confirmDeleteSession(session.id, session.role, PrezzenceTab.PROGRESS)
             },
             primaryButton("Practice again") {
                 appState.selectedRole = session.role

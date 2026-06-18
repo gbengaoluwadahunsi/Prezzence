@@ -402,13 +402,27 @@ class PrezzenceBackendClient {
                         id = item.optString("id"),
                         role = title.removeSuffix(" Assessment").ifBlank { "Interview" },
                         score = item.optInt("score", 0),
-                        answered = 0,
-                        total = 0,
+                        answered = item.optInt("answered", 0),
+                        total = item.optInt("total", 0),
                         date = item.optString("date", ""),
+                        status = item.optString("status", ""),
                     )
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    suspend fun completeSession(bearerToken: String?, sessionId: String): Boolean = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank() || sessionId.isBlank()) return@withContext false
+        runCatching {
+            val body = "{}".toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/api/sessions/$sessionId/complete")
+                .header("Authorization", "Bearer $bearerToken")
+                .patch(body)
+                .build()
+            client.newCall(request).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
     }
 
     suspend fun deleteSession(bearerToken: String?, sessionId: String): Boolean = withContext(Dispatchers.IO) {
@@ -419,8 +433,24 @@ class PrezzenceBackendClient {
                 .header("Authorization", "Bearer $bearerToken")
                 .delete()
                 .build()
-            client.newCall(request).execute().use { it.isSuccessful }
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
         }.getOrDefault(false)
+    }
+
+    suspend fun deleteSessionWithAuthRetry(
+        bearerToken: String,
+        refreshToken: String,
+        sessionId: String,
+        onTokenRefreshed: (AuthSession) -> Unit = {},
+    ): Boolean {
+        if (sessionId.isBlank()) return false
+        if (deleteSession(bearerToken, sessionId)) return true
+        if (refreshToken.isBlank()) return false
+        val refreshed = refreshSession(refreshToken) ?: return false
+        onTokenRefreshed(refreshed)
+        return deleteSession(refreshed.accessToken, sessionId)
     }
 
     suspend fun getResumeProfile(bearerToken: String?): ResumeProfile? = withContext(Dispatchers.IO) {
@@ -580,7 +610,7 @@ class PrezzenceBackendClient {
             } else {
                 "The answer has usable signal. Make it stronger with one concrete result and fewer general words."
             },
-            improvedAnswer = buildImprovedAnswer(question, clean),
+            improvedAnswer = "",
             what = "A specific situation, the action you took, and the result.",
             how = "Answer directly, then use one clear example with a short result.",
             why = "This helps the interviewer hear proof instead of a general statement.",
@@ -707,14 +737,6 @@ class PrezzenceBackendClient {
             else -> {
                 "Excellent answer! You've got a clear structure with specific details. For even more impact, consider ending with how this experience prepares you for the role you're applying for."
             }
-        }
-    }
-
-    private fun buildImprovedAnswer(question: String, transcript: String): String {
-        return if (transcript.length < 24) {
-            "I would answer this with one real example: the situation, what I personally did, and the result it created."
-        } else {
-            "For this question, I would keep the answer focused on one real example. I would explain the situation, the action I personally took, and the result, then connect that result back to the role."
         }
     }
 }

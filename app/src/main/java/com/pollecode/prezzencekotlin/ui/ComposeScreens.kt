@@ -32,6 +32,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -1040,12 +1042,18 @@ fun PrezzenceHomeScreen(
 
             // Action grid
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp),
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 24.dp)
+                    .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // New interview card
                 Column(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp))
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(24.dp))
                         .background(Card)
                         .border(1.dp, Color.White.copy(alpha = 0.03f), RoundedCornerShape(24.dp))
                         .clickable(onClick = onStart)
@@ -1075,7 +1083,10 @@ fun PrezzenceHomeScreen(
                 }
                 // Questions card
                 Column(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(24.dp))
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(24.dp))
                         .background(Card)
                         .border(1.dp, Color.White.copy(alpha = 0.03f), RoundedCornerShape(24.dp))
                         .clickable(onClick = onQuestions)
@@ -3191,8 +3202,10 @@ fun PrezzenceInterviewRoomScreen(
                             ) {
                                 // Presence metrics bar
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
                                     PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
                                     PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
@@ -3653,13 +3666,12 @@ private fun InterviewTopGlassLabel(label: String, status: String) {
 
 @Composable
 private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = Modifier) {
-    val display = value?.toString() ?: "--"
     val interpretation = when {
-        value == null -> "Detecting..."
+        value == null -> "..."
         value >= 80 -> "Excellent"
         value >= 60 -> "Good"
         value >= 40 -> "Fair"
-        else -> "Needs work"
+        else -> "Low"
     }
     val scoreColor = when {
         value == null -> TextSecondary
@@ -3668,27 +3680,47 @@ private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = 
         value >= 40 -> Color(0xFFFFB347)
         else -> Color(0xFFFF3B6B)
     }
+    val cardBackground = Color(0xFF12121C).copy(alpha = 0.92f)
     Column(
         modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.06f))
-            .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 2.dp, vertical = 3.dp),
+            .defaultMinSize(minHeight = 58.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(cardBackground)
+            .border(1.dp, scoreColor.copy(alpha = if (value == null) 0.18f else 0.42f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 5.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
             label.uppercase(java.util.Locale.US),
-            color = TextSecondary,
-            fontSize = 7.sp,
+            color = Color.White.copy(alpha = 0.72f),
+            fontSize = 8.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.2.sp,
+            letterSpacing = 0.35.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(1.dp))
-        Text(interpretation, color = scoreColor, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value?.toString() ?: "--",
+            color = TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            interpretation,
+            color = scoreColor,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -3796,40 +3828,58 @@ data class SessionHistoryItem(
 fun PrezzenceProgressScreen(
     avgScore: Int,
     sessions: Int,
-    practiceHours: Float,
+    practiceMinutes: Int,
     readinessLabel: String,
     recentSessions: List<SessionHistoryItem>,
     coachingTip: String,
     onSettings: () -> Unit,
     onSessionTap: (String) -> Unit,
-    onNewSession: () -> Unit,
-    onDeleteSession: (String) -> Unit,
     onViewAllHistory: () -> Unit = {},
 ) {
-    val performanceTitle = when {
-        avgScore >= 85 -> "Interview Ready"
-        avgScore >= 70 -> "Building Confidence"
-        avgScore >= 55 -> "Building Momentum"
-        avgScore > 0 -> "Foundation Built"
-        else -> "Ready to Practice"
+    val previewSessions = recentSessions.take(3)
+    val hasMoreSessions = recentSessions.size > previewSessions.size
+    val scoredSessions = recentSessions.filter { it.score > 0 }
+    val hasScoredData = scoredSessions.isNotEmpty()
+    val chronologicalScores = recentSessions
+        .sortedBy { it.date }
+        .map { it.score }
+        .filter { it > 0 }
+    val firstScore = chronologicalScores.firstOrNull() ?: 0
+    val latestScore = chronologicalScores.lastOrNull() ?: 0
+    val bestScore = scoredSessions.maxOfOrNull { it.score } ?: 0
+    val delta = if (chronologicalScores.size >= 2) latestScore - firstScore else 0
+    val trendData = chronologicalScores.takeLast(8)
+    val performanceTitle = readinessLabel.ifBlank {
+        when {
+            avgScore >= 75 -> "Interview Ready"
+            avgScore >= 45 -> "Building Confidence"
+            avgScore >= 25 -> "Building Momentum"
+            avgScore > 0 -> "Foundation Built"
+            sessions > 0 -> "Sessions Started"
+            else -> "Ready to Practice"
+        }
     }
-    val firstScore = recentSessions.lastOrNull()?.score ?: 0
-    val latestScore = recentSessions.firstOrNull()?.score ?: 0
-    val bestScore = recentSessions.maxOfOrNull { it.score } ?: 0
-    val delta = latestScore - firstScore
-    val sortedScores = recentSessions.sortedBy { it.date }.map { it.score }
-    val trendData = sortedScores.takeLast(8).ifEmpty { emptyList() }
-    val hasSignal = sessions > 0 && avgScore > 0
-    val strongest = recentSessions.maxByOrNull { it.score }
-    val weakest = recentSessions.minByOrNull { it.score }
-    val focusText = if (hasSignal && strongest != null && weakest != null)
-        "${if (strongest.score >= 70) "Strongest" else "Best current signal"}: ${strongest.role} at ${strongest.score}%. Focus next on ${weakest.role} at ${weakest.score}%."
-    else ""
     val growthText = when {
         sessions == 0 -> "Complete your first interview to build your baseline."
-        delta > 0 -> "Your interview baseline moved +$delta% this session."
-        delta < 0 -> "Your interview baseline moved $delta% this session."
-        else -> "Keep practicing to improve your interview signal."
+        !hasScoredData -> "You have $sessions ${if (sessions == 1) "session" else "sessions"}, but no scored answers yet. Finish a question with clear audio to unlock trends."
+        chronologicalScores.size < 2 -> "Your latest session scored $latestScore%. Complete another interview to track improvement."
+        delta > 0 -> "Up $delta points since your first scored session ($firstScore% → $latestScore%)."
+        delta < 0 -> "Down ${kotlin.math.abs(delta)} points since your first scored session ($firstScore% → $latestScore%)."
+        else -> "Holding steady at $latestScore% across your scored sessions."
+    }
+    val strongest = scoredSessions.maxByOrNull { it.score }
+    val weakest = scoredSessions.minByOrNull { it.score }
+    val focusText = if (hasScoredData && strongest != null && weakest != null && strongest.id != weakest.id) {
+        "Strongest: ${strongest.role} ($strongest.score%). Focus next on ${weakest.role} ($weakest.score%)."
+    } else {
+        ""
+    }
+    val resolvedCoachingTip = coachingTip.ifBlank {
+        when {
+            !hasScoredData -> "Complete one interview with clear audio to unlock personalized coaching."
+            focusText.isNotBlank() -> focusText
+            else -> "Keep practicing with specific examples, your action, and a measurable result."
+        }
     }
 
     PrezzenceTheme {
@@ -3840,7 +3890,7 @@ fun PrezzenceProgressScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Performance", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Progress", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                 Box(
                     Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.05f)).clickable(onClick = onSettings),
                     contentAlignment = Alignment.Center,
@@ -3873,7 +3923,7 @@ fun PrezzenceProgressScreen(
             ) {
                 StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f))
                 StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f))
-                StatCard("PRACTICE", "${practiceHours.toInt()}", "hrs", Modifier.weight(1f))
+                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f))
             }
 
             // Improvement card
@@ -3886,11 +3936,16 @@ fun PrezzenceProgressScreen(
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
-                        Text("Improvement", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp)
+                        Text("Your trend", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp)
                         Spacer(Modifier.height(8.dp))
-                        Text("Interview readiness: $readinessLabel", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (hasScoredData) "Average across scored sessions: $avgScore%" else "Waiting for your first scored answer",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
-                    if (hasSignal) {
+                    if (hasScoredData && chronologicalScores.size >= 2) {
                         Row(
                             Modifier.clip(RoundedCornerShape(999.dp))
                                 .background(
@@ -3930,10 +3985,14 @@ fun PrezzenceProgressScreen(
                         }
                     }
                 }
-                if (sessions == 0) {
+                if (!hasScoredData) {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "Complete an interview with a clear transcript. Once at least one answer is scored, this page will show real improvement.",
+                        if (sessions == 0) {
+                            "Complete an interview with a clear transcript. Once at least one answer is scored, this page will show real improvement."
+                        } else {
+                            "Your sessions are saved, but none have scored answers yet. Speak clearly for at least a few seconds before finishing each question."
+                        },
                         color = TextPrimary, fontSize = 14.sp, lineHeight = 20.sp,
                     )
                 } else {
@@ -3948,29 +4007,31 @@ fun PrezzenceProgressScreen(
                         ScoreCompareBox("Latest", "$latestScore%")
                         ScoreCompareBox("Best", "$bestScore%")
                     }
-                    if (focusText.isNotBlank()) {
-                        Spacer(Modifier.height(14.dp))
-                        Text(focusText, color = TextPrimary, fontSize = 14.sp, lineHeight = 20.sp)
-                    }
                     Spacer(Modifier.height(18.dp))
+                    Text("Session scores", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(10.dp))
                     // Trend bars
                     Row(
                         modifier = Modifier.fillMaxWidth().height(118.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.Bottom,
                     ) {
-                        val data = if (trendData.isNotEmpty()) trendData else listOf(avgScore.coerceAtLeast(10))
-                        data.forEach { h ->
+                        val maxTrend = (trendData.maxOrNull() ?: 100).coerceAtLeast(1)
+                        trendData.forEach { score ->
                             Column(
                                 Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Bottom,
                             ) {
                                 Box(
-                                    Modifier.fillMaxWidth().height(h.dp.coerceAtLeast(8.dp)).clip(RoundedCornerShape(999.dp)).background(Accent)
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height((score / maxTrend.toFloat() * 80f).dp.coerceAtLeast(8.dp))
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(Accent)
                                 )
                                 Spacer(Modifier.height(6.dp))
-                                Text("$h", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                                Text("$score", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                             }
                         }
                     }
@@ -4010,7 +4071,7 @@ fun PrezzenceProgressScreen(
                     Text("COACHING TIP", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        coachingTip.ifBlank { "Complete one interview with clear audio to unlock personalized coaching." },
+                        resolvedCoachingTip,
                         color = TextPrimary, fontSize = 15.sp, lineHeight = 22.sp,
                     )
                 }
@@ -4025,7 +4086,7 @@ fun PrezzenceProgressScreen(
                 Text("Recent Sessions", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp)
                 if (recentSessions.isNotEmpty()) {
                     Text(
-                        "View all",
+                        if (hasMoreSessions) "View all" else "See all",
                         color = Accent, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier.clickable(onClick = onViewAllHistory),
                     )
@@ -4045,7 +4106,7 @@ fun PrezzenceProgressScreen(
                     Text("Your completed interviews will appear here after your first practice session.", color = TextSecondary, fontSize = 14.sp, lineHeight = 20.sp)
                 }
             } else {
-                recentSessions.forEach { session ->
+                previewSessions.forEach { session ->
                     Row(
                         modifier = Modifier
                             .padding(horizontal = 20.dp).padding(bottom = 12.dp)
@@ -4069,9 +4130,22 @@ fun PrezzenceProgressScreen(
                         }
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(session.role, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(
+                                session.role,
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             Spacer(Modifier.height(4.dp))
-                            Text(session.date, color = TextSecondary, fontSize = 14.sp)
+                            Text(
+                                "${session.answered}/${session.total} answered · ${session.date}",
+                                color = TextSecondary,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         // Chevron
                         Canvas(Modifier.size(20.dp)) {
@@ -4095,7 +4169,18 @@ private fun StatCard(label: String, value: String, unit: String, modifier: Modif
             .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(28.dp))
             .padding(20.dp),
     ) {
-        Text(label, color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+        label.split(" ").filter { it.isNotBlank() }.forEach { word ->
+            Text(
+                text = word,
+                color = TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.5.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(value, color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
@@ -4129,6 +4214,8 @@ data class PracticeSessionItem(
     val type: String,
     val date: String,
     val score: Int,
+    val answered: Int,
+    val total: Int,
     val status: String,
 )
 
@@ -4160,7 +4247,15 @@ fun PrezzencePracticeScreen(
 
             // Title section
             Column(Modifier.padding(horizontal = 24.dp, vertical = 0.dp).padding(top = 20.dp, bottom = 32.dp)) {
-                Text("What do you want\nto practice?", color = TextPrimary, fontSize = 42.sp, fontWeight = FontWeight.Black, lineHeight = 48.sp, letterSpacing = (-1).sp)
+                Text(
+                    text = "What do you want\nto practice?",
+                    color = TextPrimary,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 36.sp,
+                    letterSpacing = (-0.5).sp,
+                    maxLines = 2,
+                )
                 Spacer(Modifier.height(12.dp))
                 Text("Choose the interview practice that matches your next step.", color = TextSecondary, fontSize = 16.sp, lineHeight = 24.sp)
             }
@@ -4200,7 +4295,14 @@ fun PrezzencePracticeScreen(
             Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Recent sessions", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                    Text("${recentSessions.size}", color = Accent, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    if (recentSessions.isNotEmpty()) {
+                        Text(
+                            "${recentSessions.size} ${if (recentSessions.size == 1) "session" else "sessions"}",
+                            color = Accent,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
                 }
                 if (recentSessions.isEmpty()) {
                     Column(
@@ -4209,16 +4311,17 @@ fun PrezzencePracticeScreen(
                     ) {
                         Text("No sessions yet", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Black)
                         Spacer(Modifier.height(6.dp))
-                        Text("Your completed interviews will appear here.", color = TextSecondary, fontSize = 14.sp, lineHeight = 20.sp)
+                        Text("Sessions appear here after you start an interview.", color = TextSecondary, fontSize = 14.sp, lineHeight = 20.sp)
                     }
                 } else {
                     recentSessions.forEach { session ->
+                        val statusLower = session.status.lowercase()
+                        val isCompleted = statusLower == "completed"
                         Row(
                             modifier = Modifier.padding(bottom = 12.dp)
                                 .clip(RoundedCornerShape(24.dp))
                                 .background(Color.White.copy(alpha = 0.03f))
                                 .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(24.dp))
-                                .clickable { onSessionTap(session.id) }
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -4226,21 +4329,47 @@ fun PrezzencePracticeScreen(
                                 Modifier.size(58.dp).clip(RoundedCornerShape(18.dp)).background(Accent.copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Row(verticalAlignment = Alignment.Bottom) {
-                                    Text("${session.score}", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                                    Text("%", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                if (session.score > 0) {
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        Text("${session.score}", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                                        Text("%", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                } else {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            "${session.answered}/${session.total.coerceAtLeast(1)}",
+                                            color = TextPrimary,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Black,
+                                        )
+                                        Text("answered", color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                             Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable { onSessionTap(session.id) },
+                            ) {
                                 Text(session.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.height(4.dp))
                                 Text("${session.type} • ${session.date}", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                if (session.score <= 0 && session.answered > 0) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("No scored answers yet", color = TextSecondary, fontSize = 11.sp)
+                                }
                             }
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Box(
                                     Modifier.clip(RoundedCornerShape(999.dp))
-                                        .background(if (session.status == "completed") Color(0xFF10B981).copy(alpha = 0.12f) else Color(0xFFF59E0B).copy(alpha = 0.12f))
+                                        .background(
+                                            when {
+                                                isCompleted -> Color(0xFF10B981).copy(alpha = 0.12f)
+                                                statusLower == "started" -> Color.White.copy(alpha = 0.08f)
+                                                else -> Color(0xFFF59E0B).copy(alpha = 0.12f)
+                                            },
+                                        )
                                         .padding(horizontal = 9.dp, vertical = 5.dp),
                                 ) {
                                     Text(session.status, color = TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -4263,68 +4392,6 @@ fun PrezzencePracticeScreen(
                     }
                 }
             }
-
-            // Practice options
-            Text("Practice options", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 24.dp, vertical = 0.dp).padding(bottom = 14.dp))
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                modes.forEach { mode ->
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(mode.color.copy(alpha = 0.04f))
-                            .border(1.dp, mode.color.copy(alpha = 0.40f), RoundedCornerShape(24.dp))
-                            .clickable { onSelectMode(mode.id) }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        Box(
-                            Modifier.size(52.dp).clip(RoundedCornerShape(18.dp))
-                                .background(mode.color.copy(alpha = 0.10f))
-                                .border(1.dp, mode.color.copy(alpha = 0.20f), RoundedCornerShape(18.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Canvas(Modifier.size(23.dp)) {
-                                val c = mode.color
-                                when (mode.id) {
-                                    "full" -> {
-                                        drawCircle(c, size.minDimension * 0.30f, style = Stroke(2.2f))
-                                        drawCircle(c, size.minDimension * 0.14f, center = Offset(size.width * 0.65f, size.height * 0.38f), style = Stroke(2.0f))
-                                    }
-                                    "quick" -> {
-                                        drawCircle(c, size.minDimension * 0.44f, style = Stroke(2.2f))
-                                        drawLine(c, Offset(size.width / 2f, size.height * 0.28f), Offset(size.width / 2f, size.height / 2f), strokeWidth = 2.4f, cap = StrokeCap.Round)
-                                        drawLine(c, Offset(size.width / 2f, size.height / 2f), Offset(size.width * 0.65f, size.height * 0.60f), strokeWidth = 2.4f, cap = StrokeCap.Round)
-                                    }
-                                    "behavioral" -> {
-                                        drawRoundRect(c, Offset(size.width * 0.12f, size.height * 0.18f), Size(size.width * 0.76f, size.height * 0.56f), CornerRadius(6f), style = Stroke(2.2f))
-                                        drawLine(c, Offset(size.width * 0.28f, size.height * 0.42f), Offset(size.width * 0.72f, size.height * 0.42f), strokeWidth = 2f, cap = StrokeCap.Round)
-                                        drawLine(c, Offset(size.width * 0.28f, size.height * 0.58f), Offset(size.width * 0.56f, size.height * 0.58f), strokeWidth = 2f, cap = StrokeCap.Round)
-                                    }
-                                    "technical" -> {
-                                        drawRoundRect(c, Offset(size.width * 0.18f, size.height * 0.22f), Size(size.width * 0.64f, size.height * 0.56f), CornerRadius(4f), style = Stroke(2.2f))
-                                    }
-                                    "promotion" -> {
-                                        drawLine(c, Offset(size.width * 0.18f, size.height * 0.76f), Offset(size.width * 0.42f, size.height * 0.52f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-                                        drawLine(c, Offset(size.width * 0.42f, size.height * 0.52f), Offset(size.width * 0.58f, size.height * 0.62f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-                                        drawLine(c, Offset(size.width * 0.58f, size.height * 0.62f), Offset(size.width * 0.82f, size.height * 0.26f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-                                    }
-                                    else -> drawCircle(c, size.minDimension * 0.44f, style = Stroke(2.2f))
-                                }
-                            }
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(mode.title, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.3).sp)
-                            Spacer(Modifier.height(4.dp))
-                            Text(mode.desc, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Canvas(Modifier.size(20.dp)) {
-                            drawLine(TextSecondary, Offset(size.width * 0.36f, size.height * 0.24f), Offset(size.width * 0.64f, size.height * 0.50f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-                            drawLine(TextSecondary, Offset(size.width * 0.36f, size.height * 0.76f), Offset(size.width * 0.64f, size.height * 0.50f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -4338,6 +4405,7 @@ fun PrezzenceProfileScreen(
     initials: String,
     avgScore: Int,
     sessions: Int,
+    practiceMinutes: Int,
     coachingTip: String,
     bestSkillLabel: String? = null,
     bestSkillValue: Int? = null,
@@ -4451,7 +4519,7 @@ fun PrezzenceProfileScreen(
             ) {
                 StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f))
                 StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f))
-                StatCard("PRACTICE", "0", "h", Modifier.weight(1f))
+                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f))
             }
 
             // Coaching focus

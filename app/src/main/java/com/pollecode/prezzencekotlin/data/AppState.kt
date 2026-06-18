@@ -12,6 +12,12 @@ class AppState(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("prezzence_kotlin_state", Context.MODE_PRIVATE)
 
+    private val unlimitedAccessEmails = setOf(
+        "gbengaoluwadahunsicodes@gmail.com",
+        "gbengaoluwadahunsicode@gmail.com",
+        "alabiolusola399@gmail.com",
+    )
+
     var onboardingComplete: Boolean
         get() = prefs.getBoolean("onboardingComplete", false)
         set(value) = prefs.edit().putBoolean("onboardingComplete", value).apply()
@@ -88,6 +94,22 @@ class AppState(context: Context) {
         get() = prefs.getInt("currentQuestionIndex", 0)
         set(value) = prefs.edit().putInt("currentQuestionIndex", value.coerceAtLeast(0)).apply()
 
+    fun addPracticeSeconds(seconds: Int) {
+        if (seconds <= 0) return
+        totalPracticeSeconds = totalPracticeSeconds + seconds
+    }
+
+    val practiceMinutes: Int
+        get() {
+            val seconds = totalPracticeSeconds
+            if (seconds <= 0) return 0
+            return maxOf(1, (seconds + 59) / 60)
+        }
+
+    private var totalPracticeSeconds: Int
+        get() = prefs.getInt("totalPracticeSeconds", 0)
+        set(value) = prefs.edit().putInt("totalPracticeSeconds", value.coerceAtLeast(0)).apply()
+
     var completedSessions: Int
         get() = prefs.getInt("completedSessions", 0)
         set(value) = prefs.edit().putInt("completedSessions", value.coerceAtLeast(0)).apply()
@@ -138,9 +160,8 @@ class AppState(context: Context) {
 
     var subscriptionEntitled: Boolean
         get() {
-            // Test user override - always Pro
             val email = userEmail.lowercase().trim()
-            if (email == "gbengaoluwadahunsicodes@gmail.com" || email == "gbengaoluwadahunsicode@gmail.com") return true
+            if (email in unlimitedAccessEmails) return true
             return prefs.getBoolean("subscriptionEntitled", false)
         }
         set(value) = prefs.edit().putBoolean("subscriptionEntitled", value).apply()
@@ -234,6 +255,21 @@ class AppState(context: Context) {
             lastAnsweredQuestionIndex = currentQuestionIndex
         }
         readinessScore = sessionWeightedScore()
+        upsertActiveSessionProgress()
+    }
+
+    private fun upsertActiveSessionProgress() {
+        if (activeSessionId.isBlank()) return
+        val answered = sessionAnsweredCount.coerceAtLeast(if (lastTranscript.isNotBlank()) 1 else 0)
+        val summary = SessionSummary(
+            id = activeSessionId,
+            role = selectedRole,
+            score = sessionWeightedScore(),
+            answered = answered,
+            total = questions().size,
+            date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
+        )
+        writeHistory(listOf(summary) + sessionHistory().filterNot { it.id == summary.id })
     }
 
     fun advanceOrComplete(): Boolean {
@@ -343,8 +379,9 @@ class AppState(context: Context) {
                     role = item.optString("role", PrezzenceDefaults.roles.first()),
                     score = item.optInt("score", 0),
                     answered = item.optInt("answered", 0),
-                    total = item.optInt("total", questions().size),
+                    total = item.optInt("total", 0),
                     date = item.optString("date", ""),
+                    status = item.optString("status", ""),
                 )
             }
         }.getOrDefault(emptyList())
@@ -355,8 +392,8 @@ class AppState(context: Context) {
     fun deleteSession(id: String) {
         val kept = sessionHistory().filterNot { it.id == id }
         writeHistory(kept)
-        completedSessions = kept.size
-        readinessScore = if (kept.isEmpty()) 0 else kept.map { it.score }.average().toInt().coerceIn(0, 100)
+        completedSessions = kept.count { it.resolvedPracticeStatus() == "Completed" }
+        readinessScore = if (kept.isEmpty()) 0 else kept.filter { it.score > 0 }.map { it.score }.average().toInt().coerceIn(0, 100)
     }
 
     fun clearHistory() {
@@ -374,17 +411,73 @@ class AppState(context: Context) {
     }
 
     private fun saveCurrentSessionSummary() {
-        val answered = sessionAnsweredCount.coerceAtLeast(if (lastTranscript.isNotBlank()) 1 else 0)
-        val score = sessionWeightedScore()
+        val sessionId = activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+        saveSessionSummary(
+            sessionId = sessionId,
+            answered = sessionAnsweredCount.coerceAtLeast(if (lastTranscript.isNotBlank()) 1 else 0),
+            score = sessionWeightedScore(),
+            total = questions().size,
+        )
+    }
+
+    fun finalizeSessionForId(sessionId: String, answers: List<AnswerResult>) {
+        if (sessionId.isBlank()) return
+        val total = questions().size.coerceAtLeast(answers.size.coerceAtLeast(1))
+        val scored = answers.filter { it.score > 0 }
+        val score = when {
+            scored.isNotEmpty() -> scored.map { it.score }.average().toInt().coerceIn(0, 100)
+            sessionAnsweredCount > 0 -> sessionWeightedScore()
+            else -> 0
+        }
+        val answered = maxOf(sessionAnsweredCount, answers.size)
+        saveSessionSummary(
+            sessionId = sessionId,
+            answered = answered,
+            score = score,
+            total = total,
+        )
+    }
+
+    private fun saveSessionSummary(sessionId: String, answered: Int, score: Int, total: Int) {
         val summary = SessionSummary(
-            id = "session-${System.currentTimeMillis()}",
+            id = sessionId,
             role = selectedRole,
             score = score,
             answered = answered,
-            total = questions().size,
-            date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
+            total = total,
+            date = SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date()),
+            status = when {
+                total > 0 && answered >= total && score > 0 -> "completed"
+                answered > 0 -> "in_progress"
+                else -> "started"
+            },
         )
-        writeHistory(listOf(summary) + sessionHistory())
+        writeHistory(listOf(summary) + sessionHistory().filterNot { it.id == sessionId })
+    }
+
+    fun mergeSessionHistory(remote: List<SessionSummary>) {
+        if (remote.isEmpty()) return
+        val localById = sessionHistory().associateBy { it.id }
+        val mergedRemote = remote.map { remoteItem ->
+            val local = localById[remoteItem.id]
+            remoteItem.copy(
+                score = when {
+                    remoteItem.score > 0 -> remoteItem.score
+                    local != null && local.score > 0 -> local.score
+                    else -> remoteItem.score
+                },
+                answered = if (remoteItem.total > 0) remoteItem.answered else maxOf(remoteItem.answered, local?.answered ?: 0),
+                total = if (remoteItem.total > 0) remoteItem.total else (local?.total ?: remoteItem.total),
+                role = remoteItem.role.ifBlank { local?.role.orEmpty() }.ifBlank { "Interview" },
+                status = remoteItem.status.ifBlank { local?.status.orEmpty() },
+            )
+        }
+        val remoteIds = mergedRemote.map { it.id }.toSet()
+        val extras = sessionHistory().filterNot { it.id in remoteIds }
+        writeHistory((mergedRemote + extras).take(30))
+        completedSessions = (mergedRemote + extras).size
+        val scored = (mergedRemote + extras).filter { it.score > 0 }
+        readinessScore = if (scored.isEmpty()) readinessScore else scored.map { it.score }.average().toInt().coerceIn(0, 100)
     }
 
     private fun writeHistory(items: List<SessionSummary>) {
@@ -396,7 +489,8 @@ class AppState(context: Context) {
                 .put("score", item.score)
                 .put("answered", item.answered)
                 .put("total", item.total)
-                .put("date", item.date))
+                .put("date", item.date)
+                .put("status", item.status))
         }
         prefs.edit().putString("sessionHistory", array.toString()).apply()
     }

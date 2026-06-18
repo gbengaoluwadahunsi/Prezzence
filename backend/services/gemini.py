@@ -1059,7 +1059,7 @@ class GeminiService:
         reason: str = "The selected AI provider did not return a usable result.",
     ):
         text = (transcript or "").strip()
-        return {
+        result = {
             "transcript": text,
             "score": 0,
             "clarity_score": 0,
@@ -1081,6 +1081,8 @@ class GeminiService:
             "audio_base64_chars": audio_chars,
             "audio_duration_seconds": audio_duration_seconds,
         }
+        self._ensure_answer_coaching(result, question_text)
+        return result
 
     def _fallback_analysis(self, question_text: str, audio_chars: int = 0, transcript: str = None, audio_duration_seconds: int | None = None):
         text = (transcript or "").strip()

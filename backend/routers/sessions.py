@@ -159,6 +159,7 @@ async def _submit_answer_payload(
 
     if not has_transcript_signal and not has_recorded_audio:
         timings_ms["total"] = round((time.perf_counter() - total_started_at) * 1000)
+        model_answer = gemini._build_model_answer(question_text, "")
         return {
             "transcript": "",
             "retry_required": True,
@@ -178,6 +179,7 @@ async def _submit_answer_payload(
                 "knowledge_score": 0,
                 "feedback": "We could not detect a clear answer. Please retry this question and speak close to the microphone.",
                 "transcript": "",
+                "improved_answer": model_answer,
             },
         }
 
@@ -246,6 +248,7 @@ async def _submit_answer_payload(
             if has_recorded_audio
             else "We could not detect a clear answer. Please retry this question and speak close to the microphone."
         )
+        gemini._ensure_answer_coaching(analysis, question_text)
         return {
             "transcript": "",
             "retry_required": True,
@@ -288,6 +291,7 @@ async def _submit_answer_payload(
 
     save_started_at = time.perf_counter()
     await neon_db.save_answer(answer_data)
+    await neon_db.refresh_session_score(session_id)
     timings_ms["save_answer"] = round((time.perf_counter() - save_started_at) * 1000)
     timings_ms["total"] = round((time.perf_counter() - total_started_at) * 1000)
 
@@ -380,7 +384,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
         interview_type = (request.interview_type or "").strip().lower()
         try:
             is_premium = await asyncio.wait_for(
-                neon_db.is_user_premium(str(current_user["id"])),
+                neon_db.is_user_premium(str(current_user["id"]), current_user.get("email")),
                 timeout=SESSION_META_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
@@ -636,14 +640,16 @@ async def list_sessions(current_user: dict = Depends(get_current_user)):
     """
     Lists all sessions for the current user.
     """
-    sessions = await neon_db.get_user_sessions(current_user["id"])
+    sessions = await neon_db.get_user_sessions_for_list(current_user["id"])
     return {"sessions": [
         {
             "id": str(s["id"]),
             "title": f"{s.get('role_title', 'Interview')} Assessment",
             "type": s.get("interview_type", "behavioral").capitalize(),
             "date": s["created_at"].strftime("%b %d, %Y") if s.get("created_at") else "Unknown",
-            "score": s.get("score", 0), # Note: database.py get_user_sessions should return score
+            "score": int(s.get("computed_score", s.get("score", 0)) or 0),
+            "answered": int(s.get("answered", 0) or 0),
+            "total": int(s.get("total", 0) or 0),
             "status": s.get("status", ""),
         }
         for s in sessions

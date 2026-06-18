@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
+from services.entitlements import has_unlimited_access
+
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -229,12 +231,10 @@ class NeonDatabase:
             user_id, title, message, type
         )
 
-    async def complete_session(self, session_id: str):
+    async def refresh_session_score(self, session_id: str) -> int:
         if not self.pool:
-            return
-        
-        # Penalize skipped questions by dividing usable answer points by the
-        # expected question count, not only by submitted answer rows.
+            return 0
+
         avg_score = await self.pool.fetchval(
             """
             SELECT COALESCE(
@@ -257,14 +257,85 @@ class NeonDatabase:
             FROM sessions s
             LEFT JOIN answers a ON a.session_id = s.id
             WHERE s.id = $1
-            GROUP BY s.id, s.question_count
+            GROUP BY s.id, s.question_count, s.length
             """,
-            session_id
+            session_id,
         )
+        score = round(avg_score or 0)
+        await self.pool.execute(
+            "UPDATE sessions SET score = $1 WHERE id = $2",
+            score,
+            session_id,
+        )
+        return score
+
+    async def get_user_sessions_for_list(self, user_id: str, limit: int = 20) -> List[Dict]:
+        if not self.pool:
+            return []
+
+        rows = await self.pool.fetch(
+            """
+            SELECT
+                s.id,
+                s.role_title,
+                s.interview_type,
+                s.status,
+                s.created_at,
+                s.question_count,
+                s.length,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN a.score > 0
+                                 AND NULLIF(TRIM(COALESCE(a.transcript, '')), '') IS NOT NULL
+                            THEN a.score
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS total_score,
+                COUNT(a.id) FILTER (
+                    WHERE a.score > 0
+                      AND NULLIF(TRIM(COALESCE(a.transcript, '')), '') IS NOT NULL
+                ) AS usable_answers,
+                COUNT(a.id) AS answer_count
+            FROM sessions s
+            LEFT JOIN answers a ON a.session_id = s.id
+            WHERE s.user_id = $1
+            GROUP BY s.id
+            ORDER BY s.created_at DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
+
+        results: List[Dict] = []
+        for row in rows:
+            item = dict(row)
+            expected = _expected_question_count_from_session(item, int(item.get("answer_count") or 0))
+            score = round(
+                _coverage_adjusted_score(
+                    float(item.get("total_score") or 0),
+                    int(item.get("usable_answers") or 0),
+                    expected,
+                )
+            )
+            item["computed_score"] = score
+            item["answered"] = int(item.get("usable_answers") or 0)
+            item["total"] = expected
+            results.append(item)
+        return results
+
+    async def complete_session(self, session_id: str):
+        if not self.pool:
+            return
+
+        avg_score = await self.refresh_session_score(session_id)
         
         await self.pool.execute(
-            "UPDATE sessions SET status = 'completed', completed_at = NOW(), score = $1 WHERE id = $2",
-            round(avg_score or 0), session_id
+            "UPDATE sessions SET status = 'completed', completed_at = NOW() WHERE id = $1",
+            session_id,
         )
 
         # Trigger Notification if it's a high score
@@ -303,7 +374,9 @@ class NeonDatabase:
         await self.pool.execute("DELETE FROM sessions WHERE id = $1 AND user_id = $2", session_id, user_id)
         return True
 
-    async def is_user_premium(self, user_id: str) -> bool:
+    async def is_user_premium(self, user_id: str, email: str | None = None) -> bool:
+        if has_unlimited_access(email):
+            return True
         if not self.pool:
             return False
         try:
