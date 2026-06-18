@@ -314,6 +314,24 @@ async def _submit_answer_payload(
     }
 
 
+@router.post("/coaching/model-answer", status_code=200)
+async def coaching_model_answer(
+    payload: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    question_text = str(payload.get("question_text") or "").strip()
+    transcript = str(payload.get("transcript") or "").strip()
+    if not question_text:
+        raise HTTPException(status_code=400, detail="question_text is required")
+    improved_answer = gemini._build_model_answer(question_text, transcript)
+    breakdown = gemini._build_coaching_breakdown(question_text, transcript)
+    return {
+        "improved_answer": improved_answer,
+        "coaching_breakdown": breakdown,
+        "coaching_message": "Here is a stronger way to answer this question.",
+    }
+
+
 @router.post("/{session_id}/answers", status_code=200)
 async def submit_answer(
     session_id: str, 

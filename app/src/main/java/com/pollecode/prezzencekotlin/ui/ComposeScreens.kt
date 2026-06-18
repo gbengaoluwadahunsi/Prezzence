@@ -4396,6 +4396,390 @@ fun PrezzencePracticeScreen(
     }
 }
 
+// ─── Session Report Screen ────────────────────────────────────────────────────
+
+data class SessionReportAnswerItem(
+    val index: Int,
+    val score: Int,
+    val feedback: String,
+    val transcript: String,
+)
+
+@Composable
+fun PrezzenceSessionReportScreen(
+    role: String,
+    date: String,
+    recordedCount: Int,
+    total: Int,
+    score: Int,
+    substantiveCount: Int,
+    hasSignal: Boolean,
+    summary: String,
+    coachingTips: List<String>,
+    skillBreakdown: List<Pair<String, Int>>,
+    answers: List<SessionReportAnswerItem>,
+    isPro: Boolean,
+    onBack: () -> Unit,
+    onExportPdf: () -> Unit,
+    onPracticeAgain: () -> Unit,
+    onViewProgress: () -> Unit,
+) {
+    val scoreColor = when {
+        score >= 75 -> Color(0xFF00D68F)
+        score >= 55 -> Color(0xFFFFB020)
+        score > 0 -> Color(0xFFFF5C7A)
+        else -> TextSecondary
+    }
+    val statusLabel = when {
+        hasSignal -> "COMPLETED"
+        recordedCount >= total && total > 0 -> "LOW SIGNAL"
+        recordedCount > 0 -> "IN PROGRESS"
+        else -> "NEEDS AUDIO"
+    }
+    val metaLine = listOfNotNull(
+        date,
+        "$substantiveCount/$total scored",
+        if (recordedCount != substantiveCount) "$recordedCount recorded" else null,
+    ).joinToString(" · ")
+
+    PrezzenceTheme {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(Bg)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("‹", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Session complete", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    Text("Review your performance", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Card)
+                    .border(1.dp, Border, RoundedCornerShape(20.dp))
+                    .padding(14.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text(
+                            statusLabel,
+                            color = Accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            role.ifBlank { "Interview session" },
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 22.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            metaLine,
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            lineHeight = 16.sp,
+                        )
+                    }
+                    Column(
+                        Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(2.dp, scoreColor.copy(alpha = 0.55f), RoundedCornerShape(18.dp)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            if (hasSignal) "$score" else "--",
+                            color = TextPrimary,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            if (hasSignal) "SCORE" else "NO DATA",
+                            color = TextSecondary,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.7.sp,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SessionReportChip("$substantiveCount scored")
+                    SessionReportChip("$total questions")
+                }
+                if (!hasSignal) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Scores count only clear interview answers. Blank audio, mic checks, and filler speech are not scored.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+
+            if (skillBreakdown.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Card)
+                        .border(1.dp, Border, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text("Strengths and gaps", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "From $substantiveCount substantive ${if (substantiveCount == 1) "answer" else "answers"} only.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    skillBreakdown.forEachIndexed { index, (label, value) ->
+                        SessionSkillBar(label, value)
+                        if (index < skillBreakdown.lastIndex) Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Card)
+                    .border(1.dp, Border, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Text("Score by question", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "All $total questions — empty answers show as No response.",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                answers.forEachIndexed { index, item ->
+                    SessionQuestionScoreBar(item)
+                    if (index < answers.lastIndex) Spacer(Modifier.height(6.dp))
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Card)
+                    .border(1.dp, Accent.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Text("Coach summary", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(summary, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                coachingTips.take(3).forEach { tip ->
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text("•", color = Accent, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp, top = 1.dp))
+                        Text(tip, color = TextPrimary.copy(alpha = 0.88f), fontSize = 12.sp, lineHeight = 17.sp)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Accent)
+                    .clickable(onClick = onExportPdf)
+                    .padding(vertical = 13.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Export PDF report", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                if (!isPro) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Pro",
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White.copy(alpha = 0.14f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .border(1.dp, Border, RoundedCornerShape(999.dp))
+                    .clickable(onClick = onPracticeAgain)
+                    .padding(vertical = 13.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text("Practice again", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clickable(onClick = onViewProgress)
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Text("View progress trends", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionSkillBar(label: String, value: Int) {
+    val barColor = when {
+        value >= 70 -> Color(0xFF00D68F)
+        value >= 50 -> Color(0xFFFFB020)
+        value > 0 -> Color(0xFFFF5C7A)
+        else -> TextSecondary
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (value > 0) "$value%" else "--", color = barColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.06f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(value.coerceIn(0, 100) / 100f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(barColor),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionQuestionScoreBar(item: SessionReportAnswerItem) {
+    val hasScore = item.score > 0
+    val barColor = when {
+        item.score >= 70 -> Color(0xFF00D68F)
+        item.score >= 50 -> Color(0xFFFFB020)
+        item.score > 0 -> Color(0xFFFF5C7A)
+        else -> TextSecondary.copy(alpha = 0.45f)
+    }
+    val displayTranscript = item.transcript.ifBlank { "No response" }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Q${item.index}", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (hasScore) "${item.score}%" else "No score",
+                color = barColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            displayTranscript,
+            color = if (displayTranscript == "No response") TextSecondary else TextPrimary.copy(alpha = 0.82f),
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(4.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.05f)),
+        ) {
+            if (hasScore) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(item.score.coerceIn(0, 100) / 100f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(barColor),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionReportChip(label: String) {
+    Text(
+        label,
+        color = TextSecondary,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
 // ─── Profile Screen ───────────────────────────────────────────────────────────
 
 @Composable

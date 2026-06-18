@@ -40,6 +40,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class NativePresenceCameraView(private val activity: ComponentActivity) : FrameLayout(activity) {
     data class Metrics(
@@ -63,9 +64,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
     private var poseLandmarker: PoseLandmarker? = null
     private var lastAnalyzeAt = 0L
     private var lastFrameSeenAt = 0L
-    private var lastCenterX: Float? = null
-    private var lastCenterY: Float? = null
-    private var lastFaceSize: Float? = null
+    private val mouthOpenHistory = ArrayDeque<Float>(12)
     private var lastGoodMetrics: Metrics? = null
     private var isStopped = false
     private val httpClient = OkHttpClient.Builder()
@@ -102,9 +101,7 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
     fun start() {
         lastAnalyzeAt = 0L
         lastFrameSeenAt = 0L
-        lastCenterX = null
-        lastCenterY = null
-        lastFaceSize = null
+        mouthOpenHistory.clear()
         lastGoodMetrics = null
         isStopped = false
         status.text = "Starting camera. Position your face in frame"
@@ -354,19 +351,13 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
             } else null
         } ?: ((facePositioned + faceSized) / 2).coerceIn(0, 100)
 
-        // Expression Energy: from movement/stillness
-        val prevX = lastCenterX
-        val prevY = lastCenterY
-        val prevSize = lastFaceSize
-        val stillness = if (prevX == null || prevY == null || prevSize == null) {
-            72
-        } else {
-            (100 - ((abs(centerX - prevX) + abs(centerY - prevY)) * 330 + abs(faceSize - prevSize) * 220)).roundToInt().coerceIn(0, 100)
-        }
-        lastCenterX = centerX
-        lastCenterY = centerY
-        lastFaceSize = faceSize
-        val expressionEnergy = (100 - stillness).coerceIn(12, 88)
+        val expressionEnergy = computeExpressionEnergy(
+            face = face,
+            faceSize = faceSize,
+            nose = nose,
+            eyeContact = eyeContact,
+            headStability = headStability,
+        )
 
         return Metrics(
             faceVisible = faceVisible,
@@ -376,6 +367,70 @@ class NativePresenceCameraView(private val activity: ComponentActivity) : FrameL
             posture = postureScore,
             expressionEnergy = expressionEnergy,
         )
+    }
+
+    /**
+     * Measures vocal expressiveness from mouth/brow signals, not head jitter.
+     * A composed, steady speaker should still score well when they show natural speech movement.
+     */
+    private fun computeExpressionEnergy(
+        face: List<NormalizedLandmark>,
+        faceSize: Float,
+        nose: NormalizedLandmark?,
+        eyeContact: Int,
+        headStability: Int,
+    ): Int {
+        val upperLip = face.safe(13)
+        val lowerLip = face.safe(14)
+        val mouthLeft = face.safe(61)
+        val mouthRight = face.safe(291)
+
+        val mouthOpenNorm = if (upperLip != null && lowerLip != null) {
+            abs(lowerLip.y() - upperLip.y()) / faceSize
+        } else {
+            0.10f
+        }
+
+        val mouthOpenScore = when {
+            mouthOpenNorm < 0.035f -> 48
+            mouthOpenNorm < 0.075f -> 58 + ((mouthOpenNorm - 0.035f) / 0.04f * 22f).roundToInt()
+            mouthOpenNorm < 0.16f -> 80 + ((mouthOpenNorm - 0.075f) / 0.085f * 12f).roundToInt()
+            else -> 72
+        }.coerceIn(0, 100)
+
+        val smileScore = if (mouthLeft != null && mouthRight != null && nose != null) {
+            val mouthCenterY = (mouthLeft.y() + mouthRight.y()) / 2f
+            val warmth = (mouthCenterY - nose.y()) / faceSize
+            (62 + warmth * 95f).roundToInt().coerceIn(45, 92)
+        } else {
+            68
+        }
+
+        mouthOpenHistory.addLast(mouthOpenNorm)
+        if (mouthOpenHistory.size > 12) mouthOpenHistory.removeFirst()
+
+        val mouthVariance = if (mouthOpenHistory.size >= 3) {
+            val mean = mouthOpenHistory.average().toFloat()
+            sqrt(mouthOpenHistory.map { (it - mean) * (it - mean) }.average()).toFloat()
+        } else {
+            0.02f
+        }
+
+        val variationScore = when {
+            mouthVariance < 0.006f -> 52
+            mouthVariance < 0.03f -> 58 + ((mouthVariance - 0.006f) / 0.024f * 30f).roundToInt()
+            mouthVariance < 0.06f -> 88
+            else -> (88 - (mouthVariance - 0.06f) * 320f).roundToInt().coerceAtLeast(55)
+        }.coerceIn(0, 100)
+
+        val presenceBoost = ((eyeContact + headStability) / 2).coerceIn(0, 100)
+        val raw = (
+            mouthOpenScore * 0.34f +
+                smileScore * 0.22f +
+                variationScore * 0.28f +
+                presenceBoost * 0.16f
+            ).roundToInt()
+        return raw.coerceIn(35, 96)
     }
 
     private fun List<NormalizedLandmark>.safe(index: Int): NormalizedLandmark? = getOrNull(index)

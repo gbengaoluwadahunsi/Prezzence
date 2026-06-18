@@ -10,6 +10,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import com.pollecode.prezzencekotlin.BuildConfig
+import com.pollecode.prezzencekotlin.data.SessionScoring
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import android.util.Base64
@@ -313,9 +314,7 @@ class NativeSpeechTranscriber(
             .readTimeout(5, TimeUnit.MINUTES)
             .build()
 
-        fun isPlaceholderTranscript(text: String): Boolean {
-            val normalized = text.trim().lowercase()
-            return normalized.isBlank() || normalized == "no clear speech was captured."
-        }
+        fun isPlaceholderTranscript(text: String): Boolean =
+            SessionScoring.isBlankTranscript(text) || !SessionScoring.isSubstantiveAnswer(text)
     }
 }

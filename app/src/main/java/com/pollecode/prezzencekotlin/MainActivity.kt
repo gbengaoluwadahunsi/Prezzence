@@ -1,4 +1,4 @@
-package com.pollecode.prezzencekotlin
+﻿package com.pollecode.prezzencekotlin
 
 import android.Manifest
 import android.content.Intent
@@ -58,6 +58,7 @@ import com.pollecode.prezzencekotlin.data.PrezzenceDefaults
 import com.pollecode.prezzencekotlin.data.SessionCreateException
 import com.pollecode.prezzencekotlin.data.SessionErrorReason
 import com.pollecode.prezzencekotlin.data.SessionSummary
+import com.pollecode.prezzencekotlin.data.SessionScoring
 import com.pollecode.prezzencekotlin.data.resolvedPracticeStatus
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
 import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
@@ -83,6 +84,8 @@ import com.pollecode.prezzencekotlin.ui.PrezzencePracticeScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceProfileScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceBottomTabBar
 import com.pollecode.prezzencekotlin.ui.PrezzenceTab
+import com.pollecode.prezzencekotlin.ui.PrezzenceSessionReportScreen
+import com.pollecode.prezzencekotlin.ui.SessionReportAnswerItem
 import com.pollecode.prezzencekotlin.ui.SessionHistoryItem
 import com.pollecode.prezzencekotlin.ui.PracticeSessionItem
 import kotlinx.coroutines.CoroutineScope
@@ -118,6 +121,7 @@ class MainActivity : ComponentActivity() {
 
     private var activeAvatar: NativeDuixAvatarView? = null
     private var resultOverlay: FrameLayout? = null
+    private var confirmOverlay: FrameLayout? = null
     private var activeCamera: NativePresenceCameraView? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
     private var speechGenerationToken = 0
@@ -406,6 +410,7 @@ class MainActivity : ComponentActivity() {
 
     private fun setScreen(view: View) {
         dismissResultOverlay()
+        dismissConfirmOverlay()
         releaseNativeSurfaces()
         root.removeAllViews()
         root.setBackgroundColor(bg)
@@ -1578,7 +1583,7 @@ class MainActivity : ComponentActivity() {
             setPadding(0, dp(24), 0, dp(24))
             layoutParams = blockParams()
             addView(TextView(this@MainActivity).apply {
-                text = "ðŸŽ¤"
+                text = "Ã°Å¸Å½Â¤"
                 textSize = 48f
                 gravity = Gravity.CENTER
             })
@@ -1914,7 +1919,7 @@ class MainActivity : ComponentActivity() {
         setOnClickListener {
             state[0] = !state[0]
             onToggle(state[0])
-            // Toggle visual â€” rebuild by calling refresh
+            // Toggle visual Ã¢â‚¬â€ rebuild by calling refresh
         }
         addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
@@ -2087,19 +2092,22 @@ class MainActivity : ComponentActivity() {
 
     private fun sessionHistoryItems(): List<SessionSummary> {
         val local = appState.sessionHistory()
-        val remote = remoteHistoryState.value
+        val remote = remoteHistoryState.value.filterNot { appState.isSessionDeleted(it.id) }
         if (remote.isEmpty()) return local
         val localById = local.associateBy { it.id }
         val mergedRemote = remote.map { remoteItem ->
             val localItem = localById[remoteItem.id]
+            val answers = appState.getSessionAnswers(remoteItem.id)
+            val sessionQuestions = appState.questionsForSession(remoteItem.id)
+            val recomputedScore = if (answers.isNotEmpty()) {
+                SessionScoring.sessionScore(answers, sessionQuestions)
+            } else {
+                null
+            }
             remoteItem.copy(
-                score = when {
-                    remoteItem.score > 0 -> remoteItem.score
-                    localItem != null && localItem.score > 0 -> localItem.score
-                    else -> remoteItem.score
-                },
-                answered = if (remoteItem.total > 0) remoteItem.answered else maxOf(remoteItem.answered, localItem?.answered ?: 0),
-                total = if (remoteItem.total > 0) remoteItem.total else (localItem?.total ?: remoteItem.total),
+                score = recomputedScore ?: localItem?.score?.takeIf { it > 0 } ?: remoteItem.score,
+                answered = if (answers.isNotEmpty()) answers.size else maxOf(remoteItem.answered, localItem?.answered ?: 0),
+                total = listOf(remoteItem.total, localItem?.total ?: 0, answers.size, sessionQuestions.size).max(),
                 role = remoteItem.role.ifBlank { localItem?.role.orEmpty() }.ifBlank { "Interview" },
                 status = remoteItem.status.ifBlank { localItem?.status.orEmpty() },
             )
@@ -2109,16 +2117,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun deleteSessionEverywhere(sessionId: String): Boolean {
-        val localOnly = sessionId.startsWith("session-")
-        if (localOnly) {
-            appState.deleteSession(sessionId)
-            remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
+        appState.deleteSession(sessionId)
+        remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
+        if (sessionId.startsWith("session-") || appState.authToken.isBlank()) {
             return true
         }
-        if (appState.authToken.isBlank()) {
-            return false
-        }
-        val deleted = backend.deleteSessionWithAuthRetry(
+        return backend.deleteSessionWithAuthRetry(
             bearerToken = appState.authToken,
             refreshToken = appState.authRefreshToken,
             sessionId = sessionId,
@@ -2127,31 +2131,30 @@ class MainActivity : ComponentActivity() {
                 appState.authRefreshToken = refreshed.refreshToken
             },
         )
-        if (!deleted) return false
-        appState.deleteSession(sessionId)
-        remoteHistoryState.value = remoteHistoryState.value.filterNot { it.id == sessionId }
-        return true
     }
 
-    private fun confirmDeleteSession(sessionId: String, sessionTitle: String, onTab: PrezzenceTab = PrezzenceTab.PRACTICE) {
-        android.app.AlertDialog.Builder(this).apply {
-            setTitle("Delete session?")
-            setMessage("Remove \"$sessionTitle\" from your account? This permanently deletes it from the database.")
-            setPositiveButton("Delete") { _, _ ->
+    private fun confirmDeleteSession(
+        sessionId: String,
+        sessionTitle: String,
+        onTab: PrezzenceTab = PrezzenceTab.PRACTICE,
+        onDeleted: (() -> Unit)? = null,
+    ) {
+        showConfirmDialog(
+            title = "Delete session?",
+            message = "Remove \"$sessionTitle\" from your history? This clears scores, answers, and coaching for this session.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
                 scope.launch {
-                    if (deleteSessionEverywhere(sessionId)) {
-                        showHome(onTab)
-                    } else {
-                        showAppToast(
-                            "Could not delete this session from your account. Check your connection and try again.",
-                            ToastKind.ERROR,
-                        )
-                    }
+                    val remoteDeleted = deleteSessionEverywhere(sessionId)
+                    showAppToast(
+                        if (remoteDeleted) "Session deleted." else "Session removed from this device.",
+                        ToastKind.green,
+                    )
+                    onDeleted?.invoke() ?: showHome(onTab)
                 }
-            }
-            setNegativeButton("Cancel", null)
-            show()
-        }
+            },
+        )
     }
 
     private suspend fun refreshRemoteHistory() {
@@ -2160,6 +2163,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val fetched = backend.listSessions(appState.authToken)
+            .filterNot { appState.isSessionDeleted(it.id) }
         if (fetched.isNotEmpty()) {
             remoteHistoryState.value = fetched
             appState.mergeSessionHistory(fetched)
@@ -2169,29 +2173,48 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resolveSessionSummary(sessionId: String): SessionSummary? {
-        sessionHistoryItems().find { it.id == sessionId }?.let { return it }
         val answers = appState.getSessionAnswers(sessionId)
-        if (answers.isEmpty()) return null
-        val scored = answers.filter { it.score > 0 }
-        val score = if (scored.isNotEmpty()) {
-            scored.map { it.score }.average().toInt().coerceIn(0, 100)
-        } else {
-            0
-        }
-        val total = appState.questions().size.coerceAtLeast(answers.size)
+        val sessionQuestions = appState.questionsForSession(sessionId)
+        val cached = sessionHistoryItems().find { it.id == sessionId }
+        if (cached == null && answers.isEmpty()) return null
+        val total = listOf(
+            cached?.total ?: 0,
+            sessionQuestions.size,
+            answers.size,
+        ).max().coerceAtLeast(1)
+        val score = SessionScoring.sessionScore(answers, sessionQuestions)
+        val substantiveCount = SessionScoring.substantiveAnswerCount(answers)
+        val recordedCount = answers.size
         return SessionSummary(
             id = sessionId,
-            role = appState.selectedRole,
+            role = cached?.role?.ifBlank { appState.selectedRole } ?: appState.selectedRole,
             score = score,
-            answered = answers.size,
+            answered = recordedCount,
             total = total,
-            date = java.text.SimpleDateFormat("MMM d, yyyy", Locale.US).format(java.util.Date()),
+            date = cached?.date ?: java.text.SimpleDateFormat("MMM d, yyyy", Locale.US).format(java.util.Date()),
             status = when {
-                total > 0 && answers.size >= total && score > 0 -> "completed"
-                answers.isNotEmpty() -> "in_progress"
-                else -> "started"
+                total > 0 && recordedCount >= total && substantiveCount > 0 && score > 0 -> "completed"
+                recordedCount > 0 -> "in_progress"
+                else -> cached?.status ?: "started"
             },
         )
+    }
+
+    private fun buildSessionReportAnswers(sessionId: String, total: Int): List<SessionReportAnswerItem> {
+        val saved = appState.getSessionAnswers(sessionId)
+        val questionCount = total.coerceAtLeast(saved.size).coerceAtLeast(1)
+        return (0 until questionCount).map { index ->
+            val answer = saved.getOrNull(index)
+            val rawTranscript = answer?.transcript.orEmpty()
+            val displayTranscript = SessionScoring.formatTranscriptForDisplay(rawTranscript)
+            val sanitizedScore = if (answer != null) SessionScoring.sanitizeScore(rawTranscript, answer.score) else 0
+            SessionReportAnswerItem(
+                index = index + 1,
+                score = sanitizedScore,
+                feedback = if (sanitizedScore > 0) answer?.feedback.orEmpty() else "",
+                transcript = displayTranscript,
+            )
+        }
     }
 
     private fun showSessionReport(sessionId: String, returnTab: PrezzenceTab = PrezzenceTab.HOME) {
@@ -2203,405 +2226,61 @@ class MainActivity : ComponentActivity() {
         }
 
         val score = session.score
-        val scoreColorVal = when {
-            score >= 75 -> green
-            score >= 55 -> warning
-            else -> danger
-        }
-        val hasSignal = score > 0
+        val storedAnswers = appState.getSessionAnswers(sessionId)
+        val sessionQuestions = appState.questionsForSession(sessionId)
+        val answerItems = buildSessionReportAnswers(sessionId, session.total)
+        val substantiveCount = SessionScoring.substantiveAnswerCount(storedAnswers)
+        val recordedCount = storedAnswers.size
+        val hasSignal = substantiveCount > 0 && score > 0
+        val skillBreakdown = SessionScoring.sessionSkillBreakdown(storedAnswers, sessionQuestions)?.asList().orEmpty()
         val summary = if (hasSignal) {
-            if (score >= 75) "Strong performance! Your answers were structured and relevant to the role."
-            else if (score >= 50) "Good effort. Focus on using the STAR method to structure your examples more clearly."
-            else "Keep practicing. Focus on directly answering the prompt and providing concrete evidence."
+            when {
+                score >= 75 -> "Strong session. Your answers were relevant and well structured."
+                score >= 50 -> "Solid effort. Tighten your examples with clearer actions and results."
+                else -> "Keep practicing. Answer the prompt directly and back it up with one concrete example."
+            }
         } else {
-            "Not enough usable speech was captured to produce a real coaching summary. This report is showing setup guidance instead of skill rankings."
+            "Most answers in this session were not scored as real interview responses. Retry with direct answers that include one example, your action, and a result."
         }
-        val coachingPlan = listOf(
-            if (hasSignal) "Use situation, action, tradeoff, and measurable result in your next answer."
-            else "Retry the interview with the microphone close to your mouth.",
-            if (hasSignal) "Practice more behavioral questions using the STAR method."
-            else "Speak for at least 30 seconds before tapping Finish.",
-            if (hasSignal) "Make sure to include quantifiable results in your examples."
-            else "Make sure a transcript appears after each answer before continuing.",
-        )
-        val growthAreas = listOf(
-            if (hasSignal) "Provide more concrete evidence in your answers."
-            else "No weak area detected yet.",
-            if (hasSignal) "Structure responses with clear beginning, middle, and end."
-            else "Complete more questions to build a stronger report.",
-        )
+        val coachingTips = if (hasSignal) {
+            listOf(
+                "Lead with your direct answer, then one situation-action-result example.",
+                "Include a measurable result or outcome in every answer.",
+                "Practice one more behavioral question before your next session.",
+            )
+        } else {
+            listOf(
+                "Hold the phone close and speak until a transcript appears after each answer.",
+                "Finish each question before tapping Continue.",
+            )
+        }
+        val displayScore = if (hasSignal) score else 0
 
-        val column = baseColumn()
-        column.addView(backButton { showHome(returnTab) })
-        column.addView(title("Session complete", 34))
-        column.addView(spacer(8))
-
-        // Hero card
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(22), dp(22), dp(22), dp(22))
-            background = rounded(panel, radius = 28, strokeColor = border)
-            layoutParams = blockParams()
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                addView(TextView(this@MainActivity).apply {
-                    text = (if (hasSignal) "COMPLETED" else "INCOMPLETE")
-                    textSize = 12f; setTextColor(accent); typeface = interBold
-                    letterSpacing = 0.05f
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = session.role.ifBlank { "Interview Assessment" }
-                    textSize = 28f; setTextColor(Color.WHITE); typeface = interBold
-                    setPadding(0, dp(8), 0, 0)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    val detail = listOfNotNull(session.date, "${session.answered}/${session.total} answered").joinToString(" | ")
-                    text = detail
-                    textSize = 13f; setTextColor(muted); typeface = interBold
-                    setPadding(0, dp(8), 0, 0)
-                })
-                if (hasSignal) {
-                    addView(TextView(this@MainActivity).apply {
-                        text = "${session.answered} scored ${if (session.answered == 1) "answer" else "answers"}"
-                        textSize = 12f; setTextColor(muted); typeface = interBold
-                        setPadding(0, dp(8), 0, 0)
-                    })
-                }
-            })
-            addView(LinearLayout(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(86), dp(86))
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.VERTICAL
-                background = rounded(Color.argb(8, 255, 255, 255), radius = 28).apply { setStroke(dp(2), scoreColorVal) }
-                addView(TextView(this@MainActivity).apply {
-                    text = "$score"
-                    textSize = 30f; setTextColor(Color.WHITE); typeface = interBold
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "score"
-                    textSize = 10f; setTextColor(muted); typeface = interBold
-                    gravity = Gravity.CENTER; letterSpacing = 0.05f
-                })
-            })
-        })
-        column.addView(spacer(14))
-
-        // Export PDF button
-        column.addView(LinearLayout(this).apply {
-            layoutParams = blockParams()
-            setPadding(dp(20), 0, dp(20), 0)
-            addView(LinearLayout(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50))
-                gravity = Gravity.CENTER
-                background = rounded(accent, radius = 25)
-                addView(TextView(this@MainActivity).apply {
-                    text = "Export PDF report"
-                    textSize = 14f; setTextColor(Color.WHITE); typeface = interBold
-                    setPadding(0, 0, dp(8), 0)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = if (appState.subscriptionEntitled) "" else "Pro"
-                    textSize = 11f; setTextColor(Color.argb(180, 255, 255, 255))
-                    typeface = interBold
-                })
-                setOnClickListener { exportSessionPdf(sessionId) }
-            })
-        })
-        column.addView(spacer(14))
-
-        // Coach Summary card
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = rounded(panel, radius = 26, strokeColor = border)
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "Coach Summary"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = summary
-                textSize = 15f; setTextColor(muted); setPadding(0, dp(14), 0, 0)
-            })
-            if (hasSignal) {
-                addView(spacer(16))
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    val focusPill = { label: String, value: String ->
-                        LinearLayout(this@MainActivity).apply {
-                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                            orientation = LinearLayout.VERTICAL
-                            setPadding(dp(14), dp(14), dp(14), dp(14))
-                            background = rounded(Color.argb(30, 108, 99, 255), radius = 18).apply { setStroke(dp(1), Color.argb(45, 108, 99, 255)) }
-                            addView(TextView(this@MainActivity).apply {
-                                text = label
-                                textSize = 10f; setTextColor(muted); typeface = interBold
-                                letterSpacing = 0.04f
-                            })
-                            addView(TextView(this@MainActivity).apply {
-                                text = value
-                                textSize = 15f; setTextColor(Color.WHITE); typeface = interBold
-                                setPadding(0, dp(6), 0, 0)
-                            })
-                        }
-                    }
-                    addView(focusPill("Strongest", "Measured after more answers"))
-                    addView(spacer(10))
-                    addView(focusPill("Focus", "Measured after more answers"))
-                })
-            } else {
-                addView(spacer(16))
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(dp(14), dp(14), dp(14), dp(14))
-                    background = rounded(Color.argb(25, 255, 176, 32), radius = 18).apply { setStroke(dp(1), Color.argb(55, 255, 176, 32)) }
-                    addView(TextView(this@MainActivity).apply {
-                        val micOff = object : android.graphics.drawable.Drawable() {
-                            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = Color.argb(200, 255, 176, 32); style = Paint.Style.STROKE; strokeWidth = 2.5f; strokeCap = Paint.Cap.ROUND
-                            }
-                            override fun draw(canvas: Canvas) {
-                                val w = bounds.width().toFloat(); val h = bounds.height().toFloat(); val cx = w / 2f; val cy = h * 0.35f
-                                canvas.drawArc(android.graphics.RectF(cx - w*0.18f, cy - h*0.18f, cx + w*0.18f, cy + h*0.18f), 200f, 140f, false, p)
-                                canvas.drawLine(cx - w*0.10f, cy + h*0.28f, cx + w*0.10f, cy + h*0.28f, p)
-                            }
-                            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-                            override fun setAlpha(alpha: Int) {}
-                            override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
-                        }
-                        micOff.setBounds(0, 0, dp(18), dp(18))
-                        setCompoundDrawables(micOff, null, null, null)
-                        textSize = 18f
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(12), 0, 0, 0) }
-                        addView(TextView(this@MainActivity).apply {
-                            text = "Report needs clearer audio"
-                            textSize = 14f; setTextColor(Color.WHITE); typeface = interBold
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "Skill rankings are hidden until at least one answer has a usable transcript and score."
-                            textSize = 13f; setTextColor(muted); setPadding(0, dp(4), 0, 0)
-                        })
-                    })
-                })
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSessionReportScreen(
+                    role = session.role,
+                    date = session.date,
+                    recordedCount = recordedCount,
+                    total = session.total,
+                    score = displayScore,
+                    substantiveCount = substantiveCount,
+                    hasSignal = hasSignal,
+                    summary = summary,
+                    coachingTips = coachingTips,
+                    skillBreakdown = skillBreakdown,
+                    answers = answerItems,
+                    isPro = appState.subscriptionEntitled,
+                    onBack = { showHome(returnTab) },
+                    onExportPdf = { exportSessionPdf(sessionId) },
+                    onPracticeAgain = {
+                        appState.resetActiveSession()
+                        showOnboardingRole()
+                    },
+                    onViewProgress = { showHome(PrezzenceTab.PROGRESS) },
+                )
             }
         })
-        column.addView(spacer(14))
-
-        // Strengths and weak spots
-        if (hasSignal) {
-            val radarData = listOf("Clarity" to 72, "Relevance" to 85, "Structure" to 60, "Evidence" to 45, "Conciseness" to 78)
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(20), dp(20), dp(20))
-                background = rounded(panel, radius = 26, strokeColor = border)
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = "Strengths and weak spots"
-                    textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "A simple view of where this interview was strong and what needs more practice."
-                    textSize = 14f; setTextColor(muted); setPadding(0, dp(8), 0, dp(18))
-                })
-                // Radar chart via Canvas
-                addView(ImageView(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220))
-                    setPadding(dp(16), dp(16), dp(16), dp(16))
-                    setImageDrawable(object : android.graphics.drawable.Drawable() {
-                        override fun draw(c: Canvas) {
-                            val w = bounds.width().toFloat(); val h = bounds.height().toFloat()
-                            val cx = w / 2f; val cy = h / 2f; val r = minOf(cx, cy) * 0.75f
-                            val n = radarData.size; val angleStep = Math.PI * 2 / n
-                            val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = Color.argb(20, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 1f
-                            }
-                            val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = Color.argb(35, 108, 99, 255); style = Paint.Style.FILL
-                            }
-                            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = accent; style = Paint.Style.STROKE; strokeWidth = 2f; strokeCap = Paint.Cap.ROUND
-                            }
-                            val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = Color.argb(180, 255, 255, 255); textSize = 28f; textAlign = Paint.Align.CENTER
-                            }
-                            // Grid rings
-                            for (ring in 1..3) {
-                                val gr = r * ring / 3
-                                val path = android.graphics.Path()
-                                for (i in 0 until n) {
-                                    val a = -Math.PI / 2 + i * angleStep
-                                    val x = cx + gr * Math.cos(a).toFloat()
-                                    val y = cy + gr * Math.sin(a).toFloat()
-                                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                                }
-                                path.close()
-                                c.drawPath(path, gridPaint)
-                            }
-                            // Data polygon
-                            val dataPath = android.graphics.Path()
-                            val dataPoints = radarData.mapIndexed { i, (_, value) ->
-                                val a = -Math.PI / 2 + i * angleStep
-                                val vr = r * value / 100f
-                                cx + vr * Math.cos(a).toFloat() to cy + vr * Math.sin(a).toFloat()
-                            }
-                            dataPoints.forEachIndexed { i, (x, y) ->
-                                if (i == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
-                            }
-                            dataPath.close()
-                            c.drawPath(dataPath, fillPaint)
-                            c.drawPath(dataPath, linePaint)
-                            // Labels and axis lines
-                            radarData.forEachIndexed { i, (label, _) ->
-                                val a = -Math.PI / 2 + i * angleStep
-                                val lx = cx + r * Math.cos(a).toFloat()
-                                val ly = cy + r * Math.sin(a).toFloat()
-                                c.drawLine(cx, cy, lx, ly, gridPaint)
-                                val lr = r * 1.25f
-                                val lrx = cx + lr * Math.cos(a).toFloat()
-                                val lry = cy + lr * Math.sin(a).toFloat()
-                                c.drawText(label, lrx, lry + 10f, labelPaint)
-                            }
-                            // Dot on each data point
-                            dataPoints.forEach { (x, y) ->
-                                c.drawCircle(x, y, 5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent; style = Paint.Style.FILL })
-                            }
-                        }
-                        override fun setAlpha(a: Int) {}
-                        override fun setColorFilter(cf: ColorFilter?) {}
-                        override fun getOpacity() = PixelFormat.TRANSLUCENT
-                    })
-                })
-                // Legend below chart
-                radarData.forEach { (label, value) ->
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        setPadding(0, dp(4), 0, dp(4))
-                        addView(TextView(this@MainActivity).apply {
-                            text = label; textSize = 13f; setTextColor(Color.WHITE)
-                            typeface = interBold; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "$value%"; textSize = 13f; setTextColor(when { value >= 70 -> green; value >= 50 -> warning; else -> danger })
-                            typeface = interBold
-                        })
-                    })
-                }
-            })
-            column.addView(spacer(14))
-        }
-
-        // Coaching plan
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = rounded(panel, radius = 26, strokeColor = border)
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "Next Coaching Plan"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
-            })
-            coachingPlan.forEach { plan ->
-                addView(TextView(this@MainActivity).apply {
-                    text = "- $plan"
-                    textSize = 15f; setTextColor(muted); setPadding(0, dp(10), 0, 0)
-                })
-            }
-        })
-        column.addView(spacer(14))
-
-        // What to improve
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = rounded(panel, radius = 26, strokeColor = border)
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "What to improve"
-                textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
-            })
-            growthAreas.forEach { area ->
-                addView(TextView(this@MainActivity).apply {
-                    text = "- $area"
-                    textSize = 15f; setTextColor(muted); setPadding(0, dp(10), 0, 0)
-                })
-            }
-        })
-        column.addView(spacer(14))
-
-        // Answer Review
-        val sessionAnswers = appState.getSessionAnswers(sessionId)
-        if (sessionAnswers.isNotEmpty()) {
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(20), dp(20), dp(20))
-                background = rounded(panel, radius = 26, strokeColor = border)
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = "Answer Review"
-                    textSize = 20f; setTextColor(Color.WHITE); typeface = interBold
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "${sessionAnswers.size} answer(s)"
-                    textSize = 12f; setTextColor(muted); typeface = interBold
-                    setPadding(0, dp(4), 0, dp(12))
-                })
-                sessionAnswers.forEachIndexed { i, ans ->
-                    val ansScoreColor = when { ans.score >= 70 -> green; ans.score >= 50 -> warning; else -> danger }
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(14), dp(12), dp(14), dp(12))
-                        background = rounded(Color.argb(12, 255, 255, 255), radius = 18)
-                        layoutParams = blockParams().apply { setMargins(0, 0, 0, dp(8)) }
-                        addView(LinearLayout(this@MainActivity).apply {
-                            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                            addView(TextView(this@MainActivity).apply {
-                                text = "Q${i + 1}"; textSize = 13f; setTextColor(muted)
-                                typeface = interBold
-                            })
-                            addView(spacer(10))
-                            addView(TextView(this@MainActivity).apply {
-                                text = "Score: ${ans.score}"; textSize = 14f; setTextColor(ansScoreColor)
-                                typeface = interBold
-                                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                            })
-                            addView(TextView(this@MainActivity).apply {
-                                text = if (ans.feedback.length > 30) ans.feedback.take(28) + ".." else ans.feedback
-                                textSize = 12f; setTextColor(muted)
-                            })
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = ans.transcript.take(120)
-                            textSize = 13f; setTextColor(Color.WHITE); setPadding(0, dp(6), 0, 0)
-                            maxLines = 3
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "Improved: ${ans.improvedAnswer.take(80)}"
-                            textSize = 12f; setTextColor(accent); setPadding(0, dp(4), 0, 0)
-                            maxLines = 2
-                        })
-                    })
-                    column.addView(spacer(6))
-                }
-            })
-            column.addView(spacer(14))
-        }
-
-        column.addView(primaryButton("Practice Again") {
-            appState.resetActiveSession()
-            showOnboardingRole()
-        })
-        column.addView(spacer(10))
-        column.addView(secondaryButton("View progress trends") {
-            showHome(PrezzenceTab.PROGRESS)
-        })
-
-        setScreen(scroll(column))
     }
 
     private fun exportSessionPdf(sessionId: String) {
@@ -2612,8 +2291,13 @@ class MainActivity : ComponentActivity() {
         }
         scope.launch {
             try {
-                val session = appState.sessionHistory().find { it.id == sessionId } ?: return@launch
-                val answers = appState.getSessionAnswers(sessionId)
+                val session = resolveSessionSummary(sessionId) ?: return@launch
+                val reportItems = buildSessionReportAnswers(sessionId, session.total)
+                val displayScore = if (SessionScoring.substantiveAnswerCount(appState.getSessionAnswers(sessionId)) > 0 && session.score > 0) {
+                    session.score
+                } else {
+                    0
+                }
                 val document = android.graphics.pdf.PdfDocument()
                 val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
                 val page = document.startPage(pageInfo)
@@ -2629,19 +2313,22 @@ class MainActivity : ComponentActivity() {
                 y += 30f
                 c.drawText("Date: ${session.date}", 40f, y, bodyPaint)
                 y += 24f
-                c.drawText("Score: ${session.score}/100", 40f, y, scorePaint)
+                c.drawText("Score: $displayScore/100", 40f, y, scorePaint)
                 y += 24f
-                c.drawText("Questions: ${session.answered}/${session.total} answered", 40f, y, bodyPaint)
+                c.drawText("Questions: ${session.answered}/${session.total} recorded · ${SessionScoring.substantiveAnswerCount(appState.getSessionAnswers(sessionId))} scored", 40f, y, bodyPaint)
                 y += 40f
-                if (answers.isNotEmpty()) {
+                if (reportItems.isNotEmpty()) {
                     c.drawText("Answer Details", 40f, y, headingPaint)
                     y += 30f
-                    for ((i, ans) in answers.withIndex()) {
+                    for (item in reportItems) {
                         if (y > 780f) break
-                        c.drawText("${i + 1}. Score: ${ans.score} - ${ans.transcript.take(80)}", 40f, y, bodyPaint)
+                        val label = if (item.score > 0) "Score: ${item.score}" else "No score"
+                        c.drawText("${item.index}. $label - ${item.transcript.take(80)}", 40f, y, bodyPaint)
                         y += 20f
-                        c.drawText("   Feedback: ${ans.feedback.take(100)}", 40f, y, bodyPaint)
-                        y += 24f
+                        if (item.feedback.isNotBlank()) {
+                            c.drawText("   Feedback: ${item.feedback.take(100)}", 40f, y, bodyPaint)
+                            y += 24f
+                        }
                     }
                 }
                 document.finishPage(page)
@@ -2850,7 +2537,7 @@ class MainActivity : ComponentActivity() {
         val column = baseColumn()
         column.addView(backButton { showSettings() })
         
-        // ── Hero section with star icon ──
+        // â”€â”€ Hero section with star icon â”€â”€
         column.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -2914,7 +2601,7 @@ class MainActivity : ComponentActivity() {
                 })
             })
         } else {
-            // ── Price card ──
+            // â”€â”€ Price card â”€â”€
             column.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -2938,7 +2625,7 @@ class MainActivity : ComponentActivity() {
                 })
             })
             
-            // ── What you get ──
+            // â”€â”€ What you get â”€â”€
             column.addView(TextView(this@MainActivity).apply {
                 text = "WHAT YOU GET"
                 textSize = 11f
@@ -2991,7 +2678,7 @@ class MainActivity : ComponentActivity() {
                 column.addView(spacer(4))
             }
             
-            // ── Free reminder ──
+            // â”€â”€ Free reminder â”€â”€
             column.addView(spacer(8))
             column.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -3010,7 +2697,7 @@ class MainActivity : ComponentActivity() {
         
         column.addView(spacer(16))
         
-        // ── CTA Button ──
+        // â”€â”€ CTA Button â”€â”€
         column.addView(LinearLayout(this).apply {
             layoutParams = blockParams()
             setPadding(dp(4), 0, dp(4), 0)
@@ -3441,7 +3128,7 @@ class MainActivity : ComponentActivity() {
                     gravity = Gravity.CENTER
                     background = rounded(Color.argb(30, 108, 99, 255), radius = 20)
                     addView(TextView(this@MainActivity).apply {
-                        text = "…"
+                        text = "â€¦"
                         textSize = 26f
                         setTextColor(accent)
                         gravity = Gravity.CENTER
@@ -3540,23 +3227,8 @@ class MainActivity : ComponentActivity() {
                                 override fun getOpacity() = PixelFormat.TRANSLUCENT
                             })
                             setOnClickListener {
-                                android.app.AlertDialog.Builder(this@MainActivity).apply {
-                                    setTitle("Delete session?")
-                                    setMessage("Remove \"${session.role}\" from your account? This permanently deletes it from the database.")
-                                    setPositiveButton("Delete") { _, _ ->
-                                        scope.launch {
-                                            if (deleteSessionEverywhere(session.id)) {
-                                                showProgress()
-                                            } else {
-                                                showAppToast(
-                                                    "Could not delete this session from your account.",
-                                                    ToastKind.ERROR,
-                                                )
-                                            }
-                                        }
-                                    }
-                                    setNegativeButton("Cancel", null)
-                                    show()
+                                confirmDeleteSession(session.id, session.role, PrezzenceTab.PROGRESS) {
+                                    showProgress()
                                 }
                             }
                         })
@@ -3568,6 +3240,7 @@ class MainActivity : ComponentActivity() {
         setScreen(refreshableScroll(column) {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
+                    .filterNot { appState.isSessionDeleted(it.id) }
                 if (fetched.isNotEmpty()) {
                     remoteHistoryState.value = fetched
                 } else {
@@ -3691,23 +3364,8 @@ class MainActivity : ComponentActivity() {
                                 override fun getOpacity() = PixelFormat.TRANSLUCENT
                             })
                             setOnClickListener {
-                                android.app.AlertDialog.Builder(this@MainActivity).apply {
-                                    setTitle("Delete session?")
-                                    setMessage("Remove \"${session.role}\" from your account? This permanently deletes it from the database.")
-                                    setPositiveButton("Delete") { _, _ ->
-                                        scope.launch {
-                                            if (deleteSessionEverywhere(session.id)) {
-                                                showAllHistory()
-                                            } else {
-                                                showAppToast(
-                                                    "Could not delete this session from your account.",
-                                                    ToastKind.ERROR,
-                                                )
-                                            }
-                                        }
-                                    }
-                                    setNegativeButton("Cancel", null)
-                                    show()
+                                confirmDeleteSession(session.id, session.role, PrezzenceTab.PROGRESS) {
+                                    showAllHistory()
                                 }
                             }
                         })
@@ -3720,6 +3378,7 @@ class MainActivity : ComponentActivity() {
         setScreen(refreshableScroll(column) {
             scope.launch {
                 val fetched = backend.listSessions(appState.authToken)
+                    .filterNot { appState.isSessionDeleted(it.id) }
                 if (fetched.isNotEmpty()) {
                     remoteHistoryState.value = fetched
                 } else {
@@ -3895,6 +3554,37 @@ class MainActivity : ComponentActivity() {
                 showSessionCreateError(e.reason)
             }
         }
+    }
+
+    private suspend fun ensureActiveBackendSession(): Boolean {
+        if (appState.authToken.isBlank()) return false
+        if (appState.activeSessionId.isNotBlank()) return true
+        return runCatching {
+            val remote = tryCreateSession()
+            appState.activeSessionId = remote.sessionId.orEmpty()
+            if (!remote.questions.isNullOrEmpty() && appState.questions().isEmpty()) {
+                appState.setGeneratedQuestions(remote.questions)
+            }
+            appState.activeSessionId.isNotBlank()
+        }.getOrDefault(false)
+    }
+
+    private suspend fun enrichWithModelAnswer(questionText: String, result: AnswerResult): AnswerResult {
+        if (result.improvedAnswer.isNotBlank()) return result
+        if (appState.authToken.isBlank()) return result
+        ensureActiveBackendSession()
+        val fetched = backend.fetchModelAnswer(
+            bearerToken = appState.authToken,
+            questionText = questionText,
+            transcript = result.transcript,
+        ) ?: return result
+        return result.copy(
+            improvedAnswer = fetched.improvedAnswer,
+            what = fetched.what.ifBlank { result.what },
+            how = fetched.how.ifBlank { result.how },
+            why = fetched.why.ifBlank { result.why },
+            coachingMessage = fetched.coachingMessage.ifBlank { result.coachingMessage },
+        )
     }
 
     private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
@@ -4159,6 +3849,88 @@ class MainActivity : ComponentActivity() {
                 }.start()
             }
         }, durationMs)
+    }
+
+    private fun dismissConfirmOverlay() {
+        confirmOverlay?.let { runCatching { root.removeView(it) } }
+        confirmOverlay = null
+    }
+
+    private fun showConfirmDialog(
+        title: String,
+        message: String,
+        confirmLabel: String,
+        destructive: Boolean = false,
+        onConfirm: () -> Unit,
+    ) {
+        if (!::root.isInitialized) return
+        dismissConfirmOverlay()
+        val accentColor = if (destructive) danger else accent
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            setOnClickListener { dismissConfirmOverlay() }
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Color.rgb(18, 18, 29), radius = 22, strokeColor = Color.argb(76, 108, 99, 255))
+            setPadding(dp(20), dp(20), dp(20), dp(18))
+            layoutParams = FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels - dp(48)).coerceAtMost(dp(420)),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER,
+            )
+            setOnClickListener { }
+        }
+        panel.addView(TextView(this).apply {
+            text = title
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+        })
+        panel.addView(TextView(this).apply {
+            text = message
+            textSize = 14f
+            setTextColor(Color.argb(210, 255, 255, 255))
+            typeface = interRegular
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(0, dp(10), 0, dp(18))
+        })
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        actions.addView(TextView(this).apply {
+            text = "Cancel"
+            textSize = 14f
+            setTextColor(muted)
+            typeface = interBold
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setOnClickListener { dismissConfirmOverlay() }
+        })
+        actions.addView(TextView(this).apply {
+            text = confirmLabel
+            textSize = 14f
+            setTextColor(accentColor)
+            typeface = interBold
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setOnClickListener {
+                dismissConfirmOverlay()
+                onConfirm()
+            }
+        })
+        panel.addView(actions)
+        overlay.addView(panel)
+        root.addView(
+            overlay,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        confirmOverlay = overlay
+        panel.alpha = 0f
+        panel.translationY = dp(12).toFloat()
+        panel.animate().alpha(1f).translationY(0f).setDuration(180).start()
     }
 
     private fun clarifyCurrentQuestion() {
@@ -4455,6 +4227,7 @@ class MainActivity : ComponentActivity() {
             val transcript = rawTranscript.ifBlank { capturedSpeechError }.ifBlank { "No clear speech was captured." }
             processingStageState.value = "Analyzing answer"
             processingProgressState.intValue = 97
+            ensureActiveBackendSession()
             val localResult = backend.scoreLocalTranscript(questionText, transcript)
             val remoteResult = backend.scoreWithBackend(
                 bearerToken = appState.authToken.ifBlank { null },
@@ -4489,13 +4262,16 @@ class MainActivity : ComponentActivity() {
                 else -> localResult
             }
             val result = mergedBase.copy(
-                improvedAnswer = remoteResult?.improvedAnswer?.trim().orEmpty(),
+                score = SessionScoring.sanitizeScore(mergedBase.transcript, mergedBase.score),
+                improvedAnswer = remoteResult?.improvedAnswer?.trim()
+                    .orEmpty()
+                    .ifBlank { mergedBase.improvedAnswer.trim() },
             )
-            val needsRetry = !backendRecovered && (
-                !hadCapturableSpeech ||
-                result.retryRequired ||
-                NativeSpeechTranscriber.isPlaceholderTranscript(result.transcript)
-            )
+            val substantive = SessionScoring.isSubstantiveAnswer(result.transcript)
+            val needsRetry = result.retryRequired ||
+                SessionScoring.isBlankTranscript(result.transcript) ||
+                !substantive ||
+                result.score <= 0
             if (needsRetry) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
@@ -4508,11 +4284,20 @@ class MainActivity : ComponentActivity() {
             
             // Summarize presence samples and attach to result
             val finalPresence = summarizePresenceSamples(presenceSamples)
-            val finalResult = result.copy(presenceMetrics = finalPresence)
-            
-            appState.markAnswered(finalResult.score, finalResult.transcript)
+            var finalResult = enrichWithModelAnswer(questionText, result.copy(presenceMetrics = finalPresence))
+                .let { answer ->
+                    val normalizedTranscript = SessionScoring.normalizeStoredTranscript(answer.transcript)
+                    answer.copy(
+                        transcript = normalizedTranscript,
+                        score = SessionScoring.sanitizeScore(answer.transcript, answer.score),
+                    )
+                }
+
             currentAnswerResult = finalResult
             sessionAnswers.add(finalResult)
+            val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+            appState.saveSessionAnswers(sessionId, sessionAnswers.toList())
+            appState.markAnswered(finalResult.score, finalResult.transcript)
             activeTranscript = ""
             speechError = ""
             processingProgressState.intValue = 100
@@ -4601,9 +4386,9 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(14), dp(8), dp(14), dp(12))
         }
         
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // TITLE
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         content.addView(TextView(this@MainActivity).apply {
             text = "Answer result"
             textSize = 20f
@@ -4613,9 +4398,9 @@ class MainActivity : ComponentActivity() {
             setPadding(0, 0, 0, dp(14))
         })
         
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // HERO: Score row
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         val hero = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, dp(14))
@@ -4668,9 +4453,9 @@ class MainActivity : ComponentActivity() {
         })
         content.addView(hero)
         
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // TRANSCRIPT BOX
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         val transcriptBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
@@ -4687,7 +4472,7 @@ class MainActivity : ComponentActivity() {
             setPadding(0, 0, 0, dp(6))
         })
         transcriptBox.addView(TextView(this@MainActivity).apply {
-            text = result.transcript.ifBlank { "No clear transcript was captured for this answer." }
+            text = SessionScoring.formatTranscriptForDisplay(result.transcript)
             textSize = 13f
             setTextColor(Color.argb(220, 255, 255, 255))
             setLineSpacing(0f, 1.45f)
@@ -4695,64 +4480,17 @@ class MainActivity : ComponentActivity() {
         })
         content.addView(transcriptBox)
         
-        // ════════════════════════════════════════
-        // IMPROVED ANSWER BOX
-        // ════════════════════════════════════════
-        if (result.improvedAnswer.isNotBlank()) {
-            val improvedBox = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(12), dp(16), dp(14))
-                background = rounded(Color.argb(12, 255, 255, 255), radius = 18, strokeColor = Color.argb(18, 255, 255, 255))
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    setMargins(0, 0, 0, dp(14))
-                }
-            }
-            
-            // Header row: "Stronger answer" + "Listen" button
-            val improvedHeader = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            improvedHeader.addView(TextView(this@MainActivity).apply {
-                text = "MODEL ANSWER"
-                textSize = 10f
-                setTextColor(accent)
-                typeface = interBold
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            improvedHeader.addView(TextView(this@MainActivity).apply {
-                text = " Hear answer"
-                textSize = 10f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                setPadding(dp(12), dp(5), dp(12), dp(5))
-                background = rounded(accent, radius = 14, strokeColor = accent)
-                setOnClickListener { playCoachingAudio(result.improvedAnswer) }
-            })
-            improvedBox.addView(improvedHeader)
-            
-            improvedBox.addView(TextView(this@MainActivity).apply {
-                text = result.improvedAnswer
-                textSize = 12.5f
-                setTextColor(Color.rgb(220, 220, 240))
-                setLineSpacing(0f, 1.4f)
-                typeface = interRegular
-                setPadding(0, dp(8), 0, 0)
-            })
-            content.addView(improvedBox)
-        }
-        
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // PRESENCE SUMMARY
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         content.addView(enhancedPresenceSummary(result))
         
         scrollView.addView(content)
         card.addView(scrollView)
         
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         // ACTION BUTTONS
-        // ════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(18), dp(14), dp(18), dp(18))
@@ -4783,7 +4521,7 @@ class MainActivity : ComponentActivity() {
         }
         
         actions.addView(TextView(this@MainActivity).apply {
-            text = "Continue"
+            text = if (result.improvedAnswer.isNotBlank()) "Hear model answer" else "Continue"
             textSize = 13f
             setTextColor(Color.WHITE)
             typeface = interBold
@@ -4795,23 +4533,8 @@ class MainActivity : ComponentActivity() {
             }
             setOnClickListener {
                 dismissResultOverlay()
-                val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
-                val answersSnapshot = sessionAnswers.toList()
-                appState.saveSessionAnswers(sessionId, answersSnapshot)
-                appState.finalizeSessionForId(sessionId, answersSnapshot)
-                sessionAnswers.clear()
-                val done = appState.advanceOrComplete()
-                if (done) {
-                    scope.launch {
-                        if (appState.authToken.isNotBlank() && !sessionId.startsWith("session-")) {
-                            backend.completeSession(appState.authToken, sessionId)
-                        }
-                        refreshRemoteHistory()
-                        showSessionReport(sessionId)
-                    }
-                } else {
-                    scope.launch { prepareCurrentQuestionSpeech() }
-                    showInterview(false)
+                showModelAnswerTeaching(result) {
+                    advanceAfterAnswerReview()
                 }
             }
         })
@@ -4825,10 +4548,115 @@ class MainActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ))
-            if (result.improvedAnswer.isNotBlank()) {
+        } else {
+            setScreen(overlay)
+        }
+    }
+
+    private fun advanceAfterAnswerReview() {
+        dismissResultOverlay()
+        val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+        val answersSnapshot = sessionAnswers.toList()
+        appState.saveSessionAnswers(sessionId, answersSnapshot)
+        val done = appState.advanceOrComplete()
+        if (done) {
+            appState.finalizeSessionForId(sessionId, answersSnapshot)
+            sessionAnswers.clear()
+            scope.launch {
+                if (appState.authToken.isNotBlank() && !sessionId.startsWith("session-")) {
+                    backend.completeSession(appState.authToken, sessionId)
+                }
+                refreshRemoteHistory()
+                showSessionReport(sessionId)
+            }
+        } else {
+            scope.launch { prepareCurrentQuestionSpeech() }
+            showInterview(false)
+        }
+    }
+
+    private fun showModelAnswerTeaching(
+        result: AnswerResult,
+        onContinue: () -> Unit,
+    ) {
+        val modelAnswer = result.improvedAnswer.trim()
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(120, 0, 0, 0))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+        }
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Color.rgb(18, 18, 29), radius = 24, strokeColor = Color.argb(76, 108, 99, 255))
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.BOTTOM }
+        }
+
+        panel.addView(TextView(this@MainActivity).apply {
+            text = "Listen to a stronger answer"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(6))
+        })
+        panel.addView(TextView(this@MainActivity).apply {
+            text = "Your interviewer will speak the model answer now."
+            textSize = 13f
+            setTextColor(muted)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(14))
+        })
+
+        if (modelAnswer.isNotBlank()) {
+            panel.addView(TextView(this@MainActivity).apply {
+                text = "Play again"
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                typeface = interBold
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                background = rounded(accent, radius = 18, strokeColor = accent)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setMargins(0, 0, 0, dp(12))
+                }
+                setOnClickListener { playCoachingAudio(modelAnswer) }
+            })
+        }
+
+        panel.addView(TextView(this@MainActivity).apply {
+            text = "Next question"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            typeface = interBold
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
+            setOnClickListener { onContinue() }
+        })
+
+        overlay.addView(panel)
+        dismissResultOverlay()
+        resultOverlay = overlay
+        if (::root.isInitialized) {
+            root.addView(
+                overlay,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            if (modelAnswer.isNotBlank()) {
                 scope.launch {
-                    delay(450)
-                    playCoachingAudio(result.improvedAnswer)
+                    delay(400)
+                    playCoachingAudio(modelAnswer)
                 }
             }
         } else {
@@ -4921,7 +4749,9 @@ class MainActivity : ComponentActivity() {
         val eyeContactAvg = usable.map { it.eyeContact }.average().toInt()
         val headStabilityAvg = usable.map { it.headStability }.average().toInt()
         val postureAvg = usable.map { it.posture }.average().toInt()
-        val expressionEnergyAvg = usable.map { it.expressionEnergy }.average().toInt()
+        val expressionEnergyAvg = usable.map { it.expressionEnergy }.sorted().let { values ->
+            values[values.size / 2]
+        }
         return PresenceMetrics(
             faceVisible = true,
             faceVisibility = faceVisibilityAvg,

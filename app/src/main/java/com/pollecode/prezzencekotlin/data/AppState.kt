@@ -251,25 +251,32 @@ class AppState(context: Context) {
     }
 
     fun markAnswered(score: Int, transcript: String) {
-        lastScore = score
+        lastScore = SessionScoring.sanitizeScore(transcript, score)
         lastTranscript = transcript
         if (lastAnsweredQuestionIndex != currentQuestionIndex) {
-            sessionScoreTotal += score.coerceIn(0, 100)
+            sessionScoreTotal += lastScore
             sessionAnsweredCount += 1
             lastAnsweredQuestionIndex = currentQuestionIndex
         }
-        readinessScore = sessionWeightedScore()
+        readinessScore = activeSessionScore()
         upsertActiveSessionProgress()
+    }
+
+    private fun activeSessionScore(): Int {
+        if (activeSessionId.isBlank()) return 0
+        val answers = getSessionAnswers(activeSessionId)
+        if (answers.isEmpty()) return 0
+        return SessionScoring.sessionScore(answers, questions())
     }
 
     private fun upsertActiveSessionProgress() {
         if (activeSessionId.isBlank()) return
-        val answered = sessionAnsweredCount.coerceAtLeast(if (lastTranscript.isNotBlank()) 1 else 0)
+        val answers = getSessionAnswers(activeSessionId)
         val summary = SessionSummary(
             id = activeSessionId,
             role = selectedRole,
-            score = sessionWeightedScore(),
-            answered = answered,
+            score = SessionScoring.sessionScore(answers, questions()),
+            answered = answers.size,
             total = questions().size,
             date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
         )
@@ -317,6 +324,42 @@ class AppState(context: Context) {
             array.put(obj)
         }
         prefs.edit().putString("sessionAnswers_$sessionId", array.toString()).apply()
+        saveSessionQuestionsSnapshot(sessionId)
+    }
+
+    private fun saveSessionQuestionsSnapshot(sessionId: String) {
+        val current = questions()
+        if (current.isEmpty()) return
+        val array = JSONArray()
+        current.forEach { question ->
+            array.put(JSONObject()
+                .put("id", question.id)
+                .put("text", question.text)
+                .put("role", question.role)
+                .put("interviewerId", question.interviewerId)
+                .put("type", question.type))
+        }
+        prefs.edit().putString("sessionQuestions_$sessionId", array.toString()).apply()
+    }
+
+    fun questionsForSession(sessionId: String): List<InterviewQuestion> {
+        val raw = prefs.getString("sessionQuestions_$sessionId", "") ?: ""
+        val stored = runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val text = item.optString("text").trim()
+                if (text.isBlank()) return@mapNotNull null
+                InterviewQuestion(
+                    id = item.optInt("id", index + 1),
+                    text = text,
+                    role = item.optString("role", selectedRole),
+                    interviewerId = item.optString("interviewerId", PrezzenceDefaults.panelIdsForStyle(interviewerStyle)[index % 3]),
+                    type = item.optString("type", if (index == 0) "introduction" else "behavioral"),
+                )
+            }
+        }.getOrDefault(emptyList())
+        return stored.ifEmpty { questions() }
     }
 
     fun getSessionAnswers(sessionId: String): List<AnswerResult> {
@@ -337,8 +380,11 @@ class AppState(context: Context) {
                     )
                 }
                 AnswerResult(
-                    transcript = item.optString("transcript", ""),
-                    score = item.optInt("score", 0),
+                    transcript = SessionScoring.normalizeStoredTranscript(item.optString("transcript", "")),
+                    score = SessionScoring.sanitizeScore(
+                        item.optString("transcript", ""),
+                        item.optInt("score", 0),
+                    ),
                     feedback = item.optString("feedback", ""),
                     improvedAnswer = item.optString("improvedAnswer", ""),
                     what = item.optString("what", ""),
@@ -391,13 +437,56 @@ class AppState(context: Context) {
                 )
             }
         }.getOrDefault(emptyList())
+            .filterNot { isSessionDeleted(it.id) }
         // Free tier: only show last 5 sessions
         return if (!subscriptionEntitled) all.takeLast(5) else all
     }
 
+    fun isSessionDeleted(id: String): Boolean = id.isNotBlank() && id in deletedSessionIds()
+
+    private fun deletedSessionIds(): Set<String> {
+        val raw = prefs.getString("deletedSessionIds", "[]") ?: "[]"
+        return runCatching {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                array.optString(index).takeIf { it.isNotBlank() }
+            }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun markSessionDeleted(id: String) {
+        if (id.isBlank()) return
+        val updated = deletedSessionIds().toMutableSet()
+        updated.add(id)
+        val array = JSONArray()
+        updated.take(100).forEach { array.put(it) }
+        prefs.edit().putString("deletedSessionIds", array.toString()).apply()
+    }
+
     fun deleteSession(id: String) {
-        val kept = sessionHistory().filterNot { it.id == id }
+        if (id.isBlank()) return
+        markSessionDeleted(id)
+        val kept = runCatching {
+            val array = JSONArray(prefs.getString("sessionHistory", "[]") ?: "[]")
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.getJSONObject(index)
+                if (item.optString("id") == id) return@mapNotNull null
+                SessionSummary(
+                    id = item.optString("id"),
+                    role = item.optString("role", PrezzenceDefaults.roles.first()),
+                    score = item.optInt("score", 0),
+                    answered = item.optInt("answered", 0),
+                    total = item.optInt("total", 0),
+                    date = item.optString("date", ""),
+                    status = item.optString("status", ""),
+                )
+            }
+        }.getOrDefault(emptyList())
         writeHistory(kept)
+        prefs.edit()
+            .remove("sessionAnswers_$id")
+            .remove("sessionQuestions_$id")
+            .apply()
         completedSessions = kept.count { it.resolvedPracticeStatus() == "Completed" }
         readinessScore = if (kept.isEmpty()) 0 else kept.filter { it.score > 0 }.map { it.score }.average().toInt().coerceIn(0, 100)
     }
@@ -408,43 +497,40 @@ class AppState(context: Context) {
         readinessScore = 0
     }
 
-    private fun sessionWeightedScore(): Int {
-        val totalQuestions = questions().size.coerceAtLeast(1)
-        if (sessionAnsweredCount == 0) return 0
-        val averageAnsweredScore = sessionScoreTotal / sessionAnsweredCount
-        val completionRatio = sessionAnsweredCount.toDouble() / totalQuestions.toDouble()
-        return (averageAnsweredScore * completionRatio).toInt().coerceIn(0, 100)
-    }
-
     private fun saveCurrentSessionSummary() {
         val sessionId = activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+        val answers = getSessionAnswers(sessionId)
         saveSessionSummary(
             sessionId = sessionId,
-            answered = sessionAnsweredCount.coerceAtLeast(if (lastTranscript.isNotBlank()) 1 else 0),
-            score = sessionWeightedScore(),
+            answered = answers.size,
+            score = SessionScoring.sessionScore(answers, questions()),
             total = questions().size,
         )
     }
 
     fun finalizeSessionForId(sessionId: String, answers: List<AnswerResult>) {
         if (sessionId.isBlank()) return
-        val total = questions().size.coerceAtLeast(answers.size.coerceAtLeast(1))
-        val scored = answers.filter { it.score > 0 }
-        val score = when {
-            scored.isNotEmpty() -> scored.map { it.score }.average().toInt().coerceIn(0, 100)
-            sessionAnsweredCount > 0 -> sessionWeightedScore()
-            else -> 0
-        }
-        val answered = maxOf(sessionAnsweredCount, answers.size)
+        saveSessionQuestionsSnapshot(sessionId)
+        val sessionQuestions = questionsForSession(sessionId)
+        val total = sessionQuestions.size.coerceAtLeast(answers.size.coerceAtLeast(1))
+        val score = SessionScoring.sessionScore(answers, sessionQuestions)
+        val substantiveCount = SessionScoring.substantiveAnswerCount(answers)
         saveSessionSummary(
             sessionId = sessionId,
-            answered = answered,
+            answered = answers.size,
             score = score,
             total = total,
+            substantiveCount = substantiveCount,
         )
     }
 
-    private fun saveSessionSummary(sessionId: String, answered: Int, score: Int, total: Int) {
+    private fun saveSessionSummary(
+        sessionId: String,
+        answered: Int,
+        score: Int,
+        total: Int,
+        substantiveCount: Int = SessionScoring.substantiveAnswerCount(getSessionAnswers(sessionId)),
+    ) {
         val summary = SessionSummary(
             id = sessionId,
             role = selectedRole,
@@ -453,7 +539,7 @@ class AppState(context: Context) {
             total = total,
             date = SimpleDateFormat("MMM d, yyyy", Locale.US).format(Date()),
             status = when {
-                total > 0 && answered >= total && score > 0 -> "completed"
+                total > 0 && answered >= total && substantiveCount > 0 && score > 0 -> "completed"
                 answered > 0 -> "in_progress"
                 else -> "started"
             },
@@ -464,16 +550,19 @@ class AppState(context: Context) {
     fun mergeSessionHistory(remote: List<SessionSummary>) {
         if (remote.isEmpty()) return
         val localById = sessionHistory().associateBy { it.id }
-        val mergedRemote = remote.map { remoteItem ->
+        val mergedRemote = remote.filterNot { isSessionDeleted(it.id) }.map { remoteItem ->
             val local = localById[remoteItem.id]
+            val answers = getSessionAnswers(remoteItem.id)
+            val recomputedScore = if (answers.isNotEmpty()) {
+                SessionScoring.sessionScore(answers, questionsForSession(remoteItem.id))
+            } else {
+                null
+            }
+            val answered = if (answers.isNotEmpty()) answers.size else maxOf(remoteItem.answered, local?.answered ?: 0)
             remoteItem.copy(
-                score = when {
-                    remoteItem.score > 0 -> remoteItem.score
-                    local != null && local.score > 0 -> local.score
-                    else -> remoteItem.score
-                },
-                answered = if (remoteItem.total > 0) remoteItem.answered else maxOf(remoteItem.answered, local?.answered ?: 0),
-                total = if (remoteItem.total > 0) remoteItem.total else (local?.total ?: remoteItem.total),
+                score = recomputedScore ?: local?.score?.takeIf { it > 0 } ?: remoteItem.score,
+                answered = answered,
+                total = listOf(remoteItem.total, local?.total ?: 0, answers.size).max(),
                 role = remoteItem.role.ifBlank { local?.role.orEmpty() }.ifBlank { "Interview" },
                 status = remoteItem.status.ifBlank { local?.status.orEmpty() },
             )

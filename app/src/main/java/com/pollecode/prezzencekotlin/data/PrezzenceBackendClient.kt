@@ -625,14 +625,18 @@ class PrezzenceBackendClient {
 
     suspend fun scoreLocalTranscript(question: String, transcript: String): AnswerResult {
         val clean = transcript.trim()
-        val localScore = localQualityScore(question, clean)
+        val dims = SessionScoring.analyzeAnswer(question, clean)
+        val localScore = dims.overall
         return AnswerResult(
-            transcript = clean,
-            score = localScore,
-            feedback = if (localScore < 35) {
-                "The answer needs a clearer connection to the question, a specific action, and a result."
-            } else {
-                "The answer has usable signal. Make it stronger with one concrete result and fewer general words."
+            transcript = SessionScoring.normalizeStoredTranscript(clean),
+            score = SessionScoring.sanitizeScore(clean, localScore),
+            feedback = when {
+                !SessionScoring.isSubstantiveAnswer(clean) ->
+                    "We could not detect a real interview answer. Speak directly to the question with one example, your action, and the result."
+                localScore < 35 ->
+                    "The answer needs a clearer connection to the question, a specific action, and a result."
+                else ->
+                    "The answer has usable signal. Make it stronger with one concrete result and fewer general words."
             },
             improvedAnswer = "",
             what = "A specific situation, the action you took, and the result.",
@@ -640,6 +644,41 @@ class PrezzenceBackendClient {
             why = "This helps the interviewer hear proof instead of a general statement.",
             coachingMessage = buildCoachingMessage(question, clean, localScore),
         )
+    }
+
+    suspend fun fetchModelAnswer(
+        bearerToken: String,
+        questionText: String,
+        transcript: String,
+    ): AnswerResult? = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank() || questionText.isBlank()) return@withContext null
+        runCatching {
+            val body = JSONObject()
+                .put("question_text", questionText)
+                .put("transcript", transcript)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/api/sessions/coaching/model-answer")
+                .header("Authorization", "Bearer $bearerToken")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val root = JSONObject(response.body?.string().orEmpty())
+                val breakdown = root.optJSONObject("coaching_breakdown")
+                AnswerResult(
+                    transcript = transcript,
+                    score = 0,
+                    feedback = "",
+                    improvedAnswer = root.optString("improved_answer", ""),
+                    what = breakdown?.optString("what_to_include", "") ?: "",
+                    how = breakdown?.optString("how_to_structure", "") ?: "",
+                    why = breakdown?.optString("why_it_works", "") ?: "",
+                    coachingMessage = root.optString("coaching_message", ""),
+                ).takeIf { it.improvedAnswer.isNotBlank() }
+            }
+        }.getOrNull()
     }
 
     suspend fun scoreWithBackend(
@@ -679,7 +718,10 @@ class PrezzenceBackendClient {
                 val analysis = root.optJSONObject("analysis") ?: return@use null
                 AnswerResult(
                     transcript = root.optString("transcript", transcript),
-                    score = analysis.optInt("score", 0),
+                    score = SessionScoring.sanitizeScore(
+                        root.optString("transcript", transcript).ifBlank { transcript },
+                        analysis.optInt("score", 0),
+                    ),
                     feedback = analysis.optString("feedback", ""),
                     improvedAnswer = analysis.optString("improved_answer", ""),
                     what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
@@ -692,55 +734,8 @@ class PrezzenceBackendClient {
         }.getOrNull()
     }
 
-    private fun localQualityScore(question: String, transcript: String): Int {
-        val lower = transcript.lowercase().trim()
-        if (lower.length < 18 || lower == "no clear speech was captured.") return 0
-
-        val giveUp = listOf(
-            "i don't know", "i do not know", "skip", "no idea", "can't answer", "cannot answer",
-            "thank you", "walked right now", "nothing to say", "i don't have", "i do not have"
-        )
-        if (giveUp.any { lower.contains(it) }) return 0
-
-        val fillerOnly = listOf("okay", "yes", "no", "hello", "thanks", "fine", "good", "alright")
-        val answerWords = lower.split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 2 && it !in fillerOnly }
-        if (answerWords.size < 12) return 0
-
-        val stopWords = setOf(
-            "about", "when", "where", "would", "could", "should", "your", "you", "with", "that", "this",
-            "from", "into", "have", "were", "been", "will", "tell", "give", "describe", "please",
-            "time", "role", "background", "question", "answer", "interview"
-        )
-        val questionWords = question.lowercase()
-            .split(Regex("[^a-z0-9]+"))
-            .filter { it.length > 3 && it !in stopWords }
-            .toSet()
-        val answerWordSet = answerWords.toSet()
-        val overlap = questionWords.count { it in answerWordSet }
-
-        val evidenceWords = listOf(
-            "customer", "client", "student", "team", "manager", "project", "issue", "problem",
-            "resolved", "improved", "reduced", "increased", "handled", "followed", "measured",
-            "result", "outcome", "deadline", "organized", "priority", "support", "service"
-        ).count { lower.contains(it) }
-        val structureWords = listOf("situation", "action", "result", "first", "then", "because", "after", "finally")
-            .count { lower.contains(it) }
-        val personalActionWords = listOf("i did", "i worked", "i handled", "i called", "i helped", "i asked", "i followed", "i created", "i organized")
-            .count { lower.contains(it) }
-        val hasConcreteSignal = Regex("\\b\\d+[%x]?\\b|customer|client|student|manager|team|deadline|result|outcome|resolved|improved|reduced|increased", RegexOption.IGNORE_CASE)
-            .containsMatchIn(transcript)
-
-        if (overlap == 0 && evidenceWords < 2) return 0
-        if (!hasConcreteSignal && answerWords.size < 28) return 8
-
-        val lengthScore = (answerWords.size.coerceAtMost(90) / 90.0 * 22).roundToInt()
-        val relevanceScore = (overlap.coerceAtMost(5) / 5.0 * 30).roundToInt()
-        val evidenceScore = (evidenceWords.coerceAtMost(5) / 5.0 * 28).roundToInt()
-        val structureScore = (structureWords.coerceAtMost(3) / 3.0 * 14).roundToInt()
-        val actionScore = (personalActionWords.coerceAtMost(2) / 2.0 * 6).roundToInt()
-        return (lengthScore + relevanceScore + evidenceScore + structureScore + actionScore).coerceIn(0, 100)
-    }
+    private fun localQualityScore(question: String, transcript: String): Int =
+        SessionScoring.analyzeAnswer(question, transcript).overall
 
     private fun buildCoachingMessage(question: String, transcript: String, score: Int): String {
         val words = transcript.split(Regex("\\s+")).filter { it.isNotBlank() }.size
