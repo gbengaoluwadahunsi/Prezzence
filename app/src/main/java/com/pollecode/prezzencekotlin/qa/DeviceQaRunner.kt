@@ -9,13 +9,11 @@ import android.media.MediaRecorder
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.pollecode.prezzencekotlin.BuildConfig
-import com.pollecode.prezzencekotlin.nativebridge.NativeWhisperEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.math.max
@@ -29,8 +27,7 @@ class DeviceQaRunner(private val context: Context) {
     suspend fun runAll(languageTag: String, onStatus: suspend (String) -> Unit): List<DeviceQaResult> {
         val results = mutableListOf<DeviceQaResult>()
         results += microphoneCheck(onStatus)
-        results += whisperModelCheck(onStatus)
-        results += whisperEngineCheck(languageTag, onStatus)
+        results += backendTranscriptionCheck(onStatus)
         results += cameraProviderCheck(onStatus)
         results += duixEndpointCheck(onStatus)
         return results
@@ -60,41 +57,22 @@ class DeviceQaRunner(private val context: Context) {
         }
     }
 
-    private suspend fun whisperModelCheck(onStatus: suspend (String) -> Unit): DeviceQaResult = withContext(Dispatchers.IO) {
-        onStatus("Checking Whisper model")
-        val model = whisperModelFile()
-        if (model.exists() && model.length() > MIN_MODEL_BYTES) {
-            return@withContext DeviceQaResult("Whisper model", true, "Cached ${model.name} (${model.length() / 1024 / 1024} MB).")
-        }
-        val temp = File(model.parentFile, "${model.name}.download")
-        if (temp.exists()) temp.delete()
+    private suspend fun backendTranscriptionCheck(onStatus: suspend (String) -> Unit): DeviceQaResult = withContext(Dispatchers.IO) {
+        onStatus("Checking backend transcription API")
+        val url = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/healthz"
         try {
-            val request = Request.Builder().url(BuildConfig.PREZZENCE_WHISPER_MODEL_URL).build()
+            val request = Request.Builder().url(url).get().build()
             http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext DeviceQaResult("Whisper model", false, "Download failed: HTTP ${response.code}.")
-                val body = response.body ?: return@withContext DeviceQaResult("Whisper model", false, "Download returned no body.")
-                temp.outputStream().use { output -> body.byteStream().copyTo(output) }
+                DeviceQaResult(
+                    "Backend transcription",
+                    response.isSuccessful,
+                    if (response.isSuccessful) "Backend API is reachable for server-side transcription."
+                    else "Backend returned HTTP ${response.code}.",
+                )
             }
-            if (temp.length() <= MIN_MODEL_BYTES) {
-                temp.delete()
-                return@withContext DeviceQaResult("Whisper model", false, "Downloaded model is too small.")
-            }
-            if (model.exists()) model.delete()
-            if (!temp.renameTo(model)) return@withContext DeviceQaResult("Whisper model", false, "Could not move model into cache.")
-            DeviceQaResult("Whisper model", true, "Downloaded ${model.name} (${model.length() / 1024 / 1024} MB).")
         } catch (error: Throwable) {
-            DeviceQaResult("Whisper model", false, error.message ?: "Model download failed.")
+            DeviceQaResult("Backend transcription", false, error.message ?: "Backend API check failed.")
         }
-    }
-
-    private suspend fun whisperEngineCheck(languageTag: String, onStatus: suspend (String) -> Unit): DeviceQaResult = withContext(Dispatchers.IO) {
-        onStatus("Checking Whisper JNI")
-        val model = whisperModelFile()
-        if (!model.exists() || model.length() <= MIN_MODEL_BYTES) return@withContext DeviceQaResult("Whisper JNI", false, "Model is not cached.")
-        val silence = FloatArray(16000) { 0f }
-        val loaded = runCatching { NativeWhisperEngine.transcribePcm(model.absolutePath, silence, languageTag) }
-        if (loaded.isSuccess) DeviceQaResult("Whisper JNI", true, "Native library loaded and accepted ${languageTag} input.")
-        else DeviceQaResult("Whisper JNI", false, loaded.exceptionOrNull()?.message ?: "Native transcription call failed.")
     }
 
     private suspend fun cameraProviderCheck(onStatus: suspend (String) -> Unit): DeviceQaResult {
@@ -130,17 +108,8 @@ class DeviceQaRunner(private val context: Context) {
         }
     }
 
-    private fun whisperModelFile(): File {
-        val dir = File(context.filesDir, "whisper-models").apply { mkdirs() }
-        return File(dir, BuildConfig.PREZZENCE_WHISPER_MODEL_NAME)
-    }
-
     private fun hasPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-    }
-
-    companion object {
-        private const val MIN_MODEL_BYTES = 1024 * 1024
     }
 }
 

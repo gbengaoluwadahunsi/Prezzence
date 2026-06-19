@@ -635,9 +635,11 @@ class GeminiService:
         role_title: str = "",
     ):
         try:
-            candidate_transcript = (transcript or "").strip()
-            if not candidate_transcript and audio_base64:
+            candidate_transcript = ""
+            if audio_base64:
                 candidate_transcript = await self._transcribe_with_groq(audio_base64, audio_mime_type)
+            elif (transcript or "").strip():
+                candidate_transcript = (transcript or "").strip()
 
             if not candidate_transcript:
                 print(

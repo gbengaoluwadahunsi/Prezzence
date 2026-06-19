@@ -1365,7 +1365,7 @@ class MainActivity : ComponentActivity() {
 
         column.addView(label("TOOLS"))
         column.addView(settingsCard(listOf(
-            settingsRow("Device QA", "Mic, Whisper, camera, and Duix checks", icon = SettingsIcon.QA) { showDeviceQa() },
+            settingsRow("Device QA", "Mic, backend, camera, and Duix checks", icon = SettingsIcon.QA) { showDeviceQa() },
             settingsRow("Accessibility", "Text size, contrast, and motion", icon = SettingsIcon.A11y) { showAccessibility() },
             settingsRow("App Settings", "Wi-Fi only downloads", icon = SettingsIcon.Settings) { showAppSettings() },
             settingsRow("Resume / CV profile", "Tune questions with your resume", icon = SettingsIcon.File) { showResumeProfile() },
@@ -2883,7 +2883,7 @@ class MainActivity : ComponentActivity() {
                     typeface = interBold
                 })
                 addView(spacer(8))
-                listOf("Microphone PCM capture", "First-run Whisper model download", "Native Whisper JNI load", "CameraX provider open", "Duix model endpoint reachability").forEach { check ->
+                listOf("Microphone PCM capture", "Backend transcription API reachability", "CameraX provider open", "Duix model endpoint reachability").forEach { check ->
                     addView(LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         setPadding(0, dp(6), 0, dp(6))
@@ -3903,16 +3903,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         })
-        if (!processing) {
-            scope.launch(Dispatchers.IO) {
-                NativeSpeechTranscriber(
-                    context = this@MainActivity,
-                    onPartial = {},
-                    onFinal = {},
-                    onError = {},
-                ).warmupWhisperModel()
-            }
-        }
         if (answering && !processing) {
             startSpeechCapture()
             scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
@@ -4411,85 +4401,80 @@ class MainActivity : ComponentActivity() {
             }
             progressJob.cancel()
             processingProgressState.intValue = 95
-            activeTranscript = capture.transcript.ifBlank { activeTranscript }
-            val rawTranscript = activeTranscript.trim().ifBlank { capture.transcript.trim() }
-            val hadCapturableSpeech = !SessionScoring.isBlankTranscript(rawTranscript)
-            val transcript = rawTranscript.ifBlank { capturedSpeechError }.ifBlank { "No clear speech was captured." }
-            processingStageState.value = "Analyzing answer"
-            processingProgressState.intValue = 97
-            ensureActiveBackendSession()
-            val scoringTranscript = rawTranscript.ifBlank { transcript }
-            val localResult = backend.scoreLocalTranscript(questionText, scoringTranscript)
-            val remoteResult = backend.scoreWithBackend(
-                bearerToken = appState.authToken.ifBlank { null },
-                sessionId = appState.activeSessionId,
-                questionId = appState.currentQuestionIndex + 1,
-                questionText = questionText,
-                transcript = rawTranscript,
-                audioBase64 = capture.audioBase64,
-                audioDurationSeconds = capture.audioDurationSeconds,
-            )
-            val backendRecovered = remoteResult != null &&
-                !remoteResult.retryRequired &&
-                !SessionScoring.isBlankTranscript(remoteResult.transcript)
-            val mergedBase = when {
-                backendRecovered -> {
-                    remoteResult!!.copy(
-                        coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
-                    )
-                }
-                hadCapturableSpeech && remoteResult != null && remoteResult.retryRequired -> localResult.copy(
-                    feedback = localResult.feedback,
-                    coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage },
-                )
-                localResult.score <= 15 && (remoteResult?.score ?: 0) > 20 -> {
-                    localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
-                }
-                remoteResult != null && !SessionScoring.isBlankTranscript(remoteResult.transcript) -> {
-                    remoteResult.copy(
-                        coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
-                    )
-                }
-                else -> localResult
-            }
-            val resolvedTranscript = listOf(
-                mergedBase.transcript,
-                remoteResult?.transcript.orEmpty(),
-                rawTranscript,
-                capture.transcript,
-            ).firstOrNull { !SessionScoring.isBlankTranscript(it) }.orEmpty()
-            val displayTranscript = resolvedTranscript.ifBlank { mergedBase.transcript }
-            val substantiveAnswer = SessionScoring.isSubstantiveAnswer(displayTranscript)
-            val mergedImprovedAnswer = sanitizeModelAnswer(
-                remoteResult?.improvedAnswer?.trim().orEmpty().ifBlank { mergedBase.improvedAnswer.trim() },
-                displayTranscript,
-                substantiveAnswer,
-            )
-            val result = mergedBase.copy(
-                transcript = displayTranscript,
-                score = SessionScoring.sanitizeScore(displayTranscript, mergedBase.score),
-                improvedAnswer = mergedImprovedAnswer,
-            )
-            val captureFailure = SessionScoring.isBlankTranscript(result.transcript) &&
-                (result.retryRequired || capture.audioBase64.isNullOrBlank())
-            if (captureFailure) {
+            activeTranscript = ""
+            speechError = capturedSpeechError
+
+            if (capture.audioBase64.isNullOrBlank()) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
-                val message = result.feedback.ifBlank { capturedSpeechError }
-                    .ifBlank { "We could not detect a clear answer. Please speak closer to the microphone and try again." }
+                val message = capturedSpeechError.ifBlank {
+                    "We could not capture your answer audio. Please speak closer to the microphone and try again."
+                }
                 showAnswerRetryRequired(message)
                 return@launch
             }
-            
+
+            processingStageState.value = "Transcribing audio"
+            processingProgressState.intValue = 97
+            ensureActiveBackendSession()
+
+            if (appState.authToken.isBlank() || appState.activeSessionId.isBlank()) {
+                processingAnswerState.value = false
+                processingStageState.value = ""
+                processingProgressState.intValue = 0
+                showAnswerRetryRequired("Sign in and start a session to transcribe and score your answer.")
+                return@launch
+            }
+
+            val remoteResult = backend.scoreWithBackend(
+                bearerToken = appState.authToken,
+                sessionId = appState.activeSessionId,
+                questionId = appState.currentQuestionIndex + 1,
+                questionText = questionText,
+                transcript = "",
+                audioBase64 = capture.audioBase64,
+                audioDurationSeconds = capture.audioDurationSeconds,
+            )
+
+            if (remoteResult == null) {
+                processingAnswerState.value = false
+                processingStageState.value = ""
+                processingProgressState.intValue = 0
+                showAnswerRetryRequired("We could not transcribe your answer. Check your connection and try again.")
+                return@launch
+            }
+
+            if (remoteResult.retryRequired && SessionScoring.isBlankTranscript(remoteResult.transcript)) {
+                processingAnswerState.value = false
+                processingStageState.value = ""
+                processingProgressState.intValue = 0
+                val message = remoteResult.feedback.ifBlank {
+                    "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
+                }
+                showAnswerRetryRequired(message)
+                return@launch
+            }
+
+            val displayTranscript = remoteResult.transcript.trim()
+            val substantiveAnswer = SessionScoring.isSubstantiveAnswer(displayTranscript)
+            val result = remoteResult.copy(
+                transcript = displayTranscript,
+                score = SessionScoring.sanitizeScore(displayTranscript, remoteResult.score),
+                improvedAnswer = sanitizeModelAnswer(
+                    remoteResult.improvedAnswer.trim(),
+                    displayTranscript,
+                    substantiveAnswer,
+                ),
+            )
             // Summarize presence samples and attach to result
             val finalPresence = summarizePresenceSamples(presenceSamples)
             var finalResult = enrichWithModelAnswer(questionText, result.copy(presenceMetrics = finalPresence))
                 .let { answer ->
-                    val displayTranscript = answer.transcript.trim().ifBlank { resolvedTranscript }
+                    val normalizedTranscript = answer.transcript.trim().ifBlank { displayTranscript }
                     answer.copy(
-                        transcript = displayTranscript,
-                        score = SessionScoring.sanitizeScore(displayTranscript, answer.score),
+                        transcript = normalizedTranscript,
+                        score = SessionScoring.sanitizeScore(normalizedTranscript, answer.score),
                     )
                 }
 

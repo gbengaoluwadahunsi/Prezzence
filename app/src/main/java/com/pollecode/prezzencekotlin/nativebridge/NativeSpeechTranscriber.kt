@@ -1,22 +1,12 @@
 package com.pollecode.prezzencekotlin.nativebridge
 
 import android.content.Context
-import android.content.Intent
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import com.pollecode.prezzencekotlin.BuildConfig
-import com.pollecode.prezzencekotlin.data.SessionScoring
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import android.util.Base64
+import com.pollecode.prezzencekotlin.data.SessionScoring
 import java.io.ByteArrayOutputStream
-import java.io.File
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 
@@ -26,88 +16,33 @@ data class SpeechCaptureResult(
     val audioDurationSeconds: Int = 0,
 )
 
+/**
+ * Records interview answer audio on-device. Transcription is performed on the backend only.
+ */
 class NativeSpeechTranscriber(
     private val context: Context,
     private val onPartial: (String) -> Unit,
     private val onFinal: (String) -> Unit,
     private val onError: (String) -> Unit,
 ) {
-    private var recognizer: SpeechRecognizer? = null
-    private var latestText: String = ""
     private var recorder: AudioRecord? = null
     private var recordingThread: Thread? = null
     private val recording = AtomicBoolean(false)
     private val pcmSamples = mutableListOf<Float>()
     private val pcmLock = Any()
-    private var currentLanguageTag: String = "en-US"
 
     fun start(languageTag: String = "en-US") {
-        currentLanguageTag = languageTag
         stop(languageTag)
-        latestText = ""
-        if (BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) {
-            startWhisperCapture()
-            return
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onError("Speech recognition is not available on this device.")
-            return
-        }
-
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) = Unit
-                override fun onBeginningOfSpeech() = Unit
-                override fun onRmsChanged(rmsdB: Float) = Unit
-                override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() = Unit
-
-                override fun onError(error: Int) {
-                    if (latestText.isBlank()) onError(errorMessage(error)) else onFinal(latestText)
-                }
-
-                override fun onResults(results: Bundle?) {
-                    val text = bestResult(results)
-                    latestText = text.ifBlank { latestText }
-                    onFinal(latestText)
-                }
-
-                override fun onPartialResults(partialResults: Bundle?) {
-                    val text = bestResult(partialResults)
-                    if (text.isNotBlank()) {
-                        latestText = text
-                        onPartial(text)
-                    }
-                }
-
-                override fun onEvent(eventType: Int, params: Bundle?) = Unit
-            })
-        }
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-        }
-        recognizer?.startListening(intent)
+        startAudioCapture()
     }
 
     fun stop(languageTag: String = "en-US"): SpeechCaptureResult {
-        if (BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) return stopWhisperCapture(languageTag)
-        val text = latestText
-        runCatching { recognizer?.stopListening() }
-        runCatching { recognizer?.cancel() }
-        runCatching { recognizer?.destroy() }
-        recognizer = null
-        return SpeechCaptureResult(transcript = text)
+        return stopAudioCapture()
     }
 
-    private fun startWhisperCapture() {
+    private fun startAudioCapture() {
         val minBuffer = AudioRecord.getMinBufferSize(
-            WHISPER_SAMPLE_RATE,
+            SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
@@ -116,11 +51,11 @@ class NativeSpeechTranscriber(
             return
         }
 
-        val bufferSize = max(minBuffer, WHISPER_SAMPLE_RATE)
+        val bufferSize = max(minBuffer, SAMPLE_RATE)
         val audioRecord = runCatching {
             AudioRecord(
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                WHISPER_SAMPLE_RATE,
+                SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 bufferSize,
@@ -139,7 +74,7 @@ class NativeSpeechTranscriber(
         synchronized(pcmLock) { pcmSamples.clear() }
         recorder = audioRecord
         recording.set(true)
-        recordingThread = Thread({ readPcmLoop(audioRecord, bufferSize) }, "PrezzenceWhisperRecorder").also { it.start() }
+        recordingThread = Thread({ readPcmLoop(audioRecord, bufferSize) }, "PrezzenceAnswerRecorder").also { it.start() }
         runCatching { audioRecord.startRecording() }.onFailure {
             recording.set(false)
             onError("Microphone capture failed to start.")
@@ -160,7 +95,7 @@ class NativeSpeechTranscriber(
         }
     }
 
-    private fun stopWhisperCapture(languageTag: String): SpeechCaptureResult {
+    private fun stopAudioCapture(): SpeechCaptureResult {
         recording.set(false)
         runCatching { recorder?.stop() }
         runCatching { recordingThread?.join(1500) }
@@ -169,46 +104,19 @@ class NativeSpeechTranscriber(
         recordingThread = null
 
         val samples = synchronized(pcmLock) { pcmSamples.toFloatArray() }
-        val durationSeconds = (samples.size / WHISPER_SAMPLE_RATE.toFloat()).toInt().coerceAtLeast(0)
-        val audioBase64 = if (samples.size >= WHISPER_SAMPLE_RATE / 2) {
-            encodePcmToWavBase64(samples, WHISPER_SAMPLE_RATE)
+        val durationSeconds = (samples.size / SAMPLE_RATE.toFloat()).toInt().coerceAtLeast(0)
+        val audioBase64 = if (samples.size >= SAMPLE_RATE / 2) {
+            encodePcmToWavBase64(samples, SAMPLE_RATE)
         } else {
             null
         }
 
-        if (samples.size < WHISPER_SAMPLE_RATE / 2) {
-            onError("No clear speech was captured.")
-            return SpeechCaptureResult(
-                transcript = latestText,
-                audioBase64 = audioBase64,
-                audioDurationSeconds = durationSeconds,
-            )
-        }
-
-        val modelPath = runCatching { ensureWhisperModel() }.getOrElse { error ->
-            onError(error.message ?: "Whisper model is not available.")
-            return SpeechCaptureResult(
-                transcript = latestText,
-                audioBase64 = audioBase64,
-                audioDurationSeconds = durationSeconds,
-            )
-        }
-
-        val text = runCatching {
-            NativeWhisperEngine.transcribePcm(modelPath.absolutePath, samples, languageTag).trim()
-        }.getOrElse { error ->
-            onError(error.message ?: "Native transcription failed.")
-            ""
-        }
-
-        if (text.isNotBlank()) {
-            latestText = text
-            onFinal(text)
-        } else if (latestText.isBlank()) {
+        if (samples.size < SAMPLE_RATE / 2) {
             onError("No clear speech was captured.")
         }
+
         return SpeechCaptureResult(
-            transcript = latestText,
+            transcript = "",
             audioBase64 = audioBase64,
             audioDurationSeconds = durationSeconds,
         )
@@ -260,59 +168,8 @@ class NativeSpeechTranscriber(
         )
     }
 
-    private fun ensureWhisperModel(): File {
-        val modelDir = File(context.filesDir, "whisper-models").apply { mkdirs() }
-        val model = File(modelDir, BuildConfig.PREZZENCE_WHISPER_MODEL_NAME)
-        if (model.exists() && model.length() > MIN_MODEL_BYTES) return model
-
-        val temp = File(modelDir, "${model.name}.download")
-        if (temp.exists()) temp.delete()
-        val request = Request.Builder().url(BuildConfig.PREZZENCE_WHISPER_MODEL_URL).build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("Whisper model download failed: HTTP ${response.code}")
-            val body = response.body ?: throw IllegalStateException("Whisper model download returned no data.")
-            temp.outputStream().use { output -> body.byteStream().copyTo(output) }
-        }
-        if (temp.length() <= MIN_MODEL_BYTES) {
-            temp.delete()
-            throw IllegalStateException("Whisper model download was incomplete.")
-        }
-        if (model.exists()) model.delete()
-        if (!temp.renameTo(model)) throw IllegalStateException("Whisper model could not be cached.")
-        return model
-    }
-
-    private fun bestResult(bundle: Bundle?): String {
-        return bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim() ?: ""
-    }
-
-    private fun errorMessage(error: Int): String {
-        return when (error) {
-            SpeechRecognizer.ERROR_AUDIO -> "Audio recording failed."
-            SpeechRecognizer.ERROR_CLIENT -> "Speech client failed."
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
-            SpeechRecognizer.ERROR_NETWORK -> "Network speech recognition failed."
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition timed out."
-            SpeechRecognizer.ERROR_NO_MATCH -> "No clear speech was captured."
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy."
-            SpeechRecognizer.ERROR_SERVER -> "Speech service failed."
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech was detected."
-            else -> "Speech recognition failed."
-        }
-    }
-
-    fun warmupWhisperModel() {
-        if (!BuildConfig.PREZZENCE_ENABLE_WHISPER_CPP) return
-        runCatching { ensureWhisperModel() }
-    }
-
     companion object {
-        private const val WHISPER_SAMPLE_RATE = 16000
-        private const val MIN_MODEL_BYTES = 1024 * 1024
-        private val httpClient = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.MINUTES)
-            .build()
+        private const val SAMPLE_RATE = 16000
 
         fun isPlaceholderTranscript(text: String): Boolean =
             SessionScoring.isBlankTranscript(text)

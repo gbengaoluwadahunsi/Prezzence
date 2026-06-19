@@ -20,9 +20,6 @@ def releaseStoreFile = envOrProp('PREZZENCE_UPLOAD_STORE_FILE', '')
 def releaseStorePassword = envOrProp('PREZZENCE_UPLOAD_STORE_PASSWORD', '')
 def releaseKeyAlias = envOrProp('PREZZENCE_UPLOAD_KEY_ALIAS', '')
 def releaseKeyPassword = envOrProp('PREZZENCE_UPLOAD_KEY_PASSWORD', '')
-def prezzenceEnableWhisperCpp = envOrProp('PREZZENCE_ENABLE_WHISPER_CPP', 'false').toBoolean()
-def whisperModelName = envOrProp('PREZZENCE_WHISPER_MODEL_NAME', 'ggml-base.bin')
-def whisperModelUrl = envOrProp('PREZZENCE_WHISPER_MODEL_URL', 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin')
 def prezzenceSubscriptionProductId = envOrProp('PREZZENCE_SUBSCRIPTION_PRODUCT_ID', 'prezzence_pro')
 def duixModelBaseUrl = envOrProp('DUIX_MODEL_BASE_URL', '')
 def releaseStorePath = releaseStoreFile ? file(releaseStoreFile) : null
@@ -44,20 +41,9 @@ android {
         buildConfigField 'String', 'PREZZENCE_API_URL', "\"${escapeBuildConfig(prezzenceApiUrl)}\""
         buildConfigField 'String', 'PREZZENCE_SUPABASE_URL', "\"${escapeBuildConfig(supabaseUrl)}\""
         buildConfigField 'String', 'PREZZENCE_SUPABASE_ANON_KEY', "\"${escapeBuildConfig(supabaseAnonKey)}\""
-        buildConfigField 'boolean', 'PREZZENCE_ENABLE_WHISPER_CPP', prezzenceEnableWhisperCpp.toString()
-        buildConfigField 'String', 'PREZZENCE_WHISPER_MODEL_NAME', "\"${escapeBuildConfig(whisperModelName)}\""
-        buildConfigField 'String', 'PREZZENCE_WHISPER_MODEL_URL', "\"${escapeBuildConfig(whisperModelUrl)}\""
         buildConfigField 'String', 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID', '"' + escapeBuildConfig(prezzenceSubscriptionProductId) + '"'
         buildConfigField 'String', 'PREZZENCE_VERSION_NAME', "\"${prezzenceVersionName}\""
         buildConfigField 'String', 'DEBUG_DUIX_MODEL_BASE_URL', "\"${escapeBuildConfig(duixModelBaseUrl)}\""
-        ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
-        }
-        externalNativeBuild {
-            cmake {
-                cppFlags ''
-            }
-        }
     }
 
     signingConfigs {
@@ -92,13 +78,6 @@ android {
         buildConfig true
         compose true
     }
-
-    externalNativeBuild {
-        cmake {
-            path file('src/main/cpp/CMakeLists.txt')
-            version '3.22.1'
-        }
-    }
 }
 
 tasks.register('verifyPrezzenceReleaseEnv') {
@@ -114,11 +93,6 @@ tasks.register('verifyPrezzenceReleaseEnv') {
         if (!releaseStorePassword) failures << 'PREZZENCE_UPLOAD_STORE_PASSWORD is missing.'
         if (!releaseKeyAlias) failures << 'PREZZENCE_UPLOAD_KEY_ALIAS is missing.'
         if (!releaseKeyPassword) failures << 'PREZZENCE_UPLOAD_KEY_PASSWORD is missing.'
-        if (!prezzenceEnableWhisperCpp) failures << 'PREZZENCE_ENABLE_WHISPER_CPP must be true for a 100% Kotlin replacement release.'
-        if (prezzenceEnableWhisperCpp && !file('src/main/cpp/whisper').exists()) failures << 'whisper.cpp native sources are missing at app/src/main/cpp/whisper.'
-        if (prezzenceEnableWhisperCpp && !file('src/main/cpp/native_whisper.cpp').exists()) failures << 'Prezzence standalone whisper JNI wrapper is missing.'
-        if (prezzenceEnableWhisperCpp && !whisperModelUrl.startsWith('https://')) failures << 'PREZZENCE_WHISPER_MODEL_URL must be an HTTPS model URL.'
-        if (prezzenceEnableWhisperCpp && whisperModelName.toLowerCase().contains('.en.')) failures << 'PREZZENCE_WHISPER_MODEL_NAME must use a multilingual model, not an English-only .en.bin model.'
         if (!prezzenceSubscriptionProductId.trim()) failures << 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID is missing.'
         if (!failures.isEmpty()) throw new GradleException('Prezzence Kotlin release env is not ready:\n - ' + failures.join('\n - '))
         println 'Prezzence Kotlin release env verified.'

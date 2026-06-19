@@ -701,7 +701,7 @@ class PrezzenceBackendClient {
             val body = JSONObject()
                 .put("question_id", questionId)
                 .put("question_text", questionText)
-                .put("transcript_source", "native-local")
+                .put("transcript_source", "backend-audio")
             if (transcript.isNotBlank()) {
                 body.put("transcript", transcript)
             }
