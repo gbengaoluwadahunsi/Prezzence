@@ -315,6 +315,6 @@ class NativeSpeechTranscriber(
             .build()
 
         fun isPlaceholderTranscript(text: String): Boolean =
-            SessionScoring.isBlankTranscript(text) || !SessionScoring.isSubstantiveAnswer(text)
+            SessionScoring.isBlankTranscript(text)
     }
 }

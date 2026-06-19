@@ -650,12 +650,18 @@ class PrezzenceBackendClient {
         bearerToken: String,
         questionText: String,
         transcript: String,
+        roleTitle: String = "",
+        interviewerName: String = "",
+        interviewerTitle: String = "",
     ): AnswerResult? = withContext(Dispatchers.IO) {
         if (bearerToken.isBlank() || questionText.isBlank()) return@withContext null
         runCatching {
             val body = JSONObject()
                 .put("question_text", questionText)
                 .put("transcript", transcript)
+                .put("role_title", roleTitle)
+                .put("interviewer_name", interviewerName)
+                .put("interviewer_title", interviewerTitle)
                 .toString()
                 .toRequestBody(jsonMediaType)
             val request = Request.Builder()

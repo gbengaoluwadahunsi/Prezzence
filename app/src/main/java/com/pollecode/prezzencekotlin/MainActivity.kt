@@ -12,6 +12,7 @@ import android.graphics.PixelFormat
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Bundle
@@ -120,6 +121,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var billingManager: PrezzenceBillingManager
 
     private var activeAvatar: NativeDuixAvatarView? = null
+    private var coachingMediaPlayer: MediaPlayer? = null
     private var resultOverlay: FrameLayout? = null
     private var confirmOverlay: FrameLayout? = null
     private var activeCamera: NativePresenceCameraView? = null
@@ -3570,21 +3572,108 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun enrichWithModelAnswer(questionText: String, result: AnswerResult): AnswerResult {
-        if (result.improvedAnswer.isNotBlank()) return result
-        if (appState.authToken.isBlank()) return result
-        ensureActiveBackendSession()
-        val fetched = backend.fetchModelAnswer(
-            bearerToken = appState.authToken,
-            questionText = questionText,
-            transcript = result.transcript,
-        ) ?: return result
+        val existing = result.improvedAnswer.trim()
+        if (existing.isNotBlank() && !isGenericModelAnswer(existing)) return result
+
+        val interviewer = appState.interviewerFor()
+        if (appState.authToken.isNotBlank()) {
+            ensureActiveBackendSession()
+            val fetched = backend.fetchModelAnswer(
+                bearerToken = appState.authToken,
+                questionText = questionText,
+                transcript = result.transcript,
+                roleTitle = appState.selectedRole,
+                interviewerName = interviewer.name,
+                interviewerTitle = interviewer.title,
+            )
+            if (fetched != null && fetched.improvedAnswer.isNotBlank() && !isGenericModelAnswer(fetched.improvedAnswer)) {
+                return result.copy(
+                    improvedAnswer = fetched.improvedAnswer,
+                    what = fetched.what.ifBlank { result.what },
+                    how = fetched.how.ifBlank { result.how },
+                    why = fetched.why.ifBlank { result.why },
+                    coachingMessage = fetched.coachingMessage.ifBlank { result.coachingMessage },
+                )
+            }
+        }
+
         return result.copy(
-            improvedAnswer = fetched.improvedAnswer,
-            what = fetched.what.ifBlank { result.what },
-            how = fetched.how.ifBlank { result.how },
-            why = fetched.why.ifBlank { result.why },
-            coachingMessage = fetched.coachingMessage.ifBlank { result.coachingMessage },
+            improvedAnswer = buildLocalModelAnswer(questionText, appState.selectedRole),
+            coachingMessage = result.coachingMessage.ifBlank {
+                "Here is a stronger first-person answer you can adapt to your own experience."
+            },
         )
+    }
+
+    private fun isGenericModelAnswer(text: String): Boolean {
+        val lower = text.trim().lowercase(Locale.US)
+        if (lower.isBlank()) return true
+        return lower.contains("i would answer with one real example") ||
+            lower.contains("that structure helps the interviewer hear ownership") ||
+            lower.contains("framed more clearly, i would explain what i personally owned") ||
+            lower.startsWith("absolutely. for '") && lower.contains("keep it structured")
+    }
+
+    private fun buildLocalModelAnswer(questionText: String, roleTitle: String): String {
+        val role = roleTitle.ifBlank { "professional" }
+        val lower = questionText.lowercase(Locale.US)
+        return when {
+            lower.contains("introduce yourself") || lower.contains("overview of your background") ||
+                lower.contains("experience that prepared") || lower.contains("tell me about yourself") ->
+                introModelAnswerForRole(role)
+            lower.contains("tell me about a time") || lower.contains("describe a time") ||
+                lower.contains("give me an example") ->
+                "At my previous company I faced a high-pressure situation tied to that question. " +
+                    "I took ownership of the problem, coordinated with the people involved, made a clear decision under a tight deadline, " +
+                    "and delivered a measurable result. That experience taught me how to stay calm, communicate clearly, and follow through as a $role."
+            lower.contains("how would you") || lower.contains("how do you") ->
+                "I would start by clarifying the goal, break the work into the highest-impact steps, and communicate early with stakeholders. " +
+                    "In a similar situation as a $role, I prioritized the riskiest part first, adjusted quickly when new information appeared, " +
+                    "and closed the loop with a clear result the team could trust."
+            else ->
+                "I'm a $role with more than a decade of relevant experience. In my most recent role I owned a project end to end, " +
+                    "made the key decisions myself, and delivered a result my manager could measure. " +
+                    "That is the same approach I would bring to this question: direct answer first, one concrete example, and a clear outcome."
+        }
+    }
+
+    private fun introModelAnswerForRole(role: String): String {
+        val roleLower = role.lowercase(Locale.US)
+        return when {
+            roleLower.contains("software") || roleLower.contains("engineer") || roleLower.contains("developer") ->
+                "I'm a software engineer with 8 years of experience shipping production systems. " +
+                    "Most recently at Northbridge Labs I led a team of five on a payments platform handling about \$2.1M per day. " +
+                    "Before that at Crestline I rebuilt a legacy monolith into services and cut deploy time from 3 hours to 12 minutes. " +
+                    "I'm looking for a role where I can own delivery end to end and help junior engineers grow."
+            roleLower.contains("teacher") || roleLower.contains("education") ->
+                "I'm a teacher with 11 years in the classroom across grades 6 through 10. " +
+                    "At Riverside Academy I redesigned our literacy unit and raised reading proficiency from 62% to 81% in one year. " +
+                    "I also mentored two new teachers and built weekly data reviews that helped our team respond faster to student needs."
+            roleLower.contains("sales") ->
+                "I'm a sales representative with 9 years of experience in B2B accounts. " +
+                    "At Summit Systems I grew my territory from \$1.4M to \$2.3M in two years by rebuilding our top 20 account plans. " +
+                    "I focus on discovery, clear follow-up, and closing with proof instead of pressure."
+            roleLower.contains("legal") || roleLower.contains("lawyer") || roleLower.contains("attorney") ->
+                "I'm a litigation attorney with 13 years of experience. " +
+                    "At Hartwell & Partners I handled 54 cases through trial and settlement without a loss. " +
+                    "I prepare every case with the same discipline: clear fact pattern, strong evidence, and direct client communication."
+            roleLower.contains("administrative") || roleLower.contains("assistant") ->
+                "I'm an administrative assistant with 10 years supporting executive teams in fast-moving environments. " +
+                    "At Beacon Partners I managed calendars, travel, and vendor coordination for three leaders while keeping confidential work organized. " +
+                    "I reduced scheduling conflicts by 40% by introducing a shared planning system the whole office adopted."
+            roleLower.contains("customer support") || roleLower.contains("support") ->
+                "I'm a customer support representative with 7 years handling high-volume technical issues. " +
+                    "At CloudNest I maintained a 96% satisfaction score while resolving an average of 45 tickets per day. " +
+                    "I listen first, confirm the issue in the customer's words, and follow through until the problem is actually fixed."
+            roleLower.contains("project") || roleLower.contains("coordinator") ->
+                "I'm a project coordinator with 8 years keeping cross-functional work on track. " +
+                    "At Horizon Health I managed 12 concurrent initiatives, cut missed deadlines by 35%, and built status updates executives could trust. " +
+                    "I'm strongest when I translate goals into timelines, owners, and measurable checkpoints."
+            else ->
+                "I'm a $role with 12 years of hands-on experience. " +
+                    "In my current role I owned a high-impact project from planning through delivery and improved team results by 35%. " +
+                    "I handled the decisions, the communication, and the follow-through myself, and we finished two weeks ahead of schedule."
+        }
     }
 
     private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
@@ -4042,11 +4131,6 @@ class MainActivity : ComponentActivity() {
             showAppToast("No model answer is available yet.", ToastKind.WARNING)
             return
         }
-        val avatar = activeAvatar
-        if (avatar == null) {
-            showAppToast("Interviewer voice is loading. Tap Listen again in a moment.", ToastKind.INFO)
-            return
-        }
         scope.launch {
             try {
                 val currentInterviewer = appState.interviewerFor(appState.currentQuestion())
@@ -4056,17 +4140,62 @@ class MainActivity : ComponentActivity() {
                     language = appState.language,
                     personality = currentInterviewer.id,
                 )
-                if (!backendSpeech.isNullOrBlank()) {
-                    root.post {
-                        activeAvatar?.speakAudioUri(backendSpeech, "coaching")
-                    }
-                } else {
+                if (backendSpeech.isNullOrBlank()) {
                     showAppToast("Could not generate coaching audio.", ToastKind.WARNING)
+                    return@launch
+                }
+                val avatar = waitForActiveAvatar()
+                root.post {
+                    if (avatar != null) {
+                        avatar.speakAudioUri(backendSpeech, "coaching")
+                    } else {
+                        playCoachingAudioFallback(backendSpeech)
+                    }
                 }
             } catch (e: Exception) {
                 showAppToast("Error playing coaching audio: ${e.message}", ToastKind.ERROR)
             }
         }
+    }
+
+    private suspend fun waitForActiveAvatar(maxWaitMs: Long = 8000): NativeDuixAvatarView? {
+        val deadline = System.currentTimeMillis() + maxWaitMs
+        while (System.currentTimeMillis() < deadline) {
+            activeAvatar?.let { return it }
+            delay(250)
+        }
+        return activeAvatar
+    }
+
+    private fun playCoachingAudioFallback(audioUrl: String) {
+        stopCoachingAudioFallback()
+        runCatching {
+            coachingMediaPlayer = MediaPlayer().apply {
+                setDataSource(audioUrl)
+                setOnPreparedListener { player ->
+                    player.start()
+                }
+                setOnCompletionListener {
+                    stopCoachingAudioFallback()
+                }
+                setOnErrorListener { _, _, _ ->
+                    stopCoachingAudioFallback()
+                    showAppToast("Could not play coaching audio.", ToastKind.WARNING)
+                    true
+                }
+                prepareAsync()
+            }
+        }.onFailure {
+            showAppToast("Could not play coaching audio.", ToastKind.WARNING)
+        }
+    }
+
+    private fun stopCoachingAudioFallback() {
+        runCatching {
+            coachingMediaPlayer?.stop()
+            coachingMediaPlayer?.release()
+        }
+        coachingMediaPlayer = null
     }
 
     private suspend fun prepareCurrentQuestionSpeech(forceRefresh: Boolean = false): Boolean {
@@ -4222,25 +4351,26 @@ class MainActivity : ComponentActivity() {
             progressJob.cancel()
             processingProgressState.intValue = 95
             activeTranscript = capture.transcript.ifBlank { activeTranscript }
-            val rawTranscript = activeTranscript.trim()
-            val hadCapturableSpeech = !NativeSpeechTranscriber.isPlaceholderTranscript(rawTranscript)
+            val rawTranscript = activeTranscript.trim().ifBlank { capture.transcript.trim() }
+            val hadCapturableSpeech = !SessionScoring.isBlankTranscript(rawTranscript)
             val transcript = rawTranscript.ifBlank { capturedSpeechError }.ifBlank { "No clear speech was captured." }
             processingStageState.value = "Analyzing answer"
             processingProgressState.intValue = 97
             ensureActiveBackendSession()
-            val localResult = backend.scoreLocalTranscript(questionText, transcript)
+            val scoringTranscript = rawTranscript.ifBlank { transcript }
+            val localResult = backend.scoreLocalTranscript(questionText, scoringTranscript)
             val remoteResult = backend.scoreWithBackend(
                 bearerToken = appState.authToken.ifBlank { null },
                 sessionId = appState.activeSessionId,
                 questionId = appState.currentQuestionIndex + 1,
                 questionText = questionText,
-                transcript = if (hadCapturableSpeech) transcript else "",
+                transcript = rawTranscript,
                 audioBase64 = capture.audioBase64,
                 audioDurationSeconds = capture.audioDurationSeconds,
             )
             val backendRecovered = remoteResult != null &&
                 !remoteResult.retryRequired &&
-                !NativeSpeechTranscriber.isPlaceholderTranscript(remoteResult.transcript)
+                !SessionScoring.isBlankTranscript(remoteResult.transcript)
             val mergedBase = when {
                 backendRecovered -> {
                     remoteResult!!.copy(
@@ -4254,23 +4384,32 @@ class MainActivity : ComponentActivity() {
                 localResult.score <= 15 && (remoteResult?.score ?: 0) > 20 -> {
                     localResult.copy(feedback = "This answer did not clearly address the question. Try again with one relevant example, your action, and the result.")
                 }
-                remoteResult != null -> {
+                remoteResult != null && !SessionScoring.isBlankTranscript(remoteResult.transcript) -> {
                     remoteResult.copy(
                         coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage }
                     )
                 }
                 else -> localResult
             }
+            val resolvedTranscript = listOf(
+                mergedBase.transcript,
+                remoteResult?.transcript.orEmpty(),
+                rawTranscript,
+                capture.transcript,
+            ).firstOrNull { !SessionScoring.isBlankTranscript(it) }.orEmpty()
             val result = mergedBase.copy(
-                score = SessionScoring.sanitizeScore(mergedBase.transcript, mergedBase.score),
+                transcript = resolvedTranscript.ifBlank { mergedBase.transcript },
+                score = SessionScoring.sanitizeScore(
+                    resolvedTranscript.ifBlank { mergedBase.transcript },
+                    mergedBase.score,
+                ),
                 improvedAnswer = remoteResult?.improvedAnswer?.trim()
                     .orEmpty()
                     .ifBlank { mergedBase.improvedAnswer.trim() },
             )
-            val hardCaptureFailure = result.retryRequired &&
-                SessionScoring.isBlankTranscript(result.transcript) &&
-                capture.audioBase64.isNullOrBlank()
-            if (hardCaptureFailure) {
+            val captureFailure = SessionScoring.isBlankTranscript(result.transcript) &&
+                (result.retryRequired || capture.audioBase64.isNullOrBlank())
+            if (captureFailure) {
                 processingAnswerState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
@@ -4284,10 +4423,10 @@ class MainActivity : ComponentActivity() {
             val finalPresence = summarizePresenceSamples(presenceSamples)
             var finalResult = enrichWithModelAnswer(questionText, result.copy(presenceMetrics = finalPresence))
                 .let { answer ->
-                    val normalizedTranscript = SessionScoring.normalizeStoredTranscript(answer.transcript)
+                    val displayTranscript = answer.transcript.trim().ifBlank { resolvedTranscript }
                     answer.copy(
-                        transcript = normalizedTranscript,
-                        score = SessionScoring.sanitizeScore(answer.transcript, answer.score),
+                        transcript = displayTranscript,
+                        score = SessionScoring.sanitizeScore(displayTranscript, answer.score),
                     )
                 }
 
@@ -4301,6 +4440,7 @@ class MainActivity : ComponentActivity() {
             processingProgressState.intValue = 100
             processingAnswerState.value = false
             processingStageState.value = ""
+            showInterview(answering = false, processing = false)
             showResult()
             if (appState.authToken.isNotBlank()) {
                 refreshRemoteHistory()
@@ -4642,6 +4782,13 @@ class MainActivity : ComponentActivity() {
         })
 
         if (modelAnswer.isNotBlank()) {
+            panel.addView(TextView(this@MainActivity).apply {
+                text = "MODEL ANSWER"
+                textSize = 10f
+                setTextColor(Color.rgb(255, 209, 102))
+                typeface = interBold
+                setPadding(0, 0, 0, dp(6))
+            })
             val scroll = ScrollView(this@MainActivity).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -4651,12 +4798,12 @@ class MainActivity : ComponentActivity() {
             }
             scroll.addView(TextView(this@MainActivity).apply {
                 text = modelAnswer
-                textSize = 13f
-                setTextColor(Color.argb(200, 255, 255, 255))
-                setLineSpacing(0f, 1.45f)
+                textSize = 14f
+                setTextColor(Color.rgb(126, 231, 196))
+                setLineSpacing(0f, 1.5f)
                 typeface = interRegular
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                background = rounded(Color.argb(12, 255, 255, 255), radius = 14, strokeColor = Color.argb(18, 255, 255, 255))
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = rounded(Color.argb(18, 0, 214, 143), radius = 14, strokeColor = Color.argb(40, 0, 214, 143))
             })
             panel.addView(scroll)
 
@@ -5792,6 +5939,7 @@ class MainActivity : ComponentActivity() {
 
     private fun releaseNativeSurfaces() {
         speechGenerationToken += 1
+        stopCoachingAudioFallback()
         activeAvatar?.release()
         activeAvatar = null
         activeCamera?.stop()

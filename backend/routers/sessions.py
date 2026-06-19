@@ -159,7 +159,11 @@ async def _submit_answer_payload(
 
     if not has_transcript_signal and not has_recorded_audio:
         timings_ms["total"] = round((time.perf_counter() - total_started_at) * 1000)
-        model_answer = gemini._build_model_answer(question_text, "")
+        model_answer = gemini._build_model_answer(
+            question_text,
+            "",
+            role_title=str(session.get("role_title") or ""),
+        )
         return {
             "transcript": "",
             "retry_required": True,
@@ -190,6 +194,7 @@ async def _submit_answer_payload(
         transcript=provided_transcript or None,
         audio_duration_seconds=audio_duration_seconds,
         audio_mime_type=audio_mime_type,
+        role_title=str(session.get("role_title") or ""),
     )
     timings_ms["analysis"] = round((time.perf_counter() - analysis_started_at) * 1000)
     if analysis.get("analysis_source") == "analysis_unavailable":
@@ -321,14 +326,23 @@ async def coaching_model_answer(
 ):
     question_text = str(payload.get("question_text") or "").strip()
     transcript = str(payload.get("transcript") or "").strip()
+    role_title = str(payload.get("role_title") or "").strip()
+    interviewer_name = str(payload.get("interviewer_name") or "").strip()
+    interviewer_title = str(payload.get("interviewer_title") or "").strip()
     if not question_text:
         raise HTTPException(status_code=400, detail="question_text is required")
-    improved_answer = gemini._build_model_answer(question_text, transcript)
+    improved_answer = gemini._build_model_answer(
+        question_text,
+        transcript,
+        role_title=role_title,
+        interviewer_name=interviewer_name,
+        interviewer_title=interviewer_title,
+    )
     breakdown = gemini._build_coaching_breakdown(question_text, transcript)
     return {
         "improved_answer": improved_answer,
         "coaching_breakdown": breakdown,
-        "coaching_message": "Here is a stronger way to answer this question.",
+        "coaching_message": "Here is a stronger first-person answer you can adapt to your own experience.",
     }
 
 

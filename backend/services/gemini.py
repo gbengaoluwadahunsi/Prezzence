@@ -381,7 +381,7 @@ class GeminiService:
         Keep the session realistic, clear, and not unnecessarily complex.
         """
 
-    async def analyze_answer(self, question_text: str, audio_base64: str = None, transcript: str = None, audio_duration_seconds: int | None = None, audio_mime_type: str | None = None):
+    async def analyze_answer(self, question_text: str, audio_base64: str = None, transcript: str = None, audio_duration_seconds: int | None = None, audio_mime_type: str | None = None, role_title: str = ""):
         audio_chars = len(audio_base64 or "")
         normalized_mime_type = self._normalize_audio_mime_type(audio_mime_type, audio_base64)
         if self.scoring_provider == "groq":
@@ -393,8 +393,11 @@ class GeminiService:
                     audio_duration_seconds,
                     "groq_not_configured",
                     "Groq is selected for scoring, but no Groq API key is configured.",
+                    role_title=role_title,
                 )
-            groq_analysis = await self._analyze_answer_with_groq(question_text, audio_base64, transcript, audio_duration_seconds, normalized_mime_type)
+            groq_analysis = await self._analyze_answer_with_groq(
+                question_text, audio_base64, transcript, audio_duration_seconds, normalized_mime_type, role_title,
+            )
             if groq_analysis:
                 return groq_analysis
             return self._analysis_unavailable(
@@ -404,10 +407,13 @@ class GeminiService:
                 audio_duration_seconds,
                 "groq_analysis_failed",
                 "Groq did not return a real transcript and score.",
+                role_title=role_title,
             )
 
         if self._should_use_groq_for_scoring():
-            groq_analysis = await self._analyze_answer_with_groq(question_text, audio_base64, transcript, audio_duration_seconds, normalized_mime_type)
+            groq_analysis = await self._analyze_answer_with_groq(
+                question_text, audio_base64, transcript, audio_duration_seconds, normalized_mime_type, role_title,
+            )
             if groq_analysis:
                 return groq_analysis
 
@@ -573,8 +579,8 @@ class GeminiService:
                     question_text,
                     analysis.get("transcript", ""),
                     audio_duration_seconds,
+                    role_title,
                 )
-                self._ensure_answer_coaching(analysis, question_text)
                 return analysis
             except Exception as e:
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429:
@@ -619,7 +625,15 @@ class GeminiService:
             return False
         return True
 
-    async def _analyze_answer_with_groq(self, question_text: str, audio_base64: str = None, transcript: str = None, audio_duration_seconds: int | None = None, audio_mime_type: str | None = None):
+    async def _analyze_answer_with_groq(
+        self,
+        question_text: str,
+        audio_base64: str = None,
+        transcript: str = None,
+        audio_duration_seconds: int | None = None,
+        audio_mime_type: str | None = None,
+        role_title: str = "",
+    ):
         try:
             candidate_transcript = (transcript or "").strip()
             if not candidate_transcript and audio_base64:
@@ -726,8 +740,7 @@ class GeminiService:
                 analysis = self._parse_json_object(content)
                 analysis["transcript"] = analysis.get("transcript") or candidate_transcript
                 analysis["analysis_source"] = "groq"
-                self._apply_answer_quality_guardrails(analysis, question_text, candidate_transcript, audio_duration_seconds)
-                self._ensure_answer_coaching(analysis, question_text)
+                self._apply_answer_quality_guardrails(analysis, question_text, candidate_transcript, audio_duration_seconds, role_title)
                 return analysis
         except Exception as e:
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429:
@@ -774,7 +787,7 @@ class GeminiService:
             raw = raw[start:end + 1]
         return json.loads(raw)
 
-    def _apply_answer_quality_guardrails(self, analysis: dict, question_text: str, transcript: str, audio_duration_seconds: int | None = None):
+    def _apply_answer_quality_guardrails(self, analysis: dict, question_text: str, transcript: str, audio_duration_seconds: int | None = None, role_title: str = ""):
         verdict = self._classify_answer_quality(question_text, transcript, audio_duration_seconds)
         analysis["quality_label"] = verdict["label"]
         analysis["quality_reason"] = verdict["reason"]
@@ -793,9 +806,9 @@ class GeminiService:
                 analysis["stronger_phrasing"] = verdict["stronger_phrasing"]
 
         self._calibrate_shallow_answer_scores(analysis, transcript)
-        self._ensure_answer_coaching(analysis, question_text)
+        self._ensure_answer_coaching(analysis, question_text, role_title)
 
-    def _ensure_answer_coaching(self, analysis: dict, question_text: str):
+    def _ensure_answer_coaching(self, analysis: dict, question_text: str, role_title: str = ""):
         transcript = (analysis.get("transcript") or "").strip()
         if not analysis.get("answer_structure"):
             analysis["answer_structure"] = "Situation -> Action -> Result"
@@ -821,10 +834,10 @@ class GeminiService:
             return
 
         if not transcript or transcript.startswith("[Audio received") or transcript.startswith("[Audio captured"):
-            analysis["improved_answer"] = self._build_model_answer(question_text, "")
+            analysis["improved_answer"] = self._build_model_answer(question_text, "", role_title=role_title)
             return
 
-        analysis["improved_answer"] = self._build_model_answer(question_text, transcript)
+        analysis["improved_answer"] = self._build_model_answer(question_text, transcript, role_title=role_title)
 
     def _is_instructional_improved_answer(self, answer: str) -> bool:
         value = answer.strip().lower()
@@ -837,8 +850,18 @@ class GeminiService:
             "start with",
             "you should",
             "the candidate should",
+            "absolutely. for '",
         )
-        return value.startswith(instructional_starts) or " add [specific" in value
+        instructional_fragments = (
+            " i would answer with one real example",
+            "that structure helps the interviewer hear ownership",
+            "framed more clearly, i would explain what i personally owned",
+        )
+        return (
+            value.startswith(instructional_starts)
+            or any(fragment in value for fragment in instructional_fragments)
+            or " add [specific" in value
+        )
 
     def _contains_placeholder_text(self, answer: str) -> bool:
         value = (answer or "").lower()
@@ -856,24 +879,111 @@ class GeminiService:
         )
         return any(term in value for term in placeholder_terms)
 
-    def _build_model_answer(self, question_text: str, transcript: str = "") -> str:
+    def _build_model_answer(
+        self,
+        question_text: str,
+        transcript: str = "",
+        role_title: str = "",
+        interviewer_name: str = "",
+        interviewer_title: str = "",
+    ) -> str:
         question = (question_text or "this question").strip()
+        question_lower = question.lower()
+        role = (role_title or "professional").strip()
+        role_lower = role.lower()
         candidate_detail = (transcript or "").strip()
         if candidate_detail and len(candidate_detail) > 220:
             candidate_detail = candidate_detail[:220].rsplit(" ", 1)[0] + "..."
 
-        if candidate_detail:
+        if candidate_detail and len(candidate_detail.split()) >= 8 and not self._is_instructional_improved_answer(candidate_detail):
             return (
-                "Absolutely. One example I would use is the situation I described in my answer: "
-                f"{candidate_detail}. Framed more clearly, I would explain what I personally owned, the action I took, "
-                "the tradeoff I considered, and the result I achieved. What I would bring to this role is the same pattern: "
-                "clear ownership, practical judgment, and the discipline to explain outcomes in business terms."
+                f"In my strongest version of this answer, I would keep the real detail from my experience: {candidate_detail} "
+                f"I would make my ownership explicit, explain the decision I made, and finish with a measurable result that proves I am ready for this {role} role."
+            )
+
+        if any(
+            phrase in question_lower
+            for phrase in (
+                "introduce yourself",
+                "overview of your background",
+                "experience that prepared",
+                "tell me about yourself",
+            )
+        ):
+            return self._intro_model_answer(role, role_lower)
+
+        if any(
+            phrase in question_lower
+            for phrase in ("tell me about a time", "describe a time", "give me an example")
+        ):
+            return (
+                f"In my previous role as a {role}, I faced a situation very similar to this question. "
+                "I took ownership of the problem, coordinated with the people involved, made a clear decision under pressure, "
+                "and delivered a measurable result. That experience is exactly why I trust my judgment in this kind of scenario."
+            )
+
+        if question_lower.startswith("how would you") or question_lower.startswith("how do you"):
+            return (
+                f"I would start by clarifying the goal, break the work into the highest-impact steps, and communicate early with stakeholders. "
+                f"As a {role}, I would tackle the riskiest part first, adjust quickly when new information appears, "
+                "and close the loop with a result the team can trust."
             )
 
         return (
-            f"Absolutely. For '{question}', I would answer with one real example and keep it structured. "
-            "I would start with the situation, explain the challenge, describe what I personally did, and end with the result. "
-            "That structure helps the interviewer hear ownership, judgment, and evidence instead of a general answer."
+            f"I am a {role} with more than a decade of relevant experience. "
+            "In my most recent role I owned a project end to end, made the key decisions myself, "
+            "and delivered a result my manager could measure. "
+            f"That is the same approach I would use here: direct answer first, one concrete example, and a clear outcome."
+        )
+
+    def _intro_model_answer(self, role: str, role_lower: str) -> str:
+        if "software" in role_lower or "engineer" in role_lower or "developer" in role_lower:
+            return (
+                "I'm a software engineer with 8 years of experience shipping production systems. "
+                "Most recently at Northbridge Labs I led a team of five on a payments platform handling about $2.1M per day. "
+                "Before that at Crestline I rebuilt a legacy monolith into services and cut deploy time from 3 hours to 12 minutes. "
+                "I'm looking for a role where I can own delivery end to end and help junior engineers grow."
+            )
+        if "teacher" in role_lower or "education" in role_lower:
+            return (
+                "I'm a teacher with 11 years in the classroom across grades 6 through 10. "
+                "At Riverside Academy I redesigned our literacy unit and raised reading proficiency from 62% to 81% in one year. "
+                "I also mentored two new teachers and built weekly data reviews that helped our team respond faster to student needs."
+            )
+        if "sales" in role_lower:
+            return (
+                "I'm a sales representative with 9 years of experience in B2B accounts. "
+                "At Summit Systems I grew my territory from $1.4M to $2.3M in two years by rebuilding our top 20 account plans. "
+                "I focus on discovery, clear follow-up, and closing with proof instead of pressure."
+            )
+        if "legal" in role_lower or "lawyer" in role_lower or "attorney" in role_lower:
+            return (
+                "I'm a litigation attorney with 13 years of experience. "
+                "At Hartwell & Partners I handled 54 cases through trial and settlement without a loss. "
+                "I prepare every case with the same discipline: clear fact pattern, strong evidence, and direct client communication."
+            )
+        if "administrative" in role_lower or "assistant" in role_lower:
+            return (
+                "I'm an administrative assistant with 10 years supporting executive teams in fast-moving environments. "
+                "At Beacon Partners I managed calendars, travel, and vendor coordination for three leaders while keeping confidential work organized. "
+                "I reduced scheduling conflicts by 40% by introducing a shared planning system the whole office adopted."
+            )
+        if "customer support" in role_lower or "support" in role_lower:
+            return (
+                "I'm a customer support representative with 7 years handling high-volume technical issues. "
+                "At CloudNest I maintained a 96% satisfaction score while resolving an average of 45 tickets per day. "
+                "I listen first, confirm the issue in the customer's words, and follow through until the problem is actually fixed."
+            )
+        if "project" in role_lower or "coordinator" in role_lower:
+            return (
+                "I'm a project coordinator with 8 years keeping cross-functional work on track. "
+                "At Horizon Health I managed 12 concurrent initiatives, cut missed deadlines by 35%, and built status updates executives could trust. "
+                "I'm strongest when I translate goals into timelines, owners, and measurable checkpoints."
+            )
+        return (
+            f"I'm a {role} with 12 years of hands-on experience. "
+            "In my current role I owned a high-impact project from planning through delivery and improved team results by 35%. "
+            "I handled the decisions, the communication, and the follow-through myself, and we finished two weeks ahead of schedule."
         )
 
     def _build_coaching_breakdown(self, question_text: str, transcript: str = "", missing_evidence: list | None = None) -> dict:
@@ -1057,6 +1167,7 @@ class GeminiService:
         audio_duration_seconds: int | None = None,
         label: str = "analysis_unavailable",
         reason: str = "The selected AI provider did not return a usable result.",
+        role_title: str = "",
     ):
         text = (transcript or "").strip()
         result = {
@@ -1081,7 +1192,7 @@ class GeminiService:
             "audio_base64_chars": audio_chars,
             "audio_duration_seconds": audio_duration_seconds,
         }
-        self._ensure_answer_coaching(result, question_text)
+        self._ensure_answer_coaching(result, question_text, role_title)
         return result
 
     def _fallback_analysis(self, question_text: str, audio_chars: int = 0, transcript: str = None, audio_duration_seconds: int | None = None):
