@@ -153,8 +153,8 @@ async def _submit_answer_payload(
     audio_payload = audio_base64 or ""
     has_transcript_signal = bool(provided_transcript)
     has_recorded_audio = (
-        (audio_duration_seconds or 0) >= 5
-        or len(audio_payload) >= 12000
+        (audio_duration_seconds or 0) >= 1
+        or len(audio_payload) >= 8000
     )
 
     if not has_transcript_signal and not has_recorded_audio:

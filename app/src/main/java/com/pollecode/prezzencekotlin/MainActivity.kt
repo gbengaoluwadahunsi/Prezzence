@@ -4426,6 +4426,7 @@ class MainActivity : ComponentActivity() {
             val capture = withContext(Dispatchers.IO) {
                 transcriber?.stop(appState.language) ?: SpeechCaptureResult("")
             }
+            Log.i("PrezzenceFinish", "Audio capture: base64Len=${capture.audioBase64?.length ?: 0}, duration=${capture.audioDurationSeconds}s, hasAudio=${!capture.audioBase64.isNullOrBlank()}")
             val practiceSeconds = when {
                 answerPracticeSeconds > 0 -> answerPracticeSeconds
                 capture.audioDurationSeconds > 0 -> capture.audioDurationSeconds

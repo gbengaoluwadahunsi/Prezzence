@@ -719,43 +719,67 @@ class GeminiService:
             }}
             """
 
-            async with httpx.AsyncClient(timeout=35.0) as client:
-                response = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.groq_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.groq_model,
-                        "messages": [
-                            {"role": "system", "content": "You return strict JSON only."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.25,
-                        "response_format": {"type": "json_object"},
-                    },
-                )
-                response.raise_for_status()
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                analysis = self._parse_json_object(content)
-                analysis["transcript"] = analysis.get("transcript") or candidate_transcript
-                analysis["analysis_source"] = "groq"
-                self._apply_answer_quality_guardrails(analysis, question_text, candidate_transcript, audio_duration_seconds, role_title)
-                return analysis
+            groq_models_to_try = [self.groq_model, "llama-3.3-70b-versatile", "llama3-8b-8192"]
+            scoring_error = None
+            for model_name in groq_models_to_try:
+                try:
+                    async with httpx.AsyncClient(timeout=35.0) as client:
+                        response = await client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.groq_api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": model_name,
+                                "messages": [
+                                    {"role": "system", "content": "You return strict JSON only."},
+                                    {"role": "user", "content": prompt},
+                                ],
+                                "temperature": 0.25,
+                                "response_format": {"type": "json_object"},
+                            },
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+                        content = result["choices"][0]["message"]["content"]
+                        analysis = self._parse_json_object(content)
+                        analysis["transcript"] = analysis.get("transcript") or candidate_transcript
+                        analysis["analysis_source"] = f"groq:{model_name}"
+                        self._apply_answer_quality_guardrails(analysis, question_text, candidate_transcript, audio_duration_seconds, role_title)
+                        return analysis
+                except httpx.HTTPStatusError as model_err:
+                    scoring_error = model_err
+                    status = model_err.response.status_code
+                    body_text = model_err.response.text[:500] if hasattr(model_err.response, 'text') else ""
+                    print(f"Groq scoring failed with model {model_name}: {status} {body_text}")
+                    if status == 429:
+                        self.groq_analysis_cooldown_until = time.time() + 60
+                        break
+                    continue
+                except Exception as model_err:
+                    scoring_error = model_err
+                    print(f"Groq scoring error with model {model_name}: {model_err}")
+                    continue
+
+            if candidate_transcript:
+                print(f"All Groq scoring models failed; returning transcript-only result: '{candidate_transcript[:80]}...'")
+                return self._build_transcript_only_result(question_text, candidate_transcript, audio_duration_seconds, role_title)
+
+            print(f"Error calling Groq for analysis (no transcript): {scoring_error}")
+            return None
         except Exception as e:
-            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429:
-                self.groq_analysis_cooldown_until = time.time() + 60
-            print(f"Error calling Groq for analysis: {e}")
+            print(f"Unexpected error in Groq analysis pipeline: {e}")
             return None
 
     async def _transcribe_with_groq(self, audio_base64: str, audio_mime_type: str | None = None) -> str:
         if not self.groq_api_key or not audio_base64:
+            print(f"Groq transcription skipped: api_key={'set' if self.groq_api_key else 'missing'}, audio_len={len(audio_base64 or '')}")
             return ""
         audio_payload = audio_base64.split(",", 1)[-1]
         audio_bytes = base64.b64decode(audio_payload)
         normalized_mime_type = self._normalize_audio_mime_type(audio_mime_type, audio_base64)
+        print(f"Groq transcription: audio_bytes={len(audio_bytes)}, mime={normalized_mime_type}, raw_mime={audio_mime_type}")
 
         async def request_transcript(mime_type: str) -> str:
             async with httpx.AsyncClient(timeout=35.0) as client:
@@ -767,14 +791,26 @@ class GeminiService:
                 )
                 response.raise_for_status()
                 result = response.json()
-                return (result.get("text") or "").strip()
+                text = (result.get("text") or "").strip()
+                print(f"Groq transcription result: '{text[:120]}...' (len={len(text)})" if text else "Groq transcription result: EMPTY")
+                return text
 
         try:
             return await request_transcript(normalized_mime_type)
         except httpx.HTTPStatusError as error:
+            print(f"Groq HTTP error ({normalized_mime_type}): {error.response.status_code} {error.response.text[:300]}")
             if normalized_mime_type == "audio/m4a":
-                print(f"Groq rejected audio/m4a; retrying as audio/mp4: {error}")
+                print(f"Groq rejected audio/m4a; retrying as audio/mp4")
                 return await request_transcript("audio/mp4")
+            if normalized_mime_type == "audio/wav":
+                print(f"Groq rejected audio/wav; retrying as audio/webm")
+                try:
+                    return await request_transcript("audio/webm")
+                except Exception as retry_error:
+                    print(f"Groq retry as audio/webm also failed: {retry_error}")
+            raise
+        except Exception as error:
+            print(f"Groq transcription exception: {type(error).__name__}: {error}")
             raise
 
     def _parse_json_object(self, content: str):
@@ -1156,6 +1192,39 @@ class GeminiService:
             analysis["feedback"] = "The answer was too shallow to show hiring signal. Give a specific situation, your action, and the measurable result."
             analysis["follow_up"] = "What concrete example proves you can do this in the role?"
             analysis["tips"] = ["Use a real example", "Explain your action", "End with a measurable result"]
+
+    def _build_transcript_only_result(self, question_text: str, transcript: str, audio_duration_seconds: int | None = None, role_title: str = ""):
+        """When Groq transcription succeeds but scoring fails, return a usable result with the transcript."""
+        text = (transcript or "").strip()
+        word_count = len(text.split())
+        basic_score = min(55, max(15, word_count * 2))
+        model_answer = self._build_model_answer(question_text, text, role_title=role_title)
+        result = {
+            "transcript": text,
+            "score": basic_score,
+            "clarity_score": basic_score,
+            "pacing_score": basic_score,
+            "impact_score": basic_score,
+            "confidence_score": basic_score,
+            "knowledge_score": basic_score,
+            "feedback": "Your answer was captured. Scoring was temporarily unavailable, so this is an estimated score. Try adding a specific example with a measurable result.",
+            "follow_up": "Can you share a specific example from your experience?",
+            "tips": ["Include a concrete example", "Mention a measurable result", "Structure as situation, action, result"],
+            "improved_answer": model_answer,
+            "answer_structure": "Situation -> Action -> Result",
+            "missing_evidence": [],
+            "stronger_phrasing": [],
+            "coaching_breakdown": {
+                "what_to_include": "A specific situation, clear action you took, and the measurable result.",
+                "how_to_structure": "Start with the context, describe your action, and end with the outcome.",
+                "why_it_works": "Concrete proof makes the answer memorable and credible.",
+            },
+            "analysis_source": "transcript_only_fallback",
+            "quality_label": "scoring_unavailable",
+            "audio_duration_seconds": audio_duration_seconds,
+        }
+        self._ensure_answer_coaching(result, question_text, role_title)
+        return result
 
     def _analysis_unavailable(
         self,

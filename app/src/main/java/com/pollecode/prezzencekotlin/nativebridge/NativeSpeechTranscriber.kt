@@ -51,7 +51,7 @@ class NativeSpeechTranscriber(
             return
         }
 
-        val bufferSize = max(minBuffer, SAMPLE_RATE)
+        val bufferSize = max(minBuffer, SAMPLE_RATE * 2)
         val audioRecord = runCatching {
             AudioRecord(
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -74,11 +74,14 @@ class NativeSpeechTranscriber(
         synchronized(pcmLock) { pcmSamples.clear() }
         recorder = audioRecord
         recording.set(true)
-        recordingThread = Thread({ readPcmLoop(audioRecord, bufferSize) }, "PrezzenceAnswerRecorder").also { it.start() }
         runCatching { audioRecord.startRecording() }.onFailure {
             recording.set(false)
+            audioRecord.release()
+            recorder = null
             onError("Microphone capture failed to start.")
+            return
         }
+        recordingThread = Thread({ readPcmLoop(audioRecord, bufferSize) }, "PrezzenceAnswerRecorder").also { it.start() }
     }
 
     private fun readPcmLoop(audioRecord: AudioRecord, bufferSize: Int) {
@@ -98,13 +101,18 @@ class NativeSpeechTranscriber(
     private fun stopAudioCapture(): SpeechCaptureResult {
         recording.set(false)
         runCatching { recorder?.stop() }
-        runCatching { recordingThread?.join(1500) }
+        runCatching { recordingThread?.join(2000) }
         runCatching { recorder?.release() }
         recorder = null
         recordingThread = null
 
         val samples = synchronized(pcmLock) { pcmSamples.toFloatArray() }
         val durationSeconds = (samples.size / SAMPLE_RATE.toFloat()).toInt().coerceAtLeast(0)
+
+        val hasSignal = samples.any { kotlin.math.abs(it) > 0.01f }
+        val peakAmplitude = if (samples.isNotEmpty()) samples.maxOf { kotlin.math.abs(it) } else 0f
+        android.util.Log.i("PrezzenceAudio", "Captured ${samples.size} samples (${durationSeconds}s), peak=${"%.4f".format(peakAmplitude)}, hasSignal=$hasSignal")
+
         val audioBase64 = if (samples.size >= SAMPLE_RATE / 4) {
             encodePcmToWavBase64(samples, SAMPLE_RATE)
         } else {
@@ -113,6 +121,8 @@ class NativeSpeechTranscriber(
 
         if (samples.size < SAMPLE_RATE / 4) {
             onError("No clear speech was captured.")
+        } else if (!hasSignal) {
+            android.util.Log.w("PrezzenceAudio", "Audio captured but appears to be silence (peak=${"%.4f".format(peakAmplitude)})")
         }
 
         return SpeechCaptureResult(

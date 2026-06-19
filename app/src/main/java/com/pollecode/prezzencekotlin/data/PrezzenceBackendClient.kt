@@ -711,6 +711,7 @@ class PrezzenceBackendClient {
                 body.put("audio_duration_seconds", audioDurationSeconds.coerceAtLeast(1))
             }
             val requestBody = body.toString().toRequestBody(jsonMediaType)
+            Log.i("PrezzenceBackend", "Sending answer: audioLen=${audioBase64?.length ?: 0}, duration=$audioDurationSeconds, session=$sessionId, q=$questionId")
 
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/$sessionId/answers")
@@ -719,9 +720,23 @@ class PrezzenceBackendClient {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val root = JSONObject(response.body?.string().orEmpty())
-                val analysis = root.optJSONObject("analysis") ?: return@use null
+                Log.i("PrezzenceBackend", "Answer response: code=${response.code}")
+                if (!response.isSuccessful) {
+                    Log.w("PrezzenceBackend", "Backend error: ${response.code} ${response.body?.string()?.take(500)}")
+                    return@use null
+                }
+                val responseBody = response.body?.string().orEmpty()
+                val root = JSONObject(responseBody)
+                val analysis = root.optJSONObject("analysis")
+                if (analysis == null) {
+                    Log.w("PrezzenceBackend", "No analysis in response: ${responseBody.take(500)}")
+                    return@use null
+                }
+                val transcript_result = root.optString("transcript", transcript)
+                val retry = root.optBoolean("retry_required", false)
+                val score = analysis.optInt("score", 0)
+                val source = root.optJSONObject("performance")?.optString("analysis_source", "")
+                Log.i("PrezzenceBackend", "Result: transcript=${transcript_result.take(80)}, score=$score, retry=$retry, source=$source")
                 AnswerResult(
                     transcript = root.optString("transcript", transcript),
                     score = SessionScoring.sanitizeScore(

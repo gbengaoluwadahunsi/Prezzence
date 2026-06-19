@@ -120,7 +120,7 @@ class TTSService:
                 self._convert_mp3_to_wav(mp3_file_path, wav_file_path)
                 file_name = wav_file_name
                 file_path = wav_file_path
-                content_type = "audio/x-wav"  # Supabase requires audio/x-wav instead of audio/wav
+                content_type = "audio/wav"
                 audio_format = "wav"
             except Exception as exc:
                 print(f"[TTS] WAV conversion failed; falling back to MP3. {exc}")
