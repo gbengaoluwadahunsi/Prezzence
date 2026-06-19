@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.pollecode.prezzencekotlin.billing.BillingUiState
@@ -146,10 +147,12 @@ class MainActivity : ComponentActivity() {
     private val cameraStatusState = androidx.compose.runtime.mutableStateOf("Starting camera. Position your face in frame")
     private val cameraErrorState = androidx.compose.runtime.mutableStateOf<String?>(null)
     private val processingAnswerState = androidx.compose.runtime.mutableStateOf(false)
+    private val interviewAnsweringState = androidx.compose.runtime.mutableStateOf(false)
     private val processingStageState = androidx.compose.runtime.mutableStateOf("")
     private val processingProgressState = androidx.compose.runtime.mutableIntStateOf(0)
     private val avatarReadyState = androidx.compose.runtime.mutableStateOf(false)
     private val interviewerSpeakingState = androidx.compose.runtime.mutableStateOf(false)
+    private var interviewComposeView: ComposeView? = null
     private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
@@ -436,6 +439,9 @@ class MainActivity : ComponentActivity() {
     private fun setScreen(view: View) {
         dismissResultOverlay()
         dismissConfirmOverlay()
+        if (view !== interviewComposeView) {
+            interviewComposeView = null
+        }
         releaseNativeSurfaces()
         root.removeAllViews()
         root.setBackgroundColor(bg)
@@ -1717,11 +1723,16 @@ class MainActivity : ComponentActivity() {
         speechError = message
         activeTranscript = ""
         processingAnswerState.value = false
+        interviewAnsweringState.value = false
         processingStageState.value = ""
         processingProgressState.intValue = 0
         showAppToast(message, ToastKind.WARNING)
-        showInterview(answering = false)
+        if (!isInterviewRoomVisible()) {
+            showInterview(answering = false, forceRebuild = true)
+        }
     }
+
+    private fun isInterviewRoomVisible(): Boolean = interviewComposeView?.parent == root
 
     private fun showSessionInterrupted() {
         val column = baseColumn()
@@ -3812,8 +3823,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showInterview(answering: Boolean, processing: Boolean = false) {
-        if (!processing) {
+    private fun showInterview(answering: Boolean, processing: Boolean = false, forceRebuild: Boolean = false) {
+        val wasAnswering = interviewAnsweringState.value
+        interviewAnsweringState.value = answering
+        processingAnswerState.value = processing
+
+        if (!processing && forceRebuild) {
             coachingMessage = ""
             faceVisibilityState.value = null
             eyeContactState.value = null
@@ -3828,9 +3843,17 @@ class MainActivity : ComponentActivity() {
             interviewerSpeakingState.value = false
         }
 
+        if (!forceRebuild && isInterviewRoomVisible()) {
+            if (answering && !processing && !wasAnswering) {
+                startSpeechCapture()
+                scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
+            }
+            return
+        }
+
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
-        
+
         // Start recording timer if answering (not when processing)
         if (answering && !processing) {
             recordingStartTime = System.currentTimeMillis()
@@ -3847,62 +3870,70 @@ class MainActivity : ComponentActivity() {
             recordingTimer = null
             recordingDurationState.intValue = 0
         }
-        
-        setScreen(ComposeView(this).apply {
-            setContent {
-                PrezzenceInterviewRoomScreen(
-                    currentStep = appState.currentQuestionIndex + 1,
-                    totalSteps = appState.questions().size,
-                    interviewerName = interviewer.name,
-                    interviewerTitle = interviewer.title,
-                    isPanel = appState.interviewMode == InterviewMode.PANEL,
-                    panelInterviewers = if (appState.interviewMode == InterviewMode.PANEL) {
-                        PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
-                            .map { it.name to it.title }
+
+        val composeView = ComposeView(this)
+        interviewComposeView = composeView
+        composeView.setContent {
+            val answeringNow by interviewAnsweringState
+            val processingNow by processingAnswerState
+            val stage by processingStageState
+            val progress by processingProgressState
+            val currentQuestion = appState.currentQuestion()
+            val currentInterviewer = appState.interviewerFor(currentQuestion)
+            PrezzenceInterviewRoomScreen(
+                currentStep = appState.currentQuestionIndex + 1,
+                totalSteps = appState.questions().size,
+                interviewerName = currentInterviewer.name,
+                interviewerTitle = currentInterviewer.title,
+                isPanel = appState.interviewMode == InterviewMode.PANEL,
+                panelInterviewers = if (appState.interviewMode == InterviewMode.PANEL) {
+                    PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
+                        .map { it.name to it.title }
+                } else {
+                    emptyList()
+                },
+                questionText = currentQuestion.text,
+                answering = answeringNow,
+                processing = processingNow,
+                processingStage = stage,
+                processingProgress = progress,
+                transcript = activeTranscript,
+                error = speechError,
+                cameraCoachEnabled = appState.cameraCoachEnabled,
+                recordingDuration = recordingDurationState.intValue,
+                isRecording = answeringNow && !processingNow && activeTranscriber != null,
+                createAvatarView = {
+                    if (suppressNativeAvatarForEntry) {
+                        suppressNativeAvatarForEntry = false
+                        interviewerReadyCard(currentInterviewer)
                     } else {
-                        emptyList()
-                    },
-                    questionText = question.text,
-                    answering = answering,
-                    processing = processing,
-                    processingStage = processingStageState.value,
-                    processingProgress = processingProgressState.intValue,
-                    transcript = activeTranscript,
-                    error = speechError,
-                    cameraCoachEnabled = appState.cameraCoachEnabled,
-                    recordingDuration = recordingDurationState.intValue,
-                    isRecording = answering && !processing && activeTranscriber != null,
-                    createAvatarView = {
-                        if (suppressNativeAvatarForEntry) {
-                            suppressNativeAvatarForEntry = false
-                            interviewerReadyCard(interviewer)
-                        } else {
-                            try {
-                                duixAvatarCard(interviewer, "speaking", true)
-                            } catch (e: Exception) {
-                                interviewerReadyCard(interviewer)
-                            }
+                        try {
+                            duixAvatarCard(currentInterviewer, "speaking", true)
+                        } catch (e: Exception) {
+                            interviewerReadyCard(currentInterviewer)
                         }
-                    },
-                    createCameraView = { cameraCoachCard(interviewer) },
-                    onExit = { showHome() },
-                    onPause = { pauseInterview() },
-                    onRepeat = { replayCurrentQuestion() },
-                    onClarify = { clarifyCurrentQuestion() },
-                    onAnswerNow = { ensurePermissionsThenAnswer() },
-                    onFinish = { finishAnswer(question.text) },
-                    coachingMessage = coachingMessage,
-                    avatarReady = avatarReadyState.value,
-                    interviewerSpeaking = interviewerSpeakingState.value,
-                    cameraStatus = cameraStatusState.value,
-                    faceVisibility = faceVisibilityState.value,
-                    eyeContact = eyeContactState.value,
-                    headStability = headStabilityState.value,
-                    posture = postureState.value,
-                    expressionEnergy = expressionEnergyState.value,
-                )
-            }
-        })
+                    }
+                },
+                createCameraView = { cameraCoachCard(currentInterviewer) },
+                onExit = { showHome() },
+                onPause = { pauseInterview() },
+                onRepeat = { replayCurrentQuestion() },
+                onClarify = { clarifyCurrentQuestion() },
+                onAnswerNow = { ensurePermissionsThenAnswer() },
+                onFinish = { finishAnswer(currentQuestion.text) },
+                coachingMessage = coachingMessage,
+                avatarReady = avatarReadyState.value,
+                interviewerSpeaking = interviewerSpeakingState.value,
+                cameraStatus = cameraStatusState.value,
+                faceVisibility = faceVisibilityState.value,
+                eyeContact = eyeContactState.value,
+                headStability = headStabilityState.value,
+                posture = postureState.value,
+                expressionEnergy = expressionEnergyState.value,
+            )
+        }
+        setScreen(composeView)
+        interviewComposeView = composeView
         if (answering && !processing) {
             startSpeechCapture()
             scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
@@ -4360,7 +4391,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshInterviewForProcessing() {
-        showInterview(answering = true, processing = true)
+        interviewAnsweringState.value = true
+        processingAnswerState.value = true
+        if (!isInterviewRoomVisible()) {
+            showInterview(answering = true, processing = true, forceRebuild = true)
+        }
     }
 
     private fun finishAnswer(questionText: String) {
@@ -4439,33 +4474,32 @@ class MainActivity : ComponentActivity() {
 
             if (remoteResult == null) {
                 processingAnswerState.value = false
+                interviewAnsweringState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
                 showAnswerRetryRequired("We could not transcribe your answer. Check your connection and try again.")
                 return@launch
             }
 
-            if (remoteResult.retryRequired && SessionScoring.isBlankTranscript(remoteResult.transcript)) {
-                processingAnswerState.value = false
-                processingStageState.value = ""
-                processingProgressState.intValue = 0
-                val message = remoteResult.feedback.ifBlank {
-                    "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
-                }
-                showAnswerRetryRequired(message)
-                return@launch
-            }
-
             val displayTranscript = remoteResult.transcript.trim()
             val substantiveAnswer = SessionScoring.isSubstantiveAnswer(displayTranscript)
+            val feedback = when {
+                remoteResult.retryRequired && SessionScoring.isBlankTranscript(displayTranscript) ->
+                    remoteResult.feedback.ifBlank {
+                        "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
+                    }
+                else -> remoteResult.feedback
+            }
             val result = remoteResult.copy(
                 transcript = displayTranscript,
                 score = SessionScoring.sanitizeScore(displayTranscript, remoteResult.score),
+                feedback = feedback,
                 improvedAnswer = sanitizeModelAnswer(
                     remoteResult.improvedAnswer.trim(),
                     displayTranscript,
                     substantiveAnswer,
                 ),
+                retryRequired = false,
             )
             // Summarize presence samples and attach to result
             val finalPresence = summarizePresenceSamples(presenceSamples)
@@ -4487,9 +4521,9 @@ class MainActivity : ComponentActivity() {
             speechError = ""
             processingProgressState.intValue = 100
             processingAnswerState.value = false
+            interviewAnsweringState.value = false
             processingStageState.value = ""
             muteInterviewRoomSpeech()
-            showInterview(answering = false, processing = false)
             showResult()
             if (appState.authToken.isNotBlank()) {
                 refreshRemoteHistory()
@@ -4785,7 +4819,7 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             scope.launch { prepareCurrentQuestionSpeech() }
-            showInterview(false)
+            showInterview(answering = false, forceRebuild = true)
         }
     }
 

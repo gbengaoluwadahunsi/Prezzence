@@ -105,13 +105,13 @@ class NativeSpeechTranscriber(
 
         val samples = synchronized(pcmLock) { pcmSamples.toFloatArray() }
         val durationSeconds = (samples.size / SAMPLE_RATE.toFloat()).toInt().coerceAtLeast(0)
-        val audioBase64 = if (samples.size >= SAMPLE_RATE / 2) {
+        val audioBase64 = if (samples.size >= SAMPLE_RATE / 4) {
             encodePcmToWavBase64(samples, SAMPLE_RATE)
         } else {
             null
         }
 
-        if (samples.size < SAMPLE_RATE / 2) {
+        if (samples.size < SAMPLE_RATE / 4) {
             onError("No clear speech was captured.")
         }
 
