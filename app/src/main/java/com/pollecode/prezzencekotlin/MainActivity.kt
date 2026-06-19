@@ -4402,7 +4402,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 hadCapturableSpeech && remoteResult != null && remoteResult.retryRequired -> localResult.copy(
-                    feedback = remoteResult.feedback.ifBlank { localResult.feedback },
+                    feedback = localResult.feedback,
                     coachingMessage = remoteResult.coachingMessage.ifBlank { localResult.coachingMessage },
                 )
                 localResult.score <= 15 && (remoteResult?.score ?: 0) > 20 -> {
