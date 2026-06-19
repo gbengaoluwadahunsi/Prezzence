@@ -3595,23 +3595,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun enrichWithModelAnswer(questionText: String, result: AnswerResult): AnswerResult {
-        val existing = result.improvedAnswer.trim()
-        if (existing.isNotBlank() && !isGenericModelAnswer(existing)) return result
+        val substantive = SessionScoring.isSubstantiveAnswer(result.transcript)
+        val existing = sanitizeModelAnswer(result.improvedAnswer, result.transcript, substantive)
+        if (existing.isNotBlank()) {
+            return result.copy(improvedAnswer = existing)
+        }
 
         val interviewer = appState.interviewerFor()
+        val coachingTranscript = if (substantive) result.transcript else ""
         if (appState.authToken.isNotBlank()) {
             ensureActiveBackendSession()
             val fetched = backend.fetchModelAnswer(
                 bearerToken = appState.authToken,
                 questionText = questionText,
-                transcript = result.transcript,
+                transcript = coachingTranscript,
                 roleTitle = appState.selectedRole,
                 interviewerName = interviewer.name,
                 interviewerTitle = interviewer.title,
             )
-            if (fetched != null && fetched.improvedAnswer.isNotBlank() && !isGenericModelAnswer(fetched.improvedAnswer)) {
+            val fetchedAnswer = fetched?.improvedAnswer?.let {
+                sanitizeModelAnswer(it, result.transcript, substantive)
+            }.orEmpty()
+            if (fetched != null && fetchedAnswer.isNotBlank()) {
                 return result.copy(
-                    improvedAnswer = fetched.improvedAnswer,
+                    improvedAnswer = fetchedAnswer,
                     what = fetched.what.ifBlank { result.what },
                     how = fetched.how.ifBlank { result.how },
                     why = fetched.why.ifBlank { result.why },
@@ -3628,13 +3635,39 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun sanitizeModelAnswer(
+        answer: String,
+        userTranscript: String,
+        substantive: Boolean,
+    ): String {
+        val trimmed = answer.trim()
+        if (trimmed.isBlank()) return ""
+        if (isGenericModelAnswer(trimmed)) return ""
+        if (!substantive && quotesUserTranscript(trimmed, userTranscript)) return ""
+        return trimmed
+    }
+
+    private fun quotesUserTranscript(modelAnswer: String, userTranscript: String): Boolean {
+        val transcript = userTranscript.trim()
+        if (transcript.isBlank()) return false
+        val modelLower = modelAnswer.lowercase(Locale.US)
+        val words = transcript.lowercase(Locale.US)
+            .split(Regex("[^a-z0-9']+"))
+            .filter { it.length > 3 }
+        if (words.size < 4) return false
+        val hits = words.count { modelLower.contains(it) }
+        return hits >= minOf(4, (words.size * 0.45f).toInt().coerceAtLeast(3))
+    }
+
     private fun isGenericModelAnswer(text: String): Boolean {
         val lower = text.trim().lowercase(Locale.US)
         if (lower.isBlank()) return true
         return lower.contains("i would answer with one real example") ||
             lower.contains("that structure helps the interviewer hear ownership") ||
             lower.contains("framed more clearly, i would explain what i personally owned") ||
-            lower.startsWith("absolutely. for '") && lower.contains("keep it structured")
+            lower.contains("in my strongest version of this answer") ||
+            lower.contains("i would keep the real detail from my experience") ||
+            (lower.startsWith("absolutely. for '") && lower.contains("keep it structured"))
     }
 
     private fun buildLocalModelAnswer(questionText: String, roleTitle: String): String {
@@ -3692,6 +3725,10 @@ class MainActivity : ComponentActivity() {
                 "I'm a project coordinator with 8 years keeping cross-functional work on track. " +
                     "At Horizon Health I managed 12 concurrent initiatives, cut missed deadlines by 35%, and built status updates executives could trust. " +
                     "I'm strongest when I translate goals into timelines, owners, and measurable checkpoints."
+            roleLower.contains("manager") || roleLower.contains("director") || roleLower.contains("lead") ->
+                "I'm a $role with 12 years leading teams through complex priorities. " +
+                    "At Meridian Group I inherited a struggling delivery team, rebuilt our operating rhythm in 90 days, and improved on-time delivery from 61% to 92%. " +
+                    "I focus on clear goals, direct coaching, and measurable outcomes my stakeholders can trust."
             else ->
                 "I'm a $role with 12 years of hands-on experience. " +
                     "In my current role I owned a high-impact project from planning through delivery and improved team results by 35%. " +
@@ -4421,15 +4458,17 @@ class MainActivity : ComponentActivity() {
                 rawTranscript,
                 capture.transcript,
             ).firstOrNull { !SessionScoring.isBlankTranscript(it) }.orEmpty()
+            val displayTranscript = resolvedTranscript.ifBlank { mergedBase.transcript }
+            val substantiveAnswer = SessionScoring.isSubstantiveAnswer(displayTranscript)
+            val mergedImprovedAnswer = sanitizeModelAnswer(
+                remoteResult?.improvedAnswer?.trim().orEmpty().ifBlank { mergedBase.improvedAnswer.trim() },
+                displayTranscript,
+                substantiveAnswer,
+            )
             val result = mergedBase.copy(
-                transcript = resolvedTranscript.ifBlank { mergedBase.transcript },
-                score = SessionScoring.sanitizeScore(
-                    resolvedTranscript.ifBlank { mergedBase.transcript },
-                    mergedBase.score,
-                ),
-                improvedAnswer = remoteResult?.improvedAnswer?.trim()
-                    .orEmpty()
-                    .ifBlank { mergedBase.improvedAnswer.trim() },
+                transcript = displayTranscript,
+                score = SessionScoring.sanitizeScore(displayTranscript, mergedBase.score),
+                improvedAnswer = mergedImprovedAnswer,
             )
             val captureFailure = SessionScoring.isBlankTranscript(result.transcript) &&
                 (result.retryRequired || capture.audioBase64.isNullOrBlank())

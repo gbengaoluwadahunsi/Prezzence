@@ -331,14 +331,19 @@ async def coaching_model_answer(
     interviewer_title = str(payload.get("interviewer_title") or "").strip()
     if not question_text:
         raise HTTPException(status_code=400, detail="question_text is required")
+    coaching_transcript = transcript
+    if transcript:
+        quality = gemini._classify_answer_quality(question_text, transcript)
+        if quality.get("label") != "valid_answer":
+            coaching_transcript = ""
     improved_answer = gemini._build_model_answer(
         question_text,
-        transcript,
+        coaching_transcript,
         role_title=role_title,
         interviewer_name=interviewer_name,
         interviewer_title=interviewer_title,
     )
-    breakdown = gemini._build_coaching_breakdown(question_text, transcript)
+    breakdown = gemini._build_coaching_breakdown(question_text, coaching_transcript)
     return {
         "improved_answer": improved_answer,
         "coaching_breakdown": breakdown,

@@ -837,7 +837,12 @@ class GeminiService:
             analysis["improved_answer"] = self._build_model_answer(question_text, "", role_title=role_title)
             return
 
-        analysis["improved_answer"] = self._build_model_answer(question_text, transcript, role_title=role_title)
+        usable_transcript = self._classify_answer_quality(question_text, transcript).get("label") == "valid_answer"
+        analysis["improved_answer"] = self._build_model_answer(
+            question_text,
+            transcript if usable_transcript else "",
+            role_title=role_title,
+        )
 
     def _is_instructional_improved_answer(self, answer: str) -> bool:
         value = answer.strip().lower()
@@ -891,15 +896,6 @@ class GeminiService:
         question_lower = question.lower()
         role = (role_title or "professional").strip()
         role_lower = role.lower()
-        candidate_detail = (transcript or "").strip()
-        if candidate_detail and len(candidate_detail) > 220:
-            candidate_detail = candidate_detail[:220].rsplit(" ", 1)[0] + "..."
-
-        if candidate_detail and len(candidate_detail.split()) >= 8 and not self._is_instructional_improved_answer(candidate_detail):
-            return (
-                f"In my strongest version of this answer, I would keep the real detail from my experience: {candidate_detail} "
-                f"I would make my ownership explicit, explain the decision I made, and finish with a measurable result that proves I am ready for this {role} role."
-            )
 
         if any(
             phrase in question_lower
