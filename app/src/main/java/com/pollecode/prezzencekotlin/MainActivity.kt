@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
     private var activeAvatar: NativeDuixAvatarView? = null
     private var coachingMediaPlayer: MediaPlayer? = null
     private var resultOverlay: FrameLayout? = null
+    private var teachingOverlay: FrameLayout? = null
     private var confirmOverlay: FrameLayout? = null
     private var activeCamera: NativePresenceCameraView? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
@@ -404,7 +405,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var suppressInterviewSpeech = false
+
+    private fun muteInterviewRoomSpeech() {
+        speechGenerationToken += 1
+        suppressInterviewSpeech = true
+        activeAvatar?.stopSpeaking()
+        stopCoachingAudioFallback()
+        interviewerSpeakingState.value = false
+    }
+
+    private fun resumeInterviewRoomSpeech() {
+        suppressInterviewSpeech = false
+    }
+
+    private fun dismissTeachingOverlay() {
+        activeAvatar?.stopSpeaking()
+        stopCoachingAudioFallback()
+        teachingOverlay?.let { runCatching { root.removeView(it) } }
+        teachingOverlay = null
+    }
+
     private fun dismissResultOverlay() {
+        dismissTeachingOverlay()
         activeAvatar?.stopSpeaking()
         resultOverlay?.let { runCatching { root.removeView(it) } }
         resultOverlay = null
@@ -4091,6 +4114,7 @@ class MainActivity : ComponentActivity() {
         token: Int,
         forceRefresh: Boolean,
     ) {
+        if (suppressInterviewSpeech) return
         val questionIndex = appState.currentQuestionIndex
         val source = "question-${questionIndex + 1}"
         val cached = if (forceRefresh) null else questionSpeechCache[questionIndex]
@@ -4440,6 +4464,7 @@ class MainActivity : ComponentActivity() {
             processingProgressState.intValue = 100
             processingAnswerState.value = false
             processingStageState.value = ""
+            muteInterviewRoomSpeech()
             showInterview(answering = false, processing = false)
             showResult()
             if (appState.authToken.isNotBlank()) {
@@ -4476,6 +4501,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showResult() {
+        muteInterviewRoomSpeech()
         val result = currentAnswerResult ?: AnswerResult(
             transcript = appState.lastTranscript,
             score = appState.lastScore,
@@ -4651,7 +4677,6 @@ class MainActivity : ComponentActivity() {
                 setMargins(0, 0, 0, dp(10))
             }
             setOnClickListener {
-                dismissResultOverlay()
                 showModelAnswerTeaching(result) {
                     advanceAfterAnswerReview()
                 }
@@ -4675,6 +4700,7 @@ class MainActivity : ComponentActivity() {
                 setMargins(0, 0, dp(10), 0)
             }
             setOnClickListener {
+                resumeInterviewRoomSpeech()
                 dismissResultOverlay()
                 showInterview(false)
             }
@@ -4695,6 +4721,7 @@ class MainActivity : ComponentActivity() {
             background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
             layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
             setOnClickListener {
+                resumeInterviewRoomSpeech()
                 dismissResultOverlay()
                 advanceAfterAnswerReview()
             }
@@ -4717,6 +4744,7 @@ class MainActivity : ComponentActivity() {
 
     private fun advanceAfterAnswerReview() {
         dismissResultOverlay()
+        resumeInterviewRoomSpeech()
         val sessionId = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
         val answersSnapshot = sessionAnswers.toList()
         appState.saveSessionAnswers(sessionId, answersSnapshot)
@@ -4741,6 +4769,7 @@ class MainActivity : ComponentActivity() {
         result: AnswerResult,
         onContinue: () -> Unit,
     ) {
+        dismissTeachingOverlay()
         val modelAnswer = result.improvedAnswer.trim()
         val scoredWell = result.score >= 70
         val overlay = FrameLayout(this).apply {
@@ -4757,6 +4786,15 @@ class MainActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
             ).apply { gravity = Gravity.BOTTOM }
         }
+
+        panel.addView(TextView(this@MainActivity).apply {
+            text = "← Back to result"
+            textSize = 13f
+            setTextColor(muted)
+            typeface = interBold
+            setPadding(0, 0, 0, dp(10))
+            setOnClickListener { dismissTeachingOverlay() }
+        })
 
         val titleText = if (scoredWell) "Great answer!" else "Listen to a stronger answer"
         val subtitleText = if (scoredWell) {
@@ -4843,6 +4881,7 @@ class MainActivity : ComponentActivity() {
                 setMargins(0, 0, dp(10), 0)
             }
             setOnClickListener {
+                resumeInterviewRoomSpeech()
                 dismissResultOverlay()
                 showInterview(false)
             }
@@ -4862,14 +4901,17 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(16), dp(13), dp(16), dp(13))
             background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
             layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
-            setOnClickListener { onContinue() }
+            setOnClickListener {
+                resumeInterviewRoomSpeech()
+                dismissResultOverlay()
+                onContinue()
+            }
         })
 
         panel.addView(teachButtonRow)
 
         overlay.addView(panel)
-        dismissResultOverlay()
-        resultOverlay = overlay
+        teachingOverlay = overlay
         if (::root.isInitialized) {
             root.addView(
                 overlay,
@@ -5242,8 +5284,8 @@ class MainActivity : ComponentActivity() {
             listener = object : NativeDuixAvatarView.Listener {
                 override fun onModelReady(modelName: String) {
                     avatarReadyState.value = true
-                    interviewerSpeakingState.value = true
-                    if (!live || speechQueued || token != speechGenerationToken) return
+                    interviewerSpeakingState.value = false
+                    if (suppressInterviewSpeech || !live || speechQueued || token != speechGenerationToken) return
                     speechQueued = true
                     speakQuestionThroughAvatar(this@avatarView, questionText, interviewer, token, forceRefresh = false)
                 }
