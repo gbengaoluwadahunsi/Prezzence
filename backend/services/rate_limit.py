@@ -113,6 +113,10 @@ RULES = {
         max_requests=int(os.getenv("RATE_LIMIT_ANALYTICS_MAX", "600")),
         window_seconds=int(os.getenv("RATE_LIMIT_ANALYTICS_WINDOW", "3600")),
     ),
+    "model_answer": LimitRule(
+        max_requests=int(os.getenv("RATE_LIMIT_MODEL_ANSWER_MAX", "40")),
+        window_seconds=int(os.getenv("RATE_LIMIT_MODEL_ANSWER_WINDOW", "3600")),
+    ),
 }
 
 

@@ -210,60 +210,28 @@ class MainActivity : ComponentActivity() {
         appState = AppState(this)
         onboardingInterviewerStyle = appState.interviewerStyle
         onboardingPreviewGender = appState.previewGender
-        billingManager = PrezzenceBillingManager(this) { entitled, status ->
+        updateDuixDownloadAuth()
+        billingManager = PrezzenceBillingManager(this) { entitled, status, purchaseToken ->
             appState.subscriptionEntitled = entitled
             appState.subscriptionStatus = status
             appState.subscriptionProductId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
+            if (entitled && !purchaseToken.isNullOrBlank() && appState.authToken.isNotBlank()) {
+                scope.launch {
+                    backend.syncEntitlement(
+                        bearerToken = appState.authToken,
+                        purchaseToken = purchaseToken,
+                        productId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID,
+                    )
+                }
+            }
         }
         setContentView(root)
         
-        // DEBUG: Allow quick launch to interview for testing avatar
-        if (BuildConfig.DEBUG && intent?.getBooleanExtra("directToInterview", false) == true) {
-            setupTestSessionAndGoToInterview()
-            return
-        }
-        
         if (!handleAuthCallback(intent?.data)) showSplash()
     }
-    
-    private fun setupTestSessionAndGoToInterview() {
-        Log.i("PrezzenceDebug", "Setting up test interview session for avatar testing")
-        appState.onboardingComplete = true
-        appState.authToken = "test-token-${System.currentTimeMillis()}"
-        appState.userId = "test-user"
-        appState.userFullName = "Test User"
-        appState.userEmail = "test@prezzence.local"
-        
-        // Import the InterviewQuestion class if needed
-        val testQuestions = listOf(
-            com.pollecode.prezzencekotlin.data.InterviewQuestion(
-                id = 1,
-                text = "Tell me about a time you had to solve a complex problem. What was the challenge, and how did you approach it?",
-                role = "professional",
-                interviewerId = "Sofia",
-                type = "behavioral"
-            ),
-            com.pollecode.prezzencekotlin.data.InterviewQuestion(
-                id = 2,
-                text = "Describe your ideal work environment and explain why it matters to you.",
-                role = "professional",
-                interviewerId = "Oliver",
-                type = "behavioral"
-            ),
-            com.pollecode.prezzencekotlin.data.InterviewQuestion(
-                id = 3,
-                text = "What is your greatest professional achievement and why are you proud of it?",
-                role = "professional",
-                interviewerId = "Lily",
-                type = "behavioral"
-            ),
-        )
-        appState.setGeneratedQuestions(testQuestions)
-        appState.currentQuestionIndex = 0
-        appState.activeSessionId = "test-session-${System.currentTimeMillis()}"
-        
-        Log.i("PrezzenceDebug", "Test session created with ${testQuestions.size} questions, starting interview")
-        showInterview(answering = false)
+
+    private fun updateDuixDownloadAuth() {
+        NativeDuixAvatarView.downloadAuthToken = appState.authToken.takeIf { it.isNotBlank() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -285,6 +253,7 @@ class MainActivity : ComponentActivity() {
         if (session.email.isNotBlank()) appState.userEmail = session.email
         if (session.fullName.isNotBlank()) appState.userFullName = session.fullName
         if (session.focus.isNotBlank()) appState.userFocus = session.focus
+        updateDuixDownloadAuth()
     }
 
     private fun handleAuthCallback(uri: Uri?): Boolean {
@@ -515,42 +484,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         })
-    }
-    private fun landingAtmosphere() = object : View(this) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val w = width.toFloat().coerceAtLeast(1f)
-            val h = height.toFloat().coerceAtLeast(1f)
-            paint.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(
-                Color.rgb(6, 7, 17),
-                Color.rgb(9, 13, 30),
-                Color.rgb(8, 7, 16),
-                Color.rgb(3, 3, 9),
-            ), floatArrayOf(0f, 0.36f, 0.72f, 1f), Shader.TileMode.CLAMP)
-            canvas.drawRect(0f, 0f, w, h, paint)
-
-            paint.shader = LinearGradient(0f, h * 0.22f, w, h * 0.78f, intArrayOf(
-                Color.argb(0, 55, 65, 255),
-                Color.argb(78, 48, 76, 160),
-                Color.argb(88, 12, 130, 170),
-                Color.argb(0, 17, 20, 50),
-            ), null, Shader.TileMode.CLAMP)
-            canvas.drawRect(0f, 0f, w, h, paint)
-
-            paint.shader = RadialGradient(w * 0.42f, h * 0.46f, w * 0.62f, intArrayOf(
-                Color.argb(95, 45, 84, 140),
-                Color.argb(42, 31, 40, 82),
-                Color.TRANSPARENT,
-            ), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
-            canvas.drawRect(0f, 0f, w, h, paint)
-
-            paint.shader = LinearGradient(0f, h * 0.74f, 0f, h, Color.argb(0, 0, 0, 0), Color.argb(235, 4, 4, 10), Shader.TileMode.CLAMP)
-            canvas.drawRect(0f, h * 0.70f, w, h, paint)
-            paint.shader = null
-            paint.color = Color.argb(46, 0, 0, 0)
-            canvas.drawRect(0f, 0f, w, h, paint)
-        }
     }
 
     private fun landingLogoRow() = LinearLayout(this).apply {
@@ -830,7 +763,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onSelectTrack = { track ->
                         // Free tier: only "job" track available
-                        if (!appState.subscriptionEntitled && !track.equals("job", ignoreCase = true)) {
+                        if (!appState.hasPremiumAccess() && !track.equals("job", ignoreCase = true)) {
                             showAppToast("Only the Job Interview track is available on the Free plan. Upgrade to Pro for all tracks.", ToastKind.WARNING)
                             showPaywall()
                             return@PrezzenceOnboardingTypeScreen
@@ -893,7 +826,7 @@ class MainActivity : ComponentActivity() {
                     onIndustryChange = { industry -> onboardingIndustry = industry },
                     onSeniorityChange = { seniority -> onboardingSeniority = seniority },
                     onInterviewModeChange = { mode ->
-                        if (mode.equals("Panel", ignoreCase = true) && !appState.subscriptionEntitled) {
+                        if (mode.equals("Panel", ignoreCase = true) && !appState.hasPremiumAccess()) {
                             showAppToast("Panel interviews are a Pro feature. Subscribe to unlock all interviewers.", ToastKind.WARNING)
                             return@PrezzenceOnboardingRoleScreen
                         }
@@ -904,7 +837,7 @@ class MainActivity : ComponentActivity() {
                     onCompanyWebsiteChange = { companyWebsite -> onboardingCompanyWebsite = companyWebsite },
                     onCompanyContextChange = { companyContext -> onboardingCompanyContext = companyContext },
                     onInterviewerStyleChange = { style ->
-                        if (!appState.subscriptionEntitled && !style.equals("Balanced", ignoreCase = true)) {
+                        if (!appState.hasPremiumAccess() && !style.equals("Balanced", ignoreCase = true)) {
                             showAppToast("Only Balanced style is available on the Free plan. Upgrade to Pro for Supportive and Challenging styles.", ToastKind.WARNING)
                             return@PrezzenceOnboardingRoleScreen
                         }
@@ -917,7 +850,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onIncludeTechnicalChange = { enabled -> onboardingIncludeTechnical = enabled },
                     onEnableWebResearchChange = { enabled ->
-                        if (enabled && !appState.subscriptionEntitled) {
+                        if (enabled && !appState.hasPremiumAccess()) {
                             showAppToast("Company web research is a Pro feature.", ToastKind.WARNING)
                             return@PrezzenceOnboardingRoleScreen
                         }
@@ -975,13 +908,25 @@ class MainActivity : ComponentActivity() {
         val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
             appState.currentQuestionIndex < questions.size
 
-        // Verify entitlement from server to prevent SharedPreference bypass
+        // Verify entitlement from server; fall back to Google Play and sync purchase to server.
         if (appState.authToken.isNotBlank()) {
             scope.launch {
-                val serverEntitled = backend.fetchEntitlement(appState.authToken)
-                if (serverEntitled != appState.subscriptionEntitled) {
-                    appState.subscriptionEntitled = serverEntitled
+                val entitlement = backend.fetchEntitlement(appState.authToken)
+                appState.betaUnlockAllFeatures = entitlement.betaUnlockAllFeatures
+                var entitled = entitlement.isPremium
+                if (!entitled) {
+                    val playState = billingManager.refresh()
+                    entitled = playState.entitled
+                    if (entitled && !playState.purchaseToken.isNullOrBlank()) {
+                        backend.syncEntitlement(
+                            bearerToken = appState.authToken,
+                            purchaseToken = playState.purchaseToken,
+                            productId = playState.productId,
+                        )
+                    }
                 }
+                appState.subscriptionEntitled = entitled
+                updateDuixDownloadAuth()
             }
         }
 
@@ -1286,26 +1231,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun homeActionGrid() = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER
-        layoutParams = blockParams()
-        addView(homeNavButton("Questions") { showQuestions() })
-        addView(homeNavButton("Progress") { showProgress() })
-        addView(homeNavButton("Settings") { showSettings() })
-    }
-
-    private fun homeNavButton(text: String, action: () -> Unit) = TextView(this).apply {
-        this.text = text
-        gravity = Gravity.CENTER
-        textSize = 14f
-        setTextColor(accent)
-        includeFontPadding = false
-        typeface = interBold
-        background = rounded(Color.TRANSPARENT, radius = 16, strokeColor = accent)
-        layoutParams = LinearLayout.LayoutParams(0, dp(64), 1f).apply { setMargins(dp(5), 0, dp(5), 0) }
-        setOnClickListener { action() }
-    }
 
     private fun statusPill(text: String) = TextView(this).apply {
         this.text = text
@@ -2246,6 +2171,18 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private data class SessionReportBundle(
+        val session: SessionSummary,
+        val recordedCount: Int,
+        val substantiveCount: Int,
+        val hasSignal: Boolean,
+        val displayScore: Int,
+        val summary: String,
+        val coachingTips: List<String>,
+        val skillBreakdown: List<Pair<String, Int>>,
+        val answers: List<SessionReportAnswerItem>,
+    )
+
     private fun buildSessionReportAnswers(sessionId: String, total: Int): List<SessionReportAnswerItem> {
         val saved = appState.getSessionAnswers(sessionId)
         val questionCount = total.coerceAtLeast(saved.size).coerceAtLeast(1)
@@ -2253,30 +2190,27 @@ class MainActivity : ComponentActivity() {
             val answer = saved.getOrNull(index)
             val rawTranscript = answer?.transcript.orEmpty()
             val displayTranscript = SessionScoring.formatTranscriptForDisplay(rawTranscript)
-            val sanitizedScore = if (answer != null) SessionScoring.sanitizeScore(rawTranscript, answer.score) else 0
+            val storedScore = when {
+                answer == null || SessionScoring.isBlankTranscript(rawTranscript) -> 0
+                else -> answer.score.coerceIn(0, 100)
+            }
             SessionReportAnswerItem(
                 index = index + 1,
-                score = sanitizedScore,
-                feedback = if (sanitizedScore > 0) answer?.feedback.orEmpty() else "",
+                score = storedScore,
+                feedback = if (storedScore > 0) answer?.feedback.orEmpty() else "",
                 transcript = displayTranscript,
             )
         }
     }
 
-    private fun showSessionReport(sessionId: String, returnTab: PrezzenceTab = PrezzenceTab.HOME) {
-        val session = resolveSessionSummary(sessionId)
-        if (session == null) {
-            showAppToast("Session saved. You can review it from Progress.", ToastKind.INFO)
-            showHome(returnTab)
-            return
-        }
-
-        val score = session.score
+    private fun buildSessionReportBundle(sessionId: String): SessionReportBundle? {
+        val session = resolveSessionSummary(sessionId) ?: return null
         val storedAnswers = appState.getSessionAnswers(sessionId)
         val sessionQuestions = appState.questionsForSession(sessionId)
         val answerItems = buildSessionReportAnswers(sessionId, session.total)
         val substantiveCount = SessionScoring.substantiveAnswerCount(storedAnswers)
         val recordedCount = storedAnswers.size
+        val score = session.score
         val hasSignal = substantiveCount > 0 && score > 0
         val skillBreakdown = SessionScoring.sessionSkillBreakdown(storedAnswers, sessionQuestions)?.asList().orEmpty()
         val summary = if (hasSignal) {
@@ -2300,23 +2234,42 @@ class MainActivity : ComponentActivity() {
                 "Finish each question before tapping Continue.",
             )
         }
-        val displayScore = if (hasSignal) score else 0
+        return SessionReportBundle(
+            session = session,
+            recordedCount = recordedCount,
+            substantiveCount = substantiveCount,
+            hasSignal = hasSignal,
+            displayScore = if (hasSignal) score else 0,
+            summary = summary,
+            coachingTips = coachingTips,
+            skillBreakdown = skillBreakdown,
+            answers = answerItems,
+        )
+    }
+
+    private fun showSessionReport(sessionId: String, returnTab: PrezzenceTab = PrezzenceTab.HOME) {
+        val bundle = buildSessionReportBundle(sessionId)
+        if (bundle == null) {
+            showAppToast("Session saved. You can review it from Progress.", ToastKind.INFO)
+            showHome(returnTab)
+            return
+        }
 
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceSessionReportScreen(
-                    role = session.role,
-                    date = session.date,
-                    recordedCount = recordedCount,
-                    total = session.total,
-                    score = displayScore,
-                    substantiveCount = substantiveCount,
-                    hasSignal = hasSignal,
-                    summary = summary,
-                    coachingTips = coachingTips,
-                    skillBreakdown = skillBreakdown,
-                    answers = answerItems,
-                    isPro = appState.subscriptionEntitled,
+                    role = bundle.session.role,
+                    date = bundle.session.date,
+                    recordedCount = bundle.recordedCount,
+                    total = bundle.session.total,
+                    score = bundle.displayScore,
+                    substantiveCount = bundle.substantiveCount,
+                    hasSignal = bundle.hasSignal,
+                    summary = bundle.summary,
+                    coachingTips = bundle.coachingTips,
+                    skillBreakdown = bundle.skillBreakdown,
+                    answers = bundle.answers,
+                    isPro = appState.hasPremiumAccess(),
                     onBack = { showHome(returnTab) },
                     onExportPdf = { exportSessionPdf(sessionId) },
                     onPracticeAgain = {
@@ -2330,66 +2283,207 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportSessionPdf(sessionId: String) {
-        if (!appState.subscriptionEntitled) {
+        if (!appState.hasPremiumAccess()) {
             showAppToast("PDF export is a Pro feature. Subscribe to unlock.", ToastKind.WARNING)
             showPaywall()
             return
         }
         scope.launch {
             try {
-                val session = resolveSessionSummary(sessionId) ?: return@launch
-                val reportItems = buildSessionReportAnswers(sessionId, session.total)
-                val displayScore = if (SessionScoring.substantiveAnswerCount(appState.getSessionAnswers(sessionId)) > 0 && session.score > 0) {
-                    session.score
-                } else {
-                    0
+                val bundle = withContext(Dispatchers.IO) {
+                    buildSessionReportBundle(sessionId)
+                } ?: run {
+                    showAppToast("Session not found on this device.", ToastKind.ERROR)
+                    return@launch
                 }
-                val document = android.graphics.pdf.PdfDocument()
-                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create()
-                val page = document.startPage(pageInfo)
-                val c = page.canvas
-                val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 36f; typeface = interBold }
-                val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 22f; typeface = interBold }
-                val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 14f }
-                val scorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(108, 99, 255); textSize = 28f; typeface = interBold }
-                var y = 60f
-                c.drawText("Session Report", 40f, y, titlePaint)
-                y += 50f
-                c.drawText("Role: ${session.role}", 40f, y, headingPaint)
-                y += 30f
-                c.drawText("Date: ${session.date}", 40f, y, bodyPaint)
-                y += 24f
-                c.drawText("Score: $displayScore/100", 40f, y, scorePaint)
-                y += 24f
-                c.drawText("Questions: ${session.answered}/${session.total} recorded · ${SessionScoring.substantiveAnswerCount(appState.getSessionAnswers(sessionId))} scored", 40f, y, bodyPaint)
-                y += 40f
-                if (reportItems.isNotEmpty()) {
-                    c.drawText("Answer Details", 40f, y, headingPaint)
-                    y += 30f
-                    for (item in reportItems) {
-                        if (y > 780f) break
-                        val label = if (item.score > 0) "Score: ${item.score}" else "No score"
-                        c.drawText("${item.index}. $label - ${item.transcript.take(80)}", 40f, y, bodyPaint)
-                        y += 20f
-                        if (item.feedback.isNotBlank()) {
-                            c.drawText("   Feedback: ${item.feedback.take(100)}", 40f, y, bodyPaint)
-                            y += 24f
-                        }
-                    }
+                val file = withContext(Dispatchers.IO) {
+                    writeSessionReportPdf(bundle, sessionId)
                 }
-                document.finishPage(page)
-                val file = java.io.File(cacheDir, "session-${sessionId.take(8)}.pdf")
-                java.io.FileOutputStream(file).use { document.writeTo(it) }
-                document.close()
-                val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
-                startActivity(Intent(Intent.ACTION_SEND).apply {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${packageName}.fileprovider",
+                    file,
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                })
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share session report"))
             } catch (e: Exception) {
                 showAppToast("Export failed: ${e.message}", ToastKind.ERROR)
             }
+        }
+    }
+
+    private fun writeSessionReportPdf(bundle: SessionReportBundle, sessionId: String): java.io.File {
+        val session = bundle.session
+        val document = android.graphics.pdf.PdfDocument()
+        val writer = SessionPdfWriter(document)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 36f
+            typeface = interBold
+        }
+        val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.DKGRAY
+            textSize = 22f
+            typeface = interBold
+        }
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.DKGRAY
+            textSize = 14f
+        }
+        val scorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(108, 99, 255)
+            textSize = 28f
+            typeface = interBold
+        }
+
+        writer.drawTextLine("Session Report", titlePaint, 44f)
+        writer.gap(12f)
+        writer.drawTextLine("Role: ${session.role}", headingPaint, 28f)
+        writer.drawTextLine("Date: ${session.date}", bodyPaint)
+        writer.drawTextLine(
+            if (bundle.hasSignal) "Score: ${bundle.displayScore}/100" else "Score: --",
+            scorePaint,
+            32f,
+        )
+        writer.drawTextLine(
+            "Questions: ${session.answered}/${session.total} recorded · ${bundle.substantiveCount} scored",
+            bodyPaint,
+        )
+
+        if (bundle.skillBreakdown.isNotEmpty()) {
+            writer.drawHeading("Strengths and gaps", headingPaint)
+            writer.drawWrapped(
+                "From ${bundle.substantiveCount} substantive ${if (bundle.substantiveCount == 1) "answer" else "answers"} only.",
+                bodyPaint,
+            )
+            bundle.skillBreakdown.forEach { (label, value) ->
+                writer.drawTextLine("$label: $value/100", bodyPaint)
+            }
+        }
+
+        writer.drawHeading("Coach summary", headingPaint)
+        writer.drawWrapped(bundle.summary, bodyPaint)
+        bundle.coachingTips.forEach { tip ->
+            writer.drawWrapped("• $tip", bodyPaint)
+        }
+
+        if (bundle.answers.isNotEmpty()) {
+            writer.drawHeading("Answer details", headingPaint)
+            bundle.answers.forEach { item ->
+                val scoreLabel = when {
+                    item.score > 0 -> "Score: ${item.score}"
+                    item.transcript.isNotBlank() -> "Low signal"
+                    else -> "No response"
+                }
+                writer.drawTextLine("Q${item.index} · $scoreLabel", headingPaint, 24f)
+                if (item.transcript.isNotBlank()) {
+                    writer.drawWrapped(item.transcript, bodyPaint)
+                }
+                if (item.feedback.isNotBlank()) {
+                    writer.drawWrapped("Feedback: ${item.feedback}", bodyPaint)
+                }
+                writer.gap(8f)
+            }
+        }
+
+        writer.finish()
+        val file = java.io.File(cacheDir, "session-${sessionId.take(8)}.pdf")
+        java.io.FileOutputStream(file).use { document.writeTo(it) }
+        document.close()
+        return file
+    }
+
+    private class SessionPdfWriter(
+        private val document: android.graphics.pdf.PdfDocument,
+        private val pageWidth: Int = 595,
+        private val pageHeight: Int = 842,
+        private val margin: Float = 40f,
+    ) {
+        private var pageIndex = 0
+        private var currentPage: android.graphics.pdf.PdfDocument.Page? = null
+        var canvas: Canvas = Canvas()
+            private set
+        var y: Float = margin
+            private set
+
+        val contentWidth: Int get() = (pageWidth - 2 * margin).toInt()
+        private val bottomLimit get() = pageHeight - margin
+
+        init {
+            startNewPage()
+        }
+
+        fun startNewPage() {
+            currentPage?.let { document.finishPage(it) }
+            pageIndex++
+            val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create()
+            currentPage = document.startPage(pageInfo)
+            canvas = currentPage!!.canvas
+            y = margin + 16f
+        }
+
+        fun finish() {
+            currentPage?.let { document.finishPage(it) }
+            currentPage = null
+        }
+
+        fun ensureSpace(needed: Float) {
+            if (y + needed > bottomLimit) startNewPage()
+        }
+
+        fun gap(amount: Float) {
+            y += amount
+        }
+
+        fun drawTextLine(text: String, paint: Paint, lineHeight: Float = paint.textSize * 1.4f) {
+            ensureSpace(lineHeight)
+            canvas.drawText(text, margin, y, paint)
+            y += lineHeight
+        }
+
+        fun drawWrapped(text: String, paint: Paint, spacingMultiplier: Float = 1.25f) {
+            val textPaint = android.text.TextPaint(paint)
+            var offset = 0
+            while (offset < text.length) {
+                if (y + textPaint.textSize * spacingMultiplier > bottomLimit) {
+                    startNewPage()
+                }
+                val availableHeight = bottomLimit - y
+                val lineHeight = textPaint.textSize * spacingMultiplier
+                val maxLines = (availableHeight / lineHeight).toInt().coerceAtLeast(1)
+                val layout = android.text.StaticLayout.Builder
+                    .obtain(text, offset, text.length, textPaint, contentWidth)
+                    .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, spacingMultiplier)
+                    .setMaxLines(maxLines)
+                    .build()
+                if (layout.lineCount == 0) {
+                    startNewPage()
+                    continue
+                }
+                canvas.save()
+                canvas.translate(margin, y)
+                layout.draw(canvas)
+                canvas.restore()
+                y += layout.height + 4f
+                val newOffset = layout.getLineEnd(layout.lineCount - 1)
+                if (newOffset <= offset) {
+                    startNewPage()
+                    offset = (offset + 1).coerceAtMost(text.length)
+                } else {
+                    offset = newOffset
+                    while (offset < text.length && text[offset].isWhitespace()) offset++
+                }
+            }
+        }
+
+        fun drawHeading(text: String, paint: Paint) {
+            gap(12f)
+            drawTextLine(text, paint, paint.textSize * 1.35f)
         }
     }
 
@@ -2850,6 +2944,15 @@ class MainActivity : ComponentActivity() {
         appState.subscriptionEntitled = state.entitled
         appState.subscriptionStatus = state.status
         appState.subscriptionProductId = state.productId
+        if (state.entitled && !state.purchaseToken.isNullOrBlank() && appState.authToken.isNotBlank()) {
+            scope.launch {
+                backend.syncEntitlement(
+                    bearerToken = appState.authToken,
+                    purchaseToken = state.purchaseToken,
+                    productId = state.productId,
+                )
+            }
+        }
         if (!silent) showAppToast(state.status, if (state.entitled) ToastKind.green else ToastKind.INFO)
     }
 
@@ -2950,7 +3053,7 @@ class MainActivity : ComponentActivity() {
     private fun runDeviceQa() {
         showDeviceQa(running = true, status = "Starting checks")
         scope.launch {
-            val runner = DeviceQaRunner(this@MainActivity)
+            val runner = DeviceQaRunner(this@MainActivity, appState.authToken)
             val results = runner.runAll(appState.language) { status ->
                 withContext(Dispatchers.Main) { showDeviceQa(running = true, status = status) }
             }
@@ -3151,289 +3254,9 @@ class MainActivity : ComponentActivity() {
         return "Saved: ${profile.fileName}\nSkills: $skills\n${profile.summary.take(220)}"
     }
 
-    private fun showProgress() {
-        val column = baseColumn()
-        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
-        column.addView(backButton { showHome() })
-        column.addView(title("Progress", 36))
-        column.addView(body(if (history.isEmpty()) {
-            "Complete an interview to build your baseline."
-        } else {
-            "${history.size} completed session${if (history.size == 1) "" else "s"}. Use this page to review and delete old records."
-        }))
-        column.addView(readinessCard())
-        if (history.isEmpty()) {
-            column.addView(LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(32), dp(32), dp(32), dp(32))
-                background = rounded(panel, radius = 28, strokeColor = border)
-                layoutParams = blockParams()
-                addView(LinearLayout(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(58), dp(58))
-                    gravity = Gravity.CENTER
-                    background = rounded(Color.argb(30, 108, 99, 255), radius = 20)
-                    addView(TextView(this@MainActivity).apply {
-                        text = "â€¦"
-                        textSize = 26f
-                        setTextColor(accent)
-                        gravity = Gravity.CENTER
-                        typeface = Typeface.DEFAULT_BOLD
-                    })
-                })
-                addView(spacer(14))
-                addView(TextView(this@MainActivity).apply {
-                    text = "No sessions yet"
-                    textSize = 17f
-                    setTextColor(Color.WHITE)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "Complete your first interview to see reports and trend history here."
-                    textSize = 13f
-                    setTextColor(muted)
-                    gravity = Gravity.CENTER
-                    setPadding(dp(8), dp(8), dp(8), 0)
-                })
-                addView(spacer(18))
-                addView(primaryButton("Start interview") { showRoomSetup() })
-            })
-        } else {
-            column.addView(rowOf(
-                secondaryButton("Clear history") {
-                    appState.clearHistory()
-                    showProgress()
-                },
-                primaryButton("New session") { showRoomSetup() }
-            ))
-            history.forEach { session ->
-                column.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), dp(14), dp(14), dp(14))
-                    background = rounded(panel, radius = 24, strokeColor = border)
-                    layoutParams = blockParams()
-                    setOnClickListener { showSessionReport(session.id) }
-                    addView(LinearLayout(this@MainActivity).apply {
-                        layoutParams = LinearLayout.LayoutParams(dp(58), dp(58))
-                        gravity = Gravity.CENTER
-                        orientation = LinearLayout.VERTICAL
-                        background = rounded(Color.argb(35, 108, 99, 255), radius = 18)
-                        addView(TextView(this@MainActivity).apply {
-                            text = "${session.score}"
-                            textSize = 20f
-                            setTextColor(Color.WHITE)
-                            typeface = interBold
-                            gravity = Gravity.CENTER
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "score"
-                            textSize = 9f
-                            setTextColor(muted)
-                            typeface = interBold
-                            gravity = Gravity.CENTER
-                        })
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(14), 0, dp(8), 0) }
-                        addView(TextView(this@MainActivity).apply {
-                            text = session.role.ifBlank { "Interview Assessment" }
-                            textSize = 16f
-                            setTextColor(Color.WHITE)
-                            typeface = interBold
-                            includeFontPadding = false
-                            maxLines = 2
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "${session.answered}/${session.total} answered \u00B7 ${session.date}"
-                            textSize = 12f
-                            setTextColor(muted)
-                            typeface = interBold
-                            setPadding(0, dp(5), 0, 0)
-                        })
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(ImageView(this@MainActivity).apply {
-                            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-                            setPadding(dp(10), dp(10), dp(10), dp(10))
-                            background = rounded(Color.argb(30, 255, 71, 87), radius = 20, strokeColor = Color.argb(50, 255, 71, 87))
-                            setImageDrawable(object : android.graphics.drawable.Drawable() {
-                                override fun draw(c: Canvas) {
-                                    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 138); style = Paint.Style.STROKE; strokeWidth = 2.5f; strokeCap = Paint.Cap.ROUND }
-                                    val w = bounds.width().toFloat(); val h = bounds.height().toFloat(); val cx = w / 2f; val cy = h / 2f
-                                    c.drawLine(cx - w*0.18f, cy - h*0.18f, cx + w*0.18f, cy + h*0.18f, p)
-                                    c.drawLine(cx + w*0.18f, cy - h*0.18f, cx - w*0.18f, cy + h*0.18f, p)
-                                }
-                                override fun setAlpha(a: Int) {}
-                                override fun setColorFilter(cf: ColorFilter?) {}
-                                override fun getOpacity() = PixelFormat.TRANSLUCENT
-                            })
-                            setOnClickListener {
-                                confirmDeleteSession(session.id, session.role, PrezzenceTab.PROGRESS) {
-                                    showProgress()
-                                }
-                            }
-                        })
-                        addView(chevronView())
-                    })
-                })
-            }
-        }
-        setScreen(refreshableScroll(column) {
-            scope.launch {
-                val fetched = backend.listSessions(appState.authToken)
-                    .filterNot { appState.isSessionDeleted(it.id) }
-                if (fetched.isNotEmpty()) {
-                    remoteHistoryState.value = fetched
-                } else {
-                    remoteHistoryState.value = appState.sessionHistory()
-                }
-                showProgress()
-            }
-        })
-        if (appState.authToken.isNotBlank() && remoteHistoryState.value.isEmpty()) {
-            scope.launch {
-                val fetched = backend.listSessions(appState.authToken)
-                if (fetched.isNotEmpty()) {
-                    remoteHistoryState.value = fetched
-                    showProgress()
-                }
-            }
-        }
-    }
+    private fun showProgress() = showHome(PrezzenceTab.PROGRESS)
 
-    private fun showAllHistory() {
-        val column = baseColumn()
-        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
-        column.addView(backButton { showHome(PrezzenceTab.PROGRESS) })
-        column.addView(TextView(this).apply {
-            text = "${history.size} SESSIONS"
-            textSize = 11f; setTextColor(accent); typeface = interBold
-            letterSpacing = 0.06f
-        })
-        column.addView(title("Every interview", 38))
-        column.addView(body("Open any completed or in-progress session report from your account history."))
-        column.addView(spacer(8))
-        if (history.isEmpty()) {
-            column.addView(LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(24), dp(24), dp(24), dp(24))
-                background = rounded(panel, radius = 28, strokeColor = border)
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    textSize = 26f; setTextColor(accent)
-                    val p = Paint(Paint.ANTI_ALIAS_FLAG); p.color = accent; p.style = Paint.Style.STROKE; p.strokeWidth = 2.5f
-                    val archiveIcon = object : android.graphics.drawable.Drawable() {
-                        override fun draw(c: Canvas) {
-                            val w = bounds.width().toFloat(); val h = bounds.height().toFloat()
-                            c.drawRoundRect(w*0.18f, h*0.22f, w*0.82f, h*0.82f, 4f, 4f, p)
-                            c.drawLine(w*0.10f, h*0.22f, w*0.90f, h*0.22f, p)
-                        }
-                        override fun setAlpha(a: Int) {}
-                        override fun setColorFilter(cf: ColorFilter?) {}
-                        override fun getOpacity() = PixelFormat.TRANSLUCENT
-                    }
-                    archiveIcon.setBounds(0, 0, dp(26), dp(26))
-                    setCompoundDrawables(archiveIcon, null, null, null)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "No sessions yet"
-                    textSize = 17f; setTextColor(Color.WHITE); typeface = interBold
-                    setPadding(0, dp(14), 0, 0)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "Complete your first interview to see reports and trend history here."
-                    textSize = 13f; setTextColor(muted); gravity = Gravity.CENTER
-                    setPadding(dp(8), dp(8), dp(8), 0)
-                })
-                addView(spacer(18))
-                addView(primaryButton("Start interview") { showRoomSetup() })
-            })
-        } else {
-            history.forEach { session ->
-                column.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), dp(14), dp(14), dp(14))
-                    background = rounded(panel, radius = 24, strokeColor = border)
-                    layoutParams = blockParams()
-                    setOnClickListener { showSessionReport(session.id) }
-                    addView(LinearLayout(this@MainActivity).apply {
-                        layoutParams = LinearLayout.LayoutParams(dp(58), dp(58))
-                        gravity = Gravity.CENTER
-                        orientation = LinearLayout.VERTICAL
-                        background = rounded(Color.argb(35, 108, 99, 255), radius = 18)
-                        addView(TextView(this@MainActivity).apply {
-                            text = "${session.score}"; textSize = 20f; setTextColor(Color.WHITE)
-                            typeface = interBold; gravity = Gravity.CENTER
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "score"; textSize = 9f; setTextColor(muted)
-                            typeface = interBold; gravity = Gravity.CENTER
-                        })
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(14), 0, dp(8), 0) }
-                        addView(TextView(this@MainActivity).apply {
-                            text = session.role.ifBlank { "Interview Assessment" }
-                            textSize = 16f; setTextColor(Color.WHITE)
-                            typeface = interBold; maxLines = 2
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "${session.answered}/${session.total} answered \u00B7 ${session.date}"
-                            textSize = 12f; setTextColor(muted); typeface = interBold
-                            setPadding(0, dp(5), 0, 0)
-                        })
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(ImageView(this@MainActivity).apply {
-                            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-                            setPadding(dp(10), dp(10), dp(10), dp(10))
-                            background = rounded(Color.argb(30, 255, 71, 87), radius = 20, strokeColor = Color.argb(50, 255, 71, 87))
-                            setImageDrawable(object : android.graphics.drawable.Drawable() {
-                                override fun draw(c: Canvas) {
-                                    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 122, 138); style = Paint.Style.STROKE; strokeWidth = 2.5f; strokeCap = Paint.Cap.ROUND }
-                                    val w = bounds.width().toFloat(); val h = bounds.height().toFloat(); val cx = w / 2f; val cy = h / 2f
-                                    c.drawLine(cx - w*0.18f, cy - h*0.18f, cx + w*0.18f, cy + h*0.18f, p)
-                                    c.drawLine(cx + w*0.18f, cy - h*0.18f, cx - w*0.18f, cy + h*0.18f, p)
-                                }
-                                override fun setAlpha(a: Int) {}
-                                override fun setColorFilter(cf: ColorFilter?) {}
-                                override fun getOpacity() = PixelFormat.TRANSLUCENT
-                            })
-                            setOnClickListener {
-                                confirmDeleteSession(session.id, session.role, PrezzenceTab.PROGRESS) {
-                                    showAllHistory()
-                                }
-                            }
-                        })
-                        addView(chevronView())
-                    })
-                })
-                column.addView(spacer(8))
-            }
-        }
-        setScreen(refreshableScroll(column) {
-            scope.launch {
-                val fetched = backend.listSessions(appState.authToken)
-                    .filterNot { appState.isSessionDeleted(it.id) }
-                if (fetched.isNotEmpty()) {
-                    remoteHistoryState.value = fetched
-                } else {
-                    remoteHistoryState.value = appState.sessionHistory()
-                }
-                showAllHistory()
-            }
-        })
-    }
+    private fun showAllHistory() = showHome(PrezzenceTab.PROGRESS)
 
     private fun showCoachingFeedback(question: String, answer: AnswerResult, onContinue: () -> Unit) {
         val scoreColor = when {
@@ -3499,9 +3322,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showEnteringRoom(preparing: Boolean = true, setupStatus: String = "Preparing your questions and interview room.") {
-        // Free tier: limit to 3 completed sessions
-        if (!appState.subscriptionEntitled && appState.completedSessions >= 3) {
-            showAppToast("Free plan: 3 sessions/month. Upgrade to Pro for unlimited practice.", ToastKind.WARNING)
+        if (!appState.hasPremiumAccess() && sessionHistoryItems().size >= PrezzenceDefaults.FREE_SESSION_LIMIT) {
+            showAppToast(
+                "Free plan includes ${PrezzenceDefaults.FREE_SESSION_LIMIT} practice sessions. Upgrade to Pro for unlimited practice.",
+                ToastKind.WARNING,
+            )
             showPaywall()
             return
         }
@@ -3707,21 +3532,6 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun showLegacyRoomSetup() {
-        val interviewer = appState.interviewerFor()
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(label("LIVE INTERVIEW"))
-        column.addView(title(if (appState.interviewMode == InterviewMode.PANEL) "Your interviewers are ready." else "Your interviewer is ready.", 30))
-        column.addView(body("Preparing your questions and interview room."))
-        if (appState.interviewMode == InterviewMode.PANEL) {
-            column.addView(panelPreview())
-        } else {
-            column.addView(interviewerReadyCard(interviewer))
-        }
-        column.addView(primaryButton("Begin Interview") { prepareBackendSessionThenStart() })
-        setScreen(scroll(column))
-    }
 
     private fun prepareBackendSessionThenStart() {
         if (appState.activeSessionId.isNotBlank() || appState.authToken.isBlank()) {
@@ -4446,17 +4256,31 @@ class MainActivity : ComponentActivity() {
                     }
                 else -> remoteResult.feedback
             }
+
+            if (remoteResult.retryRequired || isBlank) {
+                processingAnswerState.value = false
+                interviewAnsweringState.value = false
+                processingStageState.value = ""
+                processingProgressState.intValue = 0
+                showAnswerRetryRequired(
+                    feedback.ifBlank {
+                        "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
+                    },
+                )
+                return@launch
+            }
+
             // Trust the backend score; only sanitize the model answer display
             val result = remoteResult.copy(
                 transcript = displayTranscript,
-                score = if (isBlank) 0 else remoteResult.score,
+                score = remoteResult.score.coerceIn(0, 100),
                 feedback = feedback,
                 improvedAnswer = sanitizeModelAnswer(
                     remoteResult.improvedAnswer.trim(),
                     displayTranscript,
-                    !isBlank,
+                    true,
                 ),
-                retryRequired = false,
+                retryRequired = remoteResult.retryRequired,
             )
             // Summarize presence samples and attach to result
             val finalPresence = summarizePresenceSamples(presenceSamples)

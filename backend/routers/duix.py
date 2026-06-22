@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, RedirectResponse
+from middleware.auth import get_current_user
 
 router = APIRouter(prefix="/api/duix", tags=["duix"])
 
@@ -13,7 +14,7 @@ DEFAULT_BASE_CONFIG_URL = (
 
 
 @router.get("/models")
-async def duix_models(request: Request):
+async def duix_models(request: Request, current_user: dict = Depends(get_current_user)):
     configured_base_url = os.getenv("DUIX_MODEL_BASE_URL", "").strip().rstrip("/")
     if configured_base_url:
         base_url = configured_base_url
@@ -30,7 +31,7 @@ async def duix_models(request: Request):
 
 
 @router.get("/models/download/{zip_name}")
-async def download_duix_model(zip_name: str):
+async def download_duix_model(zip_name: str, current_user: dict = Depends(get_current_user)):
     model_name = zip_name.removesuffix(".zip")
     if model_name not in MODEL_NAMES or zip_name != f"{model_name}.zip":
         raise HTTPException(status_code=404, detail="Unknown Duix model")
@@ -55,7 +56,7 @@ async def download_duix_model(zip_name: str):
 
 
 @router.get("/models/{model_name}/status")
-async def duix_model_status(model_name: str):
+async def duix_model_status(model_name: str, current_user: dict = Depends(get_current_user)):
     if model_name not in MODEL_NAMES:
         raise HTTPException(status_code=404, detail="Unknown Duix model")
 

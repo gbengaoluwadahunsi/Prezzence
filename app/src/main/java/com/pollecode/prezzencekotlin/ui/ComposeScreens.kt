@@ -4657,13 +4657,18 @@ fun PrezzenceSessionReportScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Accent)
-                    .clickable(onClick = onExportPdf)
+                    .background(if (isPro) Accent else Accent.copy(alpha = 0.38f))
+                    .clickable(enabled = isPro, onClick = onExportPdf)
                     .padding(vertical = 13.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Export PDF report", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Export PDF report",
+                    color = Color.White.copy(alpha = if (isPro) 1f else 0.7f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
                 if (!isPro) {
                     Spacer(Modifier.width(8.dp))
                     Text(

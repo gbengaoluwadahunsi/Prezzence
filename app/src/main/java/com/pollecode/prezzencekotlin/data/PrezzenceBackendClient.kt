@@ -375,7 +375,7 @@ class PrezzenceBackendClient {
         language: String,
         personality: String = "neutral",
     ): String? = withContext(Dispatchers.IO) {
-        if (text.isBlank()) return@withContext null
+        if (text.isBlank() || bearerToken.isNullOrBlank()) return@withContext null
         runCatching {
             val body = JSONObject()
                 .put("text", text.trim())
@@ -385,9 +385,7 @@ class PrezzenceBackendClient {
                 .toRequestBody(jsonMediaType)
             val request = Request.Builder()
                 .url("$baseUrl/api/tts/synthesize")
-                .apply {
-                    if (!bearerToken.isNullOrBlank()) header("Authorization", "Bearer $bearerToken")
-                }
+                .header("Authorization", "Bearer $bearerToken")
                 .post(body)
                 .build()
             client.newCall(request).execute().use { response ->
@@ -805,8 +803,8 @@ class PrezzenceBackendClient {
         null
     }
 
-    suspend fun fetchEntitlement(bearerToken: String): Boolean = withContext(Dispatchers.IO) {
-        if (bearerToken.isBlank()) return@withContext false
+    suspend fun fetchEntitlement(bearerToken: String): EntitlementStatus = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank()) return@withContext EntitlementStatus(false)
         runCatching {
             val request = Request.Builder()
                 .url("$baseUrl/api/users/me/entitlement")
@@ -814,8 +812,35 @@ class PrezzenceBackendClient {
                 .get()
                 .build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use false
-                JSONObject(response.body?.string().orEmpty()).optBoolean("is_premium", false)
+                if (!response.isSuccessful) return@use EntitlementStatus(false)
+                val body = JSONObject(response.body?.string().orEmpty())
+                EntitlementStatus(
+                    isPremium = body.optBoolean("is_premium", false),
+                    betaUnlockAllFeatures = body.optBoolean("beta_unlock_all_features", false),
+                )
+            }
+        }.getOrDefault(EntitlementStatus(false))
+    }
+
+    suspend fun syncEntitlement(
+        bearerToken: String,
+        purchaseToken: String,
+        productId: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank() || purchaseToken.isBlank()) return@withContext false
+        runCatching {
+            val body = JSONObject()
+                .put("purchase_token", purchaseToken)
+                .put("product_id", productId)
+                .toString()
+            val request = Request.Builder()
+                .url("$baseUrl/api/users/me/entitlement/sync")
+                .header("Authorization", "Bearer $bearerToken")
+                .header("Content-Type", "application/json")
+                .post(body.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful && JSONObject(response.body?.string().orEmpty()).optBoolean("is_premium", false)
             }
         }.getOrDefault(false)
     }
@@ -846,6 +871,11 @@ class PrezzenceBackendClient {
 enum class SessionErrorReason { NETWORK_UNAVAILABLE, SERVER_TIMEOUT, AUTH_FAILED, SERVER_ERROR, UNKNOWN }
 
 class SessionCreateException(val reason: SessionErrorReason, message: String? = null) : Exception(message)
+
+data class EntitlementStatus(
+    val isPremium: Boolean,
+    val betaUnlockAllFeatures: Boolean = false,
+)
 
 data class AuthSession(
     val accessToken: String,

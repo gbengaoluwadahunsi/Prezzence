@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 import time
 import traceback
+from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
 from routers import analytics, personas, sessions, tts, users, feedback, legal, duix
 from services.database import neon_db
 from services.tts import tts_service
@@ -121,6 +122,7 @@ async def api_version():
         "version": "1.0.1",
         "build": "2026-06-13-avatar-fix",
         "environment": os.getenv("ENVIRONMENT", "production"),
+        "beta_unlock_all_features": BETA_UNLOCK_ALL_FEATURES,
         "features": [
             "coaching_messages",
             "backend_scoring",

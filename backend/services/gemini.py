@@ -636,10 +636,10 @@ class GeminiService:
     ):
         try:
             candidate_transcript = ""
-            if audio_base64:
-                candidate_transcript = await self._transcribe_with_groq(audio_base64, audio_mime_type)
-            elif (transcript or "").strip():
+            if (transcript or "").strip():
                 candidate_transcript = (transcript or "").strip()
+            elif audio_base64:
+                candidate_transcript = await self._transcribe_with_groq(audio_base64, audio_mime_type)
 
             if not candidate_transcript:
                 print(

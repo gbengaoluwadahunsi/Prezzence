@@ -7,6 +7,7 @@ from services.database import neon_db
 from services.resume_parser import build_resume_profile, extract_resume_text
 from middleware.auth import get_current_user
 from services.supabase import db as supabase_auth
+from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 PROGRESS_QUERY_TIMEOUT_SECONDS = float(os.getenv("PROGRESS_QUERY_TIMEOUT_SECONDS", "12"))
@@ -21,6 +22,11 @@ class PracticeGoalRequest(BaseModel):
 class ResumeTextRequest(BaseModel):
     text: str
     file_name: str | None = "Pasted resume"
+
+
+class EntitlementSyncRequest(BaseModel):
+    purchase_token: str
+    product_id: str = "prezzence_pro"
 
 
 def _localized_coaching_tip(language: str, strongest: str, strongest_score: int, weakest: str, weakest_score: int) -> str:
@@ -45,28 +51,6 @@ def _localized_coaching_tip(language: str, strongest: str, strongest_score: int,
         f"Your highest current signal is '{strongest}' at {strongest_score}%, so it is "
         f"not a strength yet. Start by improving your {weakest_l}, then build clearer "
         f"evidence for {strongest_l}."
-    )
-
-    templates = {
-        "en": "Your strongest current area is '{strongest}' at {strongest_score}%, while '{weakest}' at {weakest_score}% needs attention. Focus on improving your {weakest_l} in your next session.",
-        "es": "Tu '{strongest}' es fuerte con {strongest_score}%, pero '{weakest}' con {weakest_score}% necesita atención. Enfócate en mejorar {weakest_l} en tu próxima sesión.",
-        "fr": "Votre compétence '{strongest}' est solide à {strongest_score}%, mais '{weakest}' à {weakest_score}% demande du travail. Concentrez-vous sur {weakest_l} lors de votre prochaine session.",
-        "de": "'{strongest}' ist mit {strongest_score}% stark, aber '{weakest}' mit {weakest_score}% braucht Aufmerksamkeit. Arbeiten Sie in der nächsten Sitzung an {weakest_l}.",
-        "it": "La tua area '{strongest}' è forte al {strongest_score}%, ma '{weakest}' al {weakest_score}% richiede attenzione. Concentrati su {weakest_l} nella prossima sessione.",
-        "pt": "Sua área '{strongest}' está forte em {strongest_score}%, mas '{weakest}' em {weakest_score}% precisa de atenção. Foque em melhorar {weakest_l} na próxima sessão.",
-        "zh": "你的“{strongest}”较强，为 {strongest_score}%，但“{weakest}”为 {weakest_score}%，需要加强。下一次请重点提升{weakest_l}。",
-        "ja": "「{strongest}」は {strongest_score}% と強みですが、「{weakest}」は {weakest_score}% で改善が必要です。次回は{weakest_l}に集中しましょう。",
-        "ko": "'{strongest}'은 {strongest_score}%로 강점이지만, '{weakest}'은 {weakest_score}%로 개선이 필요합니다. 다음 세션에서는 {weakest_l}에 집중하세요.",
-        "ar": "مجال '{strongest}' قوي بنسبة {strongest_score}%، لكن '{weakest}' بنسبة {weakest_score}% يحتاج إلى اهتمام. ركز على تحسين {weakest_l} في جلستك القادمة.",
-        "hi": "आपका '{strongest}' {strongest_score}% पर मजबूत है, लेकिन '{weakest}' {weakest_score}% पर ध्यान चाहता है। अगले सत्र में {weakest_l} सुधारने पर ध्यान दें।",
-    }
-    template = templates.get((language or "en").lower(), templates["en"])
-    return template.format(
-        strongest=strongest,
-        strongest_score=strongest_score,
-        weakest=weakest,
-        weakest_score=weakest_score,
-        weakest_l=weakest.lower(),
     )
 
 
@@ -96,7 +80,29 @@ async def get_entitlement(current_user: dict = Depends(get_current_user)):
         )
     except Exception:
         is_premium = False
-    return {"is_premium": is_premium, "plan": "premium" if is_premium else "free"}
+    if BETA_UNLOCK_ALL_FEATURES:
+        is_premium = True
+    return {
+        "is_premium": is_premium,
+        "plan": "beta" if BETA_UNLOCK_ALL_FEATURES else ("premium" if is_premium else "free"),
+        "beta_unlock_all_features": BETA_UNLOCK_ALL_FEATURES,
+    }
+
+
+@router.post("/me/entitlement/sync", status_code=200)
+async def sync_entitlement(
+    payload: EntitlementSyncRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record a verified Google Play purchase token for server-side premium checks."""
+    token = payload.purchase_token.strip()
+    product_id = payload.product_id.strip() or "prezzence_pro"
+    if len(token) < 8:
+        raise HTTPException(status_code=400, detail="Invalid purchase token")
+    synced = await neon_db.set_user_premium(str(current_user["id"]), plan=product_id)
+    if not synced:
+        raise HTTPException(status_code=503, detail="Could not update entitlement")
+    return {"is_premium": True, "plan": "premium", "synced": True}
 
 
 @router.get("/{user_id}/progress", status_code=200)

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from services.tts import tts_service
 from services.database import neon_db
-from services.rate_limit import public_rate_limited
+from services.rate_limit import rate_limited
+from middleware.auth import get_current_user
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
@@ -12,7 +13,11 @@ class TTSRequest(BaseModel):
     lang: str = "en"
 
 @router.post("/synthesize")
-async def synthesize_text(request: TTSRequest, _rate_limit: None = Depends(public_rate_limited("tts"))):
+async def synthesize_text(
+    request: TTSRequest,
+    current_user: dict = Depends(rate_limited("tts")),
+):
+    user_id = str(current_user.get("id", "anonymous"))
     try:
         result = await tts_service.synthesize(
             text=request.text,
@@ -22,7 +27,7 @@ async def synthesize_text(request: TTSRequest, _rate_limit: None = Depends(publi
     except Exception as exc:
         print(f"[TTS] Synthesis failed: {exc}")
         await neon_db.track_event({
-            "user_id": "anonymous",
+            "user_id": user_id,
             "name": "api_tts_failed",
             "properties": {
                 "chars": len(request.text),
@@ -33,7 +38,7 @@ async def synthesize_text(request: TTSRequest, _rate_limit: None = Depends(publi
         })
         raise HTTPException(status_code=503, detail="Voice synthesis is temporarily unavailable.")
     await neon_db.track_event({
-        "user_id": "anonymous",
+        "user_id": user_id,
         "name": "api_tts_synthesized",
         "properties": {
             "chars": len(request.text),

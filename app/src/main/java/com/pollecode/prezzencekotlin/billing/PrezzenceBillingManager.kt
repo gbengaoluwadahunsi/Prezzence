@@ -20,7 +20,7 @@ import kotlin.coroutines.resume
 
 class PrezzenceBillingManager(
     context: Context,
-    private val onEntitlementChanged: (Boolean, String) -> Unit,
+    private val onEntitlementChanged: (entitled: Boolean, status: String, purchaseToken: String?) -> Unit,
 ) : PurchasesUpdatedListener {
     private val appContext = context.applicationContext
     private var productDetails: ProductDetails? = null
@@ -38,12 +38,12 @@ class PrezzenceBillingManager(
         productDetails = querySubscriptionProduct()
         val entitled = queryActiveSubscription()
         val status = when {
-            entitled -> "Active subscription restored from Google Play."
+            entitled.first -> "Active subscription restored from Google Play."
             productDetails == null -> "Subscription product '$productId' was not found in Google Play Console."
             else -> "Subscription is available."
         }
-        onEntitlementChanged(entitled, status)
-        BillingUiState(true, entitled, productId, status, productDetails?.displayPrice())
+        onEntitlementChanged(entitled.first, status, entitled.second)
+        BillingUiState(true, entitled.first, productId, status, productDetails?.displayPrice(), entitled.second)
     }
 
     suspend fun purchase(activity: Activity): BillingUiState {
@@ -72,13 +72,13 @@ class PrezzenceBillingManager(
 
     override fun onPurchasesUpdated(billingResult: BillingResult, purchases: MutableList<Purchase>?) {
         if (billingResult.responseCode != BillingClient.BillingResponseCode.OK || purchases.isNullOrEmpty()) {
-            onEntitlementChanged(false, billingMessage(billingResult))
+            onEntitlementChanged(false, billingMessage(billingResult), null)
             return
         }
         purchases.forEach { purchase ->
             if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
                 acknowledgeIfNeeded(purchase)
-                onEntitlementChanged(true, "Subscription active.")
+                onEntitlementChanged(true, "Subscription active.", purchase.purchaseToken)
             }
         }
     }
@@ -114,16 +114,17 @@ class PrezzenceBillingManager(
         }
     }
 
-    private suspend fun queryActiveSubscription(): Boolean = suspendCancellableCoroutine { cont ->
+    private suspend fun queryActiveSubscription(): Pair<Boolean, String?> = suspendCancellableCoroutine { cont ->
         val params = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.SUBS)
             .build()
         billingClient.queryPurchasesAsync(params) { result, purchases ->
-            val active = result.responseCode == BillingClient.BillingResponseCode.OK && purchases.any { purchase ->
+            val activePurchase = purchases.firstOrNull { purchase ->
                 purchase.products.contains(productId) && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
             }
+            val active = result.responseCode == BillingClient.BillingResponseCode.OK && activePurchase != null
             purchases.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.forEach(::acknowledgeIfNeeded)
-            cont.resume(active)
+            cont.resume(active to activePurchase?.purchaseToken)
         }
     }
 
@@ -134,7 +135,7 @@ class PrezzenceBillingManager(
             .build()
         billingClient.acknowledgePurchase(params) { result ->
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                onEntitlementChanged(true, "Subscription acknowledged.")
+                onEntitlementChanged(true, "Subscription acknowledged.", purchase.purchaseToken)
             }
         }
     }
@@ -167,4 +168,5 @@ data class BillingUiState(
     val productId: String,
     val status: String,
     val price: String? = null,
+    val purchaseToken: String? = null,
 )

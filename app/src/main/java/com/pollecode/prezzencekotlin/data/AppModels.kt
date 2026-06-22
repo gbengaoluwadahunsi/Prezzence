@@ -87,6 +87,7 @@ data class NotificationItem(
     val isRead: Boolean,
 )
 object PrezzenceDefaults {
+    const val FREE_SESSION_LIMIT = 3
     val interviewers = listOf(
         Interviewer("maya", "Maya", "People Lead", "Lily"),
         Interviewer("jonas", "Jonas", "Hiring Manager", "Oliver"),

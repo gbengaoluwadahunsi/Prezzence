@@ -21,8 +21,7 @@ SESSION_DB_TIMEOUT_SECONDS = float(os.getenv("SESSION_DB_TIMEOUT_SECONDS", "8"))
 SESSION_META_TIMEOUT_SECONDS = float(os.getenv("SESSION_META_TIMEOUT_SECONDS", "4"))
 SESSION_ANALYTICS_TIMEOUT_SECONDS = float(os.getenv("SESSION_ANALYTICS_TIMEOUT_SECONDS", "2"))
 SESSION_WEB_RESEARCH_TIMEOUT_SECONDS = float(os.getenv("SESSION_WEB_RESEARCH_TIMEOUT_SECONDS", "6"))
-FREE_SESSION_LIMIT = int(os.getenv("FREE_SESSION_LIMIT", "3"))
-BETA_UNLOCK_ALL_FEATURES = os.getenv("BETA_UNLOCK_ALL_FEATURES", "false").strip().lower() in {"1", "true", "yes", "on"}
+from core.feature_flags import BETA_UNLOCK_ALL_FEATURES, FREE_SESSION_LIMIT
 
 DEFAULT_PERSONAS = {
     "maya": {"name": "Maya", "title": "People Lead", "personality": "friendly"},
@@ -610,6 +609,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
             "company_context": company_context or request.company_context,
             "language": request.language,
             "question_count": len(generated.get("questions", [])),
+            "questions": generated.get("questions", []),
             "status": "in_progress"
         }
         

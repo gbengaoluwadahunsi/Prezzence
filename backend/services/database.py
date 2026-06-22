@@ -87,6 +87,8 @@ class NeonDatabase:
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS company_context TEXT;
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS language VARCHAR(16) DEFAULT 'en';
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS question_count INT DEFAULT 0;
+                ALTER TABLE sessions ADD COLUMN IF NOT EXISTS include_technical BOOLEAN NOT NULL DEFAULT TRUE;
+                ALTER TABLE sessions ADD COLUMN IF NOT EXISTS questions JSONB NOT NULL DEFAULT '[]'::jsonb;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS improved_answer TEXT;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_structure TEXT;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS missing_evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -216,9 +218,10 @@ class NeonDatabase:
                 INSERT INTO sessions (
                     user_id, role_title, industry, seniority, interview_type, 
                     difficulty, length, panel_config, status,
-                    company_name, company_website, company_context, language, question_count
+                    company_name, company_website, company_context, language, question_count,
+                    include_technical, questions
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
                 RETURNING id, user_id, role_title, status, created_at
                 """,
                 user_id,
@@ -235,6 +238,8 @@ class NeonDatabase:
                 session_data.get("company_context"),
                 session_data.get("language", "en"),
                 int(session_data.get("question_count") or 0),
+                bool(session_data.get("include_technical", True)),
+                json.dumps(session_data.get("questions", [])),
             )
             return dict(row)
         except Exception as e:
@@ -419,6 +424,29 @@ class NeonDatabase:
             print(f"[Neon] Premium entitlement check failed: {exc}")
             return False
 
+    async def set_user_premium(self, user_id: str, plan: str = "premium") -> bool:
+        if not self.pool:
+            return False
+        try:
+            import uuid as uuid_mod
+            user_uuid = uuid_mod.UUID(str(user_id))
+            await self.pool.execute(
+                """
+                INSERT INTO user_entitlements (user_id, plan, is_premium, updated_at)
+                VALUES ($1, $2, TRUE, NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                SET plan = EXCLUDED.plan,
+                    is_premium = TRUE,
+                    updated_at = NOW()
+                """,
+                user_uuid,
+                plan,
+            )
+            return True
+        except Exception as exc:
+            print(f"[Neon] Failed to set premium entitlement: {exc}")
+            return False
+
     async def verify_device_allowance(self, user_id: str, device_id: str, max_devices: int = 2) -> bool:
         if not self.pool or not device_id:
             return True
@@ -543,6 +571,23 @@ class NeonDatabase:
             json.dumps(answer_data.get("coaching_breakdown") or {})
         )
         return dict(row)
+
+    def _session_questions(self, session: Dict) -> List[Dict]:
+        raw = session.get("questions")
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw, list):
+            return []
+        normalized = []
+        for item in raw:
+            if isinstance(item, dict):
+                normalized.append(item)
+        return normalized
 
     def _normalize_answer_row(self, row) -> Dict:
         answer = dict(row)
@@ -1091,6 +1136,8 @@ class NeonDatabase:
             "role_title": session["role_title"],
             "industry": session["industry"],
             "status": session["status"],
+            "include_technical": bool(session.get("include_technical", True)),
+            "questions": self._session_questions(session),
             "date": session["created_at"].strftime("%Y-%m-%d") if session["created_at"] else "",
             "time": session["created_at"].strftime("%H:%M") if session["created_at"] else "",
             "duration": session.get("length", "15"),
@@ -1313,6 +1360,10 @@ class NeonDatabase:
                 )
                 deleted_devices = await conn.fetchval(
                     "WITH deleted AS (DELETE FROM user_devices WHERE user_id = $1 RETURNING 1) SELECT COUNT(*) FROM deleted",
+                    user_id,
+                )
+                deleted_practice_goals = await conn.fetchval(
+                    "WITH deleted AS (DELETE FROM user_practice_goals WHERE user_id = $1 RETURNING 1) SELECT COUNT(*) FROM deleted",
                     user_id,
                 )
                 deleted_entitlements = await conn.fetchval(

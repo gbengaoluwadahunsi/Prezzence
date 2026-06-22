@@ -68,7 +68,7 @@ class AppState(context: Context) {
         get() = runCatching {
             val mode = InterviewMode.valueOf(prefs.getString("interviewMode", InterviewMode.SINGLE.name) ?: InterviewMode.SINGLE.name)
             // Free tier: single mode only (Sophia)
-            if (!subscriptionEntitled && mode == InterviewMode.PANEL) InterviewMode.SINGLE else mode
+            if (!hasPremiumAccess() && mode == InterviewMode.PANEL) InterviewMode.SINGLE else mode
         }.getOrDefault(InterviewMode.SINGLE)
         set(value) = prefs.edit().putString("interviewMode", value.name).apply()
 
@@ -160,6 +160,12 @@ class AppState(context: Context) {
         get() = prefs.getBoolean("subscriptionEntitled", false)
         set(value) = prefs.edit().putBoolean("subscriptionEntitled", value).apply()
 
+    var betaUnlockAllFeatures: Boolean
+        get() = prefs.getBoolean("betaUnlockAllFeatures", false)
+        set(value) = prefs.edit().putBoolean("betaUnlockAllFeatures", value).apply()
+
+    fun hasPremiumAccess(): Boolean = subscriptionEntitled || betaUnlockAllFeatures
+
     var subscriptionStatus: String
         get() = prefs.getString("subscriptionStatus", "Not checked") ?: "Not checked"
         set(value) = prefs.edit().putString("subscriptionStatus", value).apply()
@@ -223,7 +229,7 @@ class AppState(context: Context) {
 
     fun interviewerFor(question: InterviewQuestion = currentQuestion()): Interviewer {
         // Free tier: only Sophia (amina) is available
-        if (!subscriptionEntitled) {
+        if (!hasPremiumAccess()) {
             return PrezzenceDefaults.interviewers.firstOrNull { it.id == "amina" }
                 ?: PrezzenceDefaults.interviewers.last()
         }
@@ -405,6 +411,8 @@ class AppState(context: Context) {
         userFullName = ""
         userFocus = ""
         onboardingComplete = false
+        betaUnlockAllFeatures = false
+        subscriptionEntitled = false
         resetActiveSession()
     }
 
@@ -427,7 +435,7 @@ class AppState(context: Context) {
         }.getOrDefault(emptyList())
             .filterNot { isSessionDeleted(it.id) }
         // Free tier: only show last 5 sessions
-        return if (!subscriptionEntitled) all.takeLast(5) else all
+        return if (!hasPremiumAccess()) all.takeLast(5) else all
     }
 
     fun isSessionDeleted(id: String): Boolean = id.isNotBlank() && id in deletedSessionIds()
@@ -558,7 +566,7 @@ class AppState(context: Context) {
         val remoteIds = mergedRemote.map { it.id }.toSet()
         val extras = sessionHistory().filterNot { it.id in remoteIds }
         writeHistory((mergedRemote + extras).take(30))
-        completedSessions = (mergedRemote + extras).size
+        completedSessions = (mergedRemote + extras).count { it.resolvedPracticeStatus() == "Completed" }
         val scored = (mergedRemote + extras).filter { it.score > 0 }
         readinessScore = if (scored.isEmpty()) readinessScore else scored.map { it.score }.average().toInt().coerceIn(0, 100)
     }

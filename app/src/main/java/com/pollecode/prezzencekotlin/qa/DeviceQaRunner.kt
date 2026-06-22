@@ -18,7 +18,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.math.max
 
-class DeviceQaRunner(private val context: Context) {
+class DeviceQaRunner(
+    private val context: Context,
+    private val authToken: String = "",
+) {
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.MINUTES)
@@ -99,8 +102,11 @@ class DeviceQaRunner(private val context: Context) {
         onStatus("Checking Duix model endpoint")
         val url = BuildConfig.PREZZENCE_API_URL.trimEnd('/') + "/api/duix/models"
         try {
-            val request = Request.Builder().url(url).get().build()
-            http.newCall(request).execute().use { response ->
+            val requestBuilder = Request.Builder().url(url).get()
+            if (authToken.isNotBlank()) {
+                requestBuilder.header("Authorization", "Bearer $authToken")
+            }
+            http.newCall(requestBuilder.build()).execute().use { response ->
                 DeviceQaResult("Duix timing", response.isSuccessful, if (response.isSuccessful) "Duix model endpoint is reachable." else "Endpoint returned HTTP ${response.code}.")
             }
         } catch (error: Throwable) {

@@ -666,6 +666,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     companion object {
         private const val BASE_MODEL_NAME = "gj_dh_res"
 
+        @Volatile
+        var downloadAuthToken: String? = null
+
         fun isModelCached(context: Context, name: String): Boolean {
             val modelName = normalizeModelNameStatic(name)
             val root = modelRootFor(context)
@@ -786,10 +789,15 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> Downloading model $name (URL ${urlIndex + 1}/${urlsToTry.size}, attempt $attempt/$maxRetries)")
                         if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", ">>> From: $url")
                         
-                        val request = Request.Builder()
+                        val requestBuilder = Request.Builder()
                             .url(url)
                             .header("User-Agent", "Prezzence-Android/${BuildConfig.PREZZENCE_VERSION_NAME}")
-                            .build()
+                        if (url.contains("/api/duix/models/download/")) {
+                            downloadAuthToken?.takeIf { it.isNotBlank() }?.let { token ->
+                                requestBuilder.header("Authorization", "Bearer $token")
+                            }
+                        }
+                        val request = requestBuilder.build()
                         
                         // Create client that follows redirects
                         val downloadClient = client.newBuilder()

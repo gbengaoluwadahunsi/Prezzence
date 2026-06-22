@@ -158,8 +158,7 @@ object SessionScoring {
 
     fun sessionSkillBreakdown(answers: List<AnswerResult>, questions: List<InterviewQuestion>): SessionSkillBreakdown? {
         val dimensions = answers.mapIndexedNotNull { index, answer ->
-            val scored = sanitizeScore(answer.transcript, answer.score)
-            if (!isSubstantiveAnswer(answer.transcript) || scored <= 0) return@mapIndexedNotNull null
+            if (isBlankTranscript(answer.transcript) || answer.score <= 0) return@mapIndexedNotNull null
             val question = questions.getOrNull(index)?.text.orEmpty()
             analyzeAnswer(question, answer.transcript)
         }
@@ -174,20 +173,16 @@ object SessionScoring {
     }
 
     fun sessionScore(answers: List<AnswerResult>, questions: List<InterviewQuestion>): Int {
-        val substantive = answers.mapIndexedNotNull { index, answer ->
-            if (!isSubstantiveAnswer(answer.transcript)) return@mapIndexedNotNull null
-            val question = questions.getOrNull(index)?.text.orEmpty()
-            val dims = analyzeAnswer(question, answer.transcript)
-            sanitizeScore(answer.transcript, minOf(answer.score, dims.overall))
-        }
-        if (substantive.isEmpty()) return 0
-        return substantive.average().roundToInt().coerceIn(0, 100)
+        val scored = answers.mapNotNull { answer ->
+            if (isBlankTranscript(answer.transcript)) null
+            else answer.score.coerceIn(0, 100)
+        }.filter { it > 0 }
+        if (scored.isEmpty()) return 0
+        return scored.average().roundToInt().coerceIn(0, 100)
     }
 
     fun substantiveAnswerCount(answers: List<AnswerResult>): Int =
-        answers.count {
-            isSubstantiveAnswer(it.transcript) && sanitizeScore(it.transcript, it.score) > 0
-        }
+        answers.count { !isBlankTranscript(it.transcript) && it.score > 0 }
 
     fun normalizeStoredTranscript(transcript: String): String {
         val trimmed = transcript.trim()
