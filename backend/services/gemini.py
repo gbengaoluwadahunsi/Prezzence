@@ -935,6 +935,7 @@ class GeminiService:
         role = (role_title or "professional").strip()
         role_lower = role.lower()
 
+        # Introduction questions get a role-specific hand-crafted answer
         if any(
             phrase in question_lower
             for phrase in (
@@ -946,23 +947,113 @@ class GeminiService:
         ):
             return self._intro_model_answer(role, role_lower)
 
-        if any(
-            phrase in question_lower
-            for phrase in ("tell me about a time", "describe a time", "give me an example")
-        ):
-            return (
-                f"In my previous role as a {role}, I faced a situation very similar to this question. "
-                "I took ownership of the problem, coordinated with the people involved, made a clear decision under pressure, "
-                "and delivered a measurable result. That experience is exactly why I trust my judgment in this kind of scenario."
+        # For all other questions, generate a question-specific model answer via AI
+        return self._ai_model_answer(question, role, transcript, interviewer_name, interviewer_title)
+
+    def _ai_model_answer(
+        self,
+        question: str,
+        role: str,
+        transcript: str = "",
+        interviewer_name: str = "",
+        interviewer_title: str = "",
+    ) -> str:
+        """
+        Generate a question-specific model answer using the AI provider (sync HTTP).
+        Falls back to a generic template if the AI call fails or times out.
+        """
+        prompt = (
+            f"You are a seasoned interview coach. Write a first-person model answer for this interview question.\n\n"
+            f"Role: {role}\n"
+            f"Question: {question}\n"
+        )
+        if interviewer_name:
+            prompt += f"Interviewer: {interviewer_name}"
+            if interviewer_title:
+                prompt += f" ({interviewer_title})"
+            prompt += "\n"
+        if transcript.strip():
+            prompt += (
+                f"\nThe candidate said: \"{transcript.strip()}\"\n"
+                "Use their real experience as a starting point but make the answer much stronger.\n"
             )
 
-        if question_lower.startswith("how would you") or question_lower.startswith("how do you"):
-            return (
-                f"I would start by clarifying the goal, break the work into the highest-impact steps, and communicate early with stakeholders. "
-                f"As a {role}, I would tackle the riskiest part first, adjust quickly when new information appears, "
-                "and close the loop with a result the team can trust."
-            )
+        prompt += (
+            "\nRULES:\n"
+            "- Write in first person as if YOU are the candidate.\n"
+            "- Keep it under 120 words.\n"
+            "- Use one concrete, believable example with a specific situation, action, and result.\n"
+            "- Do NOT use bracketed placeholders like [company] or [metric].\n"
+            "- Do NOT start with 'Here is a stronger answer' or any instructional text.\n"
+            "- Just output the model answer directly, nothing else.\n"
+            "- Vary the example between questions — don't repeat the same story.\n"
+        )
 
+        try:
+            if self.scoring_provider == "groq" and self.groq_api_key:
+                result = self._sync_groq_model_answer(prompt)
+            elif self.api_key:
+                result = self._sync_gemini_model_answer(prompt)
+            else:
+                return self._generic_fallback(question, role)
+
+            if result and len(result.strip()) >= 30 and not result.strip().startswith("Here is"):
+                return result.strip()
+
+        except Exception as e:
+            print(f"[AI ModelAnswer] Generation failed: {e}")
+
+        return self._generic_fallback(question, role)
+
+    def _sync_groq_model_answer(self, prompt: str) -> str:
+        try:
+            response = httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.groq_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 300,
+                    "temperature": 0.8,
+                },
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+            return ""
+        except Exception as e:
+            print(f"[Groq ModelAnswer] Error: {e}")
+            return ""
+
+    def _sync_gemini_model_answer(self, prompt: str) -> str:
+        try:
+            response = httpx.post(
+                f"{self.base_url}?key={self.api_key}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"maxOutputTokens": 300, "temperature": 0.8},
+                },
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip()
+            return ""
+        except Exception as e:
+            print(f"[Gemini ModelAnswer] Error: {e}")
+            return ""
+
+    def _generic_fallback(self, question: str, role: str) -> str:
+        """Last-resort generic answer when AI is unavailable."""
         return (
             f"I am a {role} with more than a decade of relevant experience. "
             "In my most recent role I owned a project end to end, made the key decisions myself, "
