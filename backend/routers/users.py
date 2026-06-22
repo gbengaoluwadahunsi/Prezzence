@@ -86,6 +86,19 @@ def _empty_coaching_tip(language: str) -> str:
     }.get((language or "en").lower(), "Complete your first interview session to start receiving personalized coaching insights.")
 
 
+@router.get("/me/entitlement", status_code=200)
+async def get_entitlement(current_user: dict = Depends(get_current_user)):
+    """Returns the server-authoritative entitlement status for the authenticated user."""
+    try:
+        is_premium = await asyncio.wait_for(
+            neon_db.is_user_premium(str(current_user["id"]), current_user.get("email")),
+            timeout=4.0,
+        )
+    except Exception:
+        is_premium = False
+    return {"is_premium": is_premium, "plan": "premium" if is_premium else "free"}
+
+
 @router.get("/{user_id}/progress", status_code=200)
 async def get_user_progress(user_id: str, language: str = "en", current_user: dict = Depends(get_current_user)):
     """

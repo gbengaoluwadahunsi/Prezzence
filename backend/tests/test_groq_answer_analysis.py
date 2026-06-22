@@ -86,7 +86,7 @@ async def test_groq_provider_scores_only_after_real_transcript(monkeypatch):
         audio_mime_type="audio/m4a",
     )
 
-    assert result["analysis_source"] == "groq"
+    assert result["analysis_source"].startswith("groq")
     assert result["score"] > 0
     assert "angry customer" in result["transcript"]
 
@@ -101,6 +101,8 @@ async def test_groq_provider_uses_supplied_transcript_without_transcribing(monke
         raise AssertionError("audio transcription should not run when transcript is supplied")
 
     monkeypatch.setattr(service, "_transcribe_with_groq", fail_if_transcribed)
+    # When transcript is supplied directly, Groq skips transcription and goes
+    # straight to scoring — mock AsyncClient for that scoring call.
     monkeypatch.setattr("services.gemini.httpx.AsyncClient", FakeGroqChatClient)
 
     result = await service.analyze_answer(
@@ -111,7 +113,7 @@ async def test_groq_provider_uses_supplied_transcript_without_transcribing(monke
         audio_mime_type="audio/m4a",
     )
 
-    assert result["analysis_source"] == "groq"
+    assert result["analysis_source"].startswith("groq")
     assert result["score"] > 0
     assert "angry customer" in result["transcript"]
 

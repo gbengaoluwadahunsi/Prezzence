@@ -92,6 +92,15 @@ class NeonDatabase:
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS missing_evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS stronger_phrasing JSONB NOT NULL DEFAULT '[]'::jsonb;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS coaching_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb;
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'answers_session_question_unique'
+                    ) THEN
+                        ALTER TABLE answers ADD CONSTRAINT answers_session_question_unique
+                            UNIQUE (session_id, question_id);
+                    END IF;
+                END $$;
 
                 CREATE TABLE IF NOT EXISTS user_entitlements (
                     user_id UUID PRIMARY KEY,
@@ -484,6 +493,21 @@ class NeonDatabase:
                 missing_evidence, stronger_phrasing, coaching_breakdown
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            ON CONFLICT (session_id, question_id) DO UPDATE SET
+                transcript = EXCLUDED.transcript,
+                score = EXCLUDED.score,
+                clarity = EXCLUDED.clarity,
+                pacing = EXCLUDED.pacing,
+                impact = EXCLUDED.impact,
+                confidence = EXCLUDED.confidence,
+                knowledge = EXCLUDED.knowledge,
+                feedback = EXCLUDED.feedback,
+                tips = EXCLUDED.tips,
+                improved_answer = EXCLUDED.improved_answer,
+                answer_structure = EXCLUDED.answer_structure,
+                missing_evidence = EXCLUDED.missing_evidence,
+                stronger_phrasing = EXCLUDED.stronger_phrasing,
+                coaching_breakdown = EXCLUDED.coaching_breakdown
             RETURNING id
             """,
             answer_data["session_id"],

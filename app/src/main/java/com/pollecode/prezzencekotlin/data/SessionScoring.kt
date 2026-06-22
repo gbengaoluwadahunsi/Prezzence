@@ -59,15 +59,26 @@ object SessionScoring {
         if (isBlankTranscript(raw)) return false
         val lower = raw.lowercase()
         if (lower.contains("[music]") || lower.contains("[silence]") || lower.contains("[noise]")) return false
-        if (micCheckPhrases.any { lower.contains(it) }) return false
 
         val words = meaningfulWords(lower)
+
+        // Only treat mic-check phrases as disqualifying when the answer is short
+        // (a real answer can open with "can you hear me" before continuing)
+        if (words.size < 14 && micCheckPhrases.any { lower.contains(it) }) return false
+
         if (words.size < 14) return false
 
         val interviewSignals = listOf(
+            // Original signals
             "because", "result", "outcome", "customer", "client", "team", "project", "managed",
             "handled", "resolved", "improved", "example", "situation", "challenge", "delivered",
             "implemented", "led", "worked", "helped", "achieved", "reduced", "increased",
+            // Common real-answer words that the original list missed
+            "experience", "understand", "environment", "explain", "explain", "wanted", "needed",
+            "believe", "decided", "applied", "started", "completed", "focused", "learned",
+            "approached", "used", "tried", "created", "developed", "supported", "chose",
+            "role", "company", "field", "background", "skill", "goal", "approach",
+            "encouraged", "motivated", "interested", "responsible", "involved",
         )
         val signalHits = interviewSignals.count { lower.contains(it) }
         val personalActions = listOf("i ", "my ", "we ", "our ").count { lower.contains(it) }

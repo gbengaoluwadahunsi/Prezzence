@@ -408,16 +408,33 @@ class PrezzenceBackendClient {
         }.getOrNull()
     }
 
-    suspend fun listSessions(bearerToken: String?): List<SessionSummary> = withContext(Dispatchers.IO) {
+    private suspend fun withTokenRetry(
+        token: String,
+        refreshToken: String?,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
+        block: suspend (String) -> Boolean,
+    ): Boolean {
+        if (block(token)) return true
+        if (refreshToken.isNullOrBlank()) return false
+        val refreshed = refreshSession(refreshToken) ?: return false
+        onTokenRefreshed?.invoke(refreshed)
+        return block(refreshed.accessToken)
+    }
+
+    suspend fun listSessions(
+        bearerToken: String?,
+        refreshToken: String? = null,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
+    ): List<SessionSummary> = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank()) return@withContext emptyList()
-        runCatching {
+        suspend fun fetch(token: String): List<SessionSummary>? {
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/")
-                .header("Authorization", "Bearer $bearerToken")
+                .header("Authorization", "Bearer $token")
                 .get()
                 .build()
-
-            client.newCall(request).execute().use { response ->
+            return client.newCall(request).execute().use { response ->
+                if (response.code == 401) return@use null
                 if (!response.isSuccessful) return@use emptyList()
                 val sessions = JSONObject(response.body?.string().orEmpty()).optJSONArray("sessions") ?: JSONArray()
                 (0 until sessions.length()).map { index ->
@@ -434,19 +451,35 @@ class PrezzenceBackendClient {
                     )
                 }
             }
+        }
+        runCatching {
+            fetch(bearerToken) ?: run {
+                if (refreshToken.isNullOrBlank()) return@runCatching emptyList()
+                val refreshed = refreshSession(refreshToken) ?: return@runCatching emptyList()
+                onTokenRefreshed?.invoke(refreshed)
+                fetch(refreshed.accessToken) ?: emptyList()
+            }
         }.getOrDefault(emptyList())
     }
 
-    suspend fun completeSession(bearerToken: String?, sessionId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun completeSession(
+        bearerToken: String?,
+        sessionId: String,
+        refreshToken: String? = null,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank() || sessionId.isBlank()) return@withContext false
-        runCatching {
+        suspend fun doComplete(token: String): Boolean {
             val body = "{}".toRequestBody(jsonMediaType)
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/$sessionId/complete")
-                .header("Authorization", "Bearer $bearerToken")
+                .header("Authorization", "Bearer $token")
                 .patch(body)
                 .build()
-            client.newCall(request).execute().use { it.isSuccessful }
+            return client.newCall(request).execute().use { it.isSuccessful }
+        }
+        runCatching {
+            withTokenRetry(bearerToken, refreshToken, onTokenRefreshed) { doComplete(it) }
         }.getOrDefault(false)
     }
 
@@ -624,29 +657,6 @@ class PrezzenceBackendClient {
         }.getOrDefault(false)
     }
 
-    suspend fun scoreLocalTranscript(question: String, transcript: String): AnswerResult {
-        val clean = transcript.trim()
-        val dims = SessionScoring.analyzeAnswer(question, clean)
-        val localScore = dims.overall
-        return AnswerResult(
-            transcript = SessionScoring.normalizeStoredTranscript(clean),
-            score = SessionScoring.sanitizeScore(clean, localScore),
-            feedback = when {
-                !SessionScoring.isSubstantiveAnswer(clean) ->
-                    "We could not detect a real interview answer. Speak directly to the question with one example, your action, and the result."
-                localScore < 35 ->
-                    "The answer needs a clearer connection to the question, a specific action, and a result."
-                else ->
-                    "The answer has usable signal. Make it stronger with one concrete result and fewer general words."
-            },
-            improvedAnswer = "",
-            what = "A specific situation, the action you took, and the result.",
-            how = "Answer directly, then use one clear example with a short result.",
-            why = "This helps the interviewer hear proof instead of a general statement.",
-            coachingMessage = buildCoachingMessage(question, clean, localScore),
-        )
-    }
-
     suspend fun fetchModelAnswer(
         bearerToken: String,
         questionText: String,
@@ -654,9 +664,11 @@ class PrezzenceBackendClient {
         roleTitle: String = "",
         interviewerName: String = "",
         interviewerTitle: String = "",
+        refreshToken: String? = null,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
     ): AnswerResult? = withContext(Dispatchers.IO) {
         if (bearerToken.isBlank() || questionText.isBlank()) return@withContext null
-        runCatching {
+        suspend fun doFetch(token: String): AnswerResult? {
             val body = JSONObject()
                 .put("question_text", questionText)
                 .put("transcript", transcript)
@@ -667,10 +679,11 @@ class PrezzenceBackendClient {
                 .toRequestBody(jsonMediaType)
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/coaching/model-answer")
-                .header("Authorization", "Bearer $bearerToken")
+                .header("Authorization", "Bearer $token")
                 .post(body)
                 .build()
-            client.newCall(request).execute().use { response ->
+            return client.newCall(request).execute().use { response ->
+                if (response.code == 401) return@use null
                 if (!response.isSuccessful) return@use null
                 val root = JSONObject(response.body?.string().orEmpty())
                 val breakdown = root.optJSONObject("coaching_breakdown")
@@ -684,6 +697,14 @@ class PrezzenceBackendClient {
                     why = breakdown?.optString("why_it_works", "") ?: "",
                     coachingMessage = root.optString("coaching_message", ""),
                 ).takeIf { it.improvedAnswer.isNotBlank() }
+            }
+        }
+        runCatching {
+            doFetch(bearerToken) ?: run {
+                if (refreshToken.isNullOrBlank()) return@runCatching null
+                val refreshed = refreshSession(refreshToken) ?: return@runCatching null
+                onTokenRefreshed?.invoke(refreshed)
+                doFetch(refreshed.accessToken)
             }
         }.getOrNull()
     }
@@ -745,12 +766,13 @@ class PrezzenceBackendClient {
                 val score = analysis.optInt("score", 0)
                 val source = root.optJSONObject("performance")?.optString("analysis_source", "")
                 Log.i("PrezzenceBackend", "Result: transcript=${transcript_result.take(80)}, score=$score, retry=$retry, source=$source")
+                val rawTranscript = root.optString("transcript", transcript)
+                val backendScore = analysis.optInt("score", 0)
+                // Trust the backend score directly; only zero it when there is genuinely no transcript
+                val resolvedScore = if (SessionScoring.isBlankTranscript(rawTranscript)) 0 else backendScore
                 return@use AnswerResult(
-                    transcript = root.optString("transcript", transcript),
-                    score = SessionScoring.sanitizeScore(
-                        root.optString("transcript", transcript).ifBlank { transcript },
-                        analysis.optInt("score", 0),
-                    ),
+                    transcript = rawTranscript,
+                    score = resolvedScore,
                     feedback = analysis.optString("feedback", ""),
                     improvedAnswer = analysis.optString("improved_answer", ""),
                     what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
@@ -783,8 +805,20 @@ class PrezzenceBackendClient {
         null
     }
 
-    private fun localQualityScore(question: String, transcript: String): Int =
-        SessionScoring.analyzeAnswer(question, transcript).overall
+    suspend fun fetchEntitlement(bearerToken: String): Boolean = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank()) return@withContext false
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/users/me/entitlement")
+                .header("Authorization", "Bearer $bearerToken")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use false
+                JSONObject(response.body?.string().orEmpty()).optBoolean("is_premium", false)
+            }
+        }.getOrDefault(false)
+    }
 
     private fun buildCoachingMessage(question: String, transcript: String, score: Int): String {
         val words = transcript.split(Regex("\\s+")).filter { it.isNotBlank() }.size

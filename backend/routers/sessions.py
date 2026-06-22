@@ -21,8 +21,8 @@ SESSION_DB_TIMEOUT_SECONDS = float(os.getenv("SESSION_DB_TIMEOUT_SECONDS", "8"))
 SESSION_META_TIMEOUT_SECONDS = float(os.getenv("SESSION_META_TIMEOUT_SECONDS", "4"))
 SESSION_ANALYTICS_TIMEOUT_SECONDS = float(os.getenv("SESSION_ANALYTICS_TIMEOUT_SECONDS", "2"))
 SESSION_WEB_RESEARCH_TIMEOUT_SECONDS = float(os.getenv("SESSION_WEB_RESEARCH_TIMEOUT_SECONDS", "6"))
-FREE_SESSION_LIMIT = int(os.getenv("FREE_SESSION_LIMIT", "0"))
-BETA_UNLOCK_ALL_FEATURES = os.getenv("BETA_UNLOCK_ALL_FEATURES", "true").strip().lower() in {"1", "true", "yes", "on"}
+FREE_SESSION_LIMIT = int(os.getenv("FREE_SESSION_LIMIT", "3"))
+BETA_UNLOCK_ALL_FEATURES = os.getenv("BETA_UNLOCK_ALL_FEATURES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_PERSONAS = {
     "maya": {"name": "Maya", "title": "People Lead", "personality": "friendly"},
@@ -322,7 +322,7 @@ async def _submit_answer_payload(
 @router.post("/coaching/model-answer", status_code=200)
 async def coaching_model_answer(
     payload: dict,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(rate_limited("model_answer")),
 ):
     question_text = str(payload.get("question_text") or "").strip()
     transcript = str(payload.get("transcript") or "").strip()

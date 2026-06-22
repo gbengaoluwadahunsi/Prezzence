@@ -975,6 +975,16 @@ class MainActivity : ComponentActivity() {
         val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
             appState.currentQuestionIndex < questions.size
 
+        // Verify entitlement from server to prevent SharedPreference bypass
+        if (appState.authToken.isNotBlank()) {
+            scope.launch {
+                val serverEntitled = backend.fetchEntitlement(appState.authToken)
+                if (serverEntitled != appState.subscriptionEntitled) {
+                    appState.subscriptionEntitled = serverEntitled
+                }
+            }
+        }
+
         // Preload DUIX models for all personas on first app launch
         // This downloads models (~50MB) to device storage when user first signs in
         if (appState.duixModelsPreloaded) {
@@ -3638,12 +3648,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        return result.copy(
-            improvedAnswer = buildLocalModelAnswer(questionText, appState.selectedRole),
-            coachingMessage = result.coachingMessage.ifBlank {
-                "Here is a stronger first-person answer you can adapt to your own experience."
-            },
-        )
+        return result
     }
 
     private fun sanitizeModelAnswer(
@@ -3679,72 +3684,6 @@ class MainActivity : ComponentActivity() {
             lower.contains("in my strongest version of this answer") ||
             lower.contains("i would keep the real detail from my experience") ||
             (lower.startsWith("absolutely. for '") && lower.contains("keep it structured"))
-    }
-
-    private fun buildLocalModelAnswer(questionText: String, roleTitle: String): String {
-        val role = roleTitle.ifBlank { "professional" }
-        val lower = questionText.lowercase(Locale.US)
-        return when {
-            lower.contains("introduce yourself") || lower.contains("overview of your background") ||
-                lower.contains("experience that prepared") || lower.contains("tell me about yourself") ->
-                introModelAnswerForRole(role)
-            lower.contains("tell me about a time") || lower.contains("describe a time") ||
-                lower.contains("give me an example") ->
-                "At my previous company I faced a high-pressure situation tied to that question. " +
-                    "I took ownership of the problem, coordinated with the people involved, made a clear decision under a tight deadline, " +
-                    "and delivered a measurable result. That experience taught me how to stay calm, communicate clearly, and follow through as a $role."
-            lower.contains("how would you") || lower.contains("how do you") ->
-                "I would start by clarifying the goal, break the work into the highest-impact steps, and communicate early with stakeholders. " +
-                    "In a similar situation as a $role, I prioritized the riskiest part first, adjusted quickly when new information appeared, " +
-                    "and closed the loop with a clear result the team could trust."
-            else ->
-                "I'm a $role with more than a decade of relevant experience. In my most recent role I owned a project end to end, " +
-                    "made the key decisions myself, and delivered a result my manager could measure. " +
-                    "That is the same approach I would bring to this question: direct answer first, one concrete example, and a clear outcome."
-        }
-    }
-
-    private fun introModelAnswerForRole(role: String): String {
-        val roleLower = role.lowercase(Locale.US)
-        return when {
-            roleLower.contains("software") || roleLower.contains("engineer") || roleLower.contains("developer") ->
-                "I'm a software engineer with 8 years of experience shipping production systems. " +
-                    "Most recently at Northbridge Labs I led a team of five on a payments platform handling about \$2.1M per day. " +
-                    "Before that at Crestline I rebuilt a legacy monolith into services and cut deploy time from 3 hours to 12 minutes. " +
-                    "I'm looking for a role where I can own delivery end to end and help junior engineers grow."
-            roleLower.contains("teacher") || roleLower.contains("education") ->
-                "I'm a teacher with 11 years in the classroom across grades 6 through 10. " +
-                    "At Riverside Academy I redesigned our literacy unit and raised reading proficiency from 62% to 81% in one year. " +
-                    "I also mentored two new teachers and built weekly data reviews that helped our team respond faster to student needs."
-            roleLower.contains("sales") ->
-                "I'm a sales representative with 9 years of experience in B2B accounts. " +
-                    "At Summit Systems I grew my territory from \$1.4M to \$2.3M in two years by rebuilding our top 20 account plans. " +
-                    "I focus on discovery, clear follow-up, and closing with proof instead of pressure."
-            roleLower.contains("legal") || roleLower.contains("lawyer") || roleLower.contains("attorney") ->
-                "I'm a litigation attorney with 13 years of experience. " +
-                    "At Hartwell & Partners I handled 54 cases through trial and settlement without a loss. " +
-                    "I prepare every case with the same discipline: clear fact pattern, strong evidence, and direct client communication."
-            roleLower.contains("administrative") || roleLower.contains("assistant") ->
-                "I'm an administrative assistant with 10 years supporting executive teams in fast-moving environments. " +
-                    "At Beacon Partners I managed calendars, travel, and vendor coordination for three leaders while keeping confidential work organized. " +
-                    "I reduced scheduling conflicts by 40% by introducing a shared planning system the whole office adopted."
-            roleLower.contains("customer support") || roleLower.contains("support") ->
-                "I'm a customer support representative with 7 years handling high-volume technical issues. " +
-                    "At CloudNest I maintained a 96% satisfaction score while resolving an average of 45 tickets per day. " +
-                    "I listen first, confirm the issue in the customer's words, and follow through until the problem is actually fixed."
-            roleLower.contains("project") || roleLower.contains("coordinator") ->
-                "I'm a project coordinator with 8 years keeping cross-functional work on track. " +
-                    "At Horizon Health I managed 12 concurrent initiatives, cut missed deadlines by 35%, and built status updates executives could trust. " +
-                    "I'm strongest when I translate goals into timelines, owners, and measurable checkpoints."
-            roleLower.contains("manager") || roleLower.contains("director") || roleLower.contains("lead") ->
-                "I'm a $role with 12 years leading teams through complex priorities. " +
-                    "At Meridian Group I inherited a struggling delivery team, rebuilt our operating rhythm in 90 days, and improved on-time delivery from 61% to 92%. " +
-                    "I focus on clear goals, direct coaching, and measurable outcomes my stakeholders can trust."
-            else ->
-                "I'm a $role with 12 years of hands-on experience. " +
-                    "In my current role I owned a high-impact project from planning through delivery and improved team results by 35%. " +
-                    "I handled the decisions, the communication, and the follow-through myself, and we finished two weeks ahead of schedule."
-        }
     }
 
     private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
@@ -4399,6 +4338,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun finishAnswer(questionText: String) {
+        if (processingAnswerState.value) return
         val transcriber = activeTranscriber
         activeTranscriber = null
         currentAnswerResult = null
@@ -4487,22 +4427,23 @@ class MainActivity : ComponentActivity() {
             }
 
             val displayTranscript = remoteResult.transcript.trim()
-            val substantiveAnswer = SessionScoring.isSubstantiveAnswer(displayTranscript)
+            val isBlank = SessionScoring.isBlankTranscript(displayTranscript)
             val feedback = when {
-                remoteResult.retryRequired && SessionScoring.isBlankTranscript(displayTranscript) ->
+                remoteResult.retryRequired && isBlank ->
                     remoteResult.feedback.ifBlank {
                         "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
                     }
                 else -> remoteResult.feedback
             }
+            // Trust the backend score; only sanitize the model answer display
             val result = remoteResult.copy(
                 transcript = displayTranscript,
-                score = SessionScoring.sanitizeScore(displayTranscript, remoteResult.score),
+                score = if (isBlank) 0 else remoteResult.score,
                 feedback = feedback,
                 improvedAnswer = sanitizeModelAnswer(
                     remoteResult.improvedAnswer.trim(),
                     displayTranscript,
-                    substantiveAnswer,
+                    !isBlank,
                 ),
                 retryRequired = false,
             )
@@ -4513,7 +4454,7 @@ class MainActivity : ComponentActivity() {
                     val normalizedTranscript = answer.transcript.trim().ifBlank { displayTranscript }
                     answer.copy(
                         transcript = normalizedTranscript,
-                        score = SessionScoring.sanitizeScore(normalizedTranscript, answer.score),
+                        score = if (SessionScoring.isBlankTranscript(normalizedTranscript)) 0 else answer.score,
                     )
                 }
 
@@ -4728,23 +4669,25 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.argb(20, 255, 255, 255))
         })
 
-        actionsColumn.addView(TextView(this@MainActivity).apply {
-            text = "Listen to model answer"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = rounded(accent, radius = 22, strokeColor = accent)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply {
-                setMargins(0, 0, 0, dp(10))
-            }
-            setOnClickListener {
-                showModelAnswerTeaching(result) {
-                    advanceAfterAnswerReview()
+        if (result.improvedAnswer.isNotBlank()) {
+            actionsColumn.addView(TextView(this@MainActivity).apply {
+                text = "Listen to model answer"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                typeface = interBold
+                gravity = Gravity.CENTER
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                background = rounded(accent, radius = 22, strokeColor = accent)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                    setMargins(0, 0, 0, dp(10))
                 }
-            }
-        })
+                setOnClickListener {
+                    showModelAnswerTeaching(result) {
+                        advanceAfterAnswerReview()
+                    }
+                }
+            })
+        }
 
         val buttonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -4763,6 +4706,14 @@ class MainActivity : ComponentActivity() {
                 setMargins(0, 0, dp(10), 0)
             }
             setOnClickListener {
+                // Remove this question's answer so retry doesn't append a duplicate
+                val retryIndex = appState.currentQuestionIndex
+                if (retryIndex < sessionAnswers.size) {
+                    sessionAnswers.removeAt(retryIndex)
+                    val sid = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+                    appState.saveSessionAnswers(sid, sessionAnswers.toList())
+                }
+                currentAnswerResult = null
                 resumeInterviewRoomSpeech()
                 dismissResultOverlay()
                 showInterview(false)

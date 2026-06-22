@@ -826,7 +826,7 @@ class GeminiService:
         return json.loads(raw)
 
     def _apply_answer_quality_guardrails(self, analysis: dict, question_text: str, transcript: str, audio_duration_seconds: int | None = None, role_title: str = ""):
-        verdict = self._classify_answer_quality(question_text, transcript, audio_duration_seconds)
+        verdict = self._classify_answer_quality(question_text, transcript, audio_duration_seconds, role_title)
         analysis["quality_label"] = verdict["label"]
         analysis["quality_reason"] = verdict["reason"]
         analysis["audio_duration_seconds"] = audio_duration_seconds
@@ -958,10 +958,7 @@ class GeminiService:
         interviewer_name: str = "",
         interviewer_title: str = "",
     ) -> str:
-        """
-        Generate a question-specific model answer using the AI provider (sync HTTP).
-        Falls back to a generic template if the AI call fails or times out.
-        """
+        """Generate a question-specific model answer using the AI provider (sync HTTP)."""
         prompt = (
             f"You are a seasoned interview coach. Write a first-person model answer for this interview question.\n\n"
             f"Role: {role}\n"
@@ -995,7 +992,7 @@ class GeminiService:
             elif self.api_key:
                 result = self._sync_gemini_model_answer(prompt)
             else:
-                return self._generic_fallback(question, role)
+                return ""
 
             if result and len(result.strip()) >= 30 and not result.strip().startswith("Here is"):
                 return result.strip()
@@ -1003,7 +1000,7 @@ class GeminiService:
         except Exception as e:
             print(f"[AI ModelAnswer] Generation failed: {e}")
 
-        return self._generic_fallback(question, role)
+        return ""
 
     def _sync_groq_model_answer(self, prompt: str) -> str:
         try:
@@ -1051,15 +1048,6 @@ class GeminiService:
         except Exception as e:
             print(f"[Gemini ModelAnswer] Error: {e}")
             return ""
-
-    def _generic_fallback(self, question: str, role: str) -> str:
-        """Last-resort generic answer when AI is unavailable."""
-        return (
-            f"I am a {role} with more than a decade of relevant experience. "
-            "In my most recent role I owned a project end to end, made the key decisions myself, "
-            "and delivered a result my manager could measure. "
-            f"That is the same approach I would use here: direct answer first, one concrete example, and a clear outcome."
-        )
 
     def _intro_model_answer(self, role: str, role_lower: str) -> str:
         if "software" in role_lower or "engineer" in role_lower or "developer" in role_lower:
@@ -1121,7 +1109,7 @@ class GeminiService:
             "why_it_works": f"This helps the interviewer see proof, ownership, and judgment for: {question}",
         }
 
-    def _classify_answer_quality(self, question_text: str, transcript: str, audio_duration_seconds: int | None = None):
+    def _classify_answer_quality(self, question_text: str, transcript: str, audio_duration_seconds: int | None = None, role_title: str = ""):
         text = (transcript or "").strip().lower()
         words = [word.strip(".,!?;:\"'()[]{}") for word in text.split() if word.strip()]
         word_count = len(words)
@@ -1151,17 +1139,29 @@ class GeminiService:
             "increased", "decreased", "reduced", "improved", "launched", "built",
             "led", "owned", "measured", "result", "metric", "revenue", "cost",
             "customer", "users", "team", "deadline", "tradeoff", "because", "%",
-            "$", "saved", "grew", "delivered", "implemented", "designed"
+            "$", "saved", "grew", "delivered", "implemented", "designed",
+            # Common non-numerical evidence words real candidates use
+            "experience", "environment", "background", "role", "encouraged",
+            "motivated", "interested", "situation", "challenge", "example",
+            "understand", "field", "skill", "goal", "approach", "responsible",
+            "involved", "company", "completed", "supported", "focused", "learned",
         }
         ownership_terms = {
             "i", "me", "my", "mine", "owned", "led", "handled", "managed",
-            "resolved", "built", "created", "improved", "delivered", "followed"
+            "resolved", "built", "created", "improved", "delivered", "followed",
+            "wanted", "needed", "decided", "chose", "tried", "worked", "started",
+            "focused", "learned", "applied", "completed", "developed", "used",
         }
         action_terms = {
             "handled", "resolved", "fixed", "called", "listened", "explained",
             "prioritized", "planned", "organized", "trained", "supported",
             "followed", "escalated", "built", "created", "improved", "delivered",
-            "checked", "reviewed", "coordinated", "communicated"
+            "checked", "reviewed", "coordinated", "communicated",
+            # Common verbs real candidates use that were missing
+            "went", "went through", "searched", "found", "used", "read",
+            "looked", "understood", "approached", "worked", "started",
+            "focused", "tried", "applied", "learned", "chose", "decided",
+            "needed", "wanted", "completed", "developed", "prepared",
         }
         result_terms = {
             "result", "outcome", "improved", "reduced", "increased", "saved",
@@ -1175,31 +1175,31 @@ class GeminiService:
         has_result = any(term in words for term in result_terms)
 
         if audio_duration_seconds is not None and audio_duration_seconds <= 2:
-            return self._quality_verdict("too_short_audio", "The recording was too short to evaluate.", 8)
+            return self._quality_verdict("too_short_audio", "The recording was too short to evaluate.", 8, question_text, role_title)
         if word_count == 0:
-            return self._quality_verdict("empty_transcript", "No usable speech was detected in the answer.", 8)
+            return self._quality_verdict("empty_transcript", "No usable speech was detected in the answer.", 8, question_text, role_title)
         if any(phrase in text for phrase in give_up_phrases):
-            return self._quality_verdict("gave_up", "The answer indicates the candidate could not answer the question.", 15)
+            return self._quality_verdict("gave_up", "The answer indicates the candidate could not answer the question.", 15, question_text, role_title)
         if word_count < 18 and any(phrase in text for phrase in short_non_answer_phrases):
-            return self._quality_verdict("likely_off_topic", "The answer does not appear connected to the question.", 10)
+            return self._quality_verdict("likely_off_topic", "The answer does not appear connected to the question.", 10, question_text, role_title)
         if any(phrase in text for phrase in filler_phrases):
-            return self._quality_verdict("nonsense_or_test_audio", "The answer appears to be test audio, filler, or nonsense.", 12)
+            return self._quality_verdict("nonsense_or_test_audio", "The answer appears to be test audio, filler, or nonsense.", 12, question_text, role_title)
         if word_count < 5:
-            return self._quality_verdict("too_short_answer", "The answer is too short to show hiring signal.", 10)
+            return self._quality_verdict("too_short_answer", "The answer is too short to show hiring signal.", 10, question_text, role_title)
         if word_count >= 8 and unique_ratio < 0.35:
-            return self._quality_verdict("repetitive_or_nonsense", "The answer appears repetitive or incoherent.", 20)
+            return self._quality_verdict("repetitive_or_nonsense", "The answer appears repetitive or incoherent.", 20, question_text, role_title)
         if word_count < 15 and not (has_evidence or has_numbers or overlap > 0):
-            return self._quality_verdict("likely_off_topic", "The answer is too short and does not connect to the question.", 10)
+            return self._quality_verdict("likely_off_topic", "The answer is too short and does not connect to the question.", 10, question_text, role_title)
         if word_count < 15 and not (has_action and has_result):
-            return self._quality_verdict("too_short_answer", "The answer is too short to show hiring signal.", 15)
+            return self._quality_verdict("too_short_answer", "The answer is too short to show hiring signal.", 15, question_text, role_title)
         if word_count < 20 and overlap == 0:
-            return self._quality_verdict("likely_off_topic", "The answer does not appear connected to the question.", 10)
+            return self._quality_verdict("likely_off_topic", "The answer does not appear connected to the question.", 10, question_text, role_title)
         if word_count < 35 and not has_evidence and not has_numbers:
-            return self._quality_verdict("shallow_answer", "The answer is understandable but too shallow to prove interview readiness.", 28)
+            return self._quality_verdict("shallow_answer", "The answer is understandable but too shallow to prove interview readiness.", 28, question_text, role_title)
         if word_count < 55 and not (has_ownership and has_action):
-            return self._quality_verdict("generic_answer", "The answer is too generic and does not clearly show what the candidate personally did.", 42)
+            return self._quality_verdict("generic_answer", "The answer is too generic and does not clearly show what the candidate personally did.", 42, question_text, role_title)
         if word_count < 80 and not (has_result or has_evidence or has_numbers):
-            return self._quality_verdict("missing_result", "The answer needs a clearer result, outcome, or lesson to prove interview readiness.", 50)
+            return self._quality_verdict("missing_result", "The answer needs a clearer result, outcome, or lesson to prove interview readiness.", 50, question_text, role_title)
 
         return {
             "label": "valid_answer",
@@ -1207,7 +1207,7 @@ class GeminiService:
             "max_score": None,
         }
 
-    def _quality_verdict(self, label: str, reason: str, max_score: int):
+    def _quality_verdict(self, label: str, reason: str, max_score: int, question_text: str = "", role_title: str = ""):
         return {
             "label": label,
             "reason": reason,
@@ -1215,11 +1215,11 @@ class GeminiService:
             "feedback": f"{reason} Give a direct answer with a concrete example, your action, and the measurable result.",
             "follow_up": "Can you give a specific example that directly answers the question?",
             "tips": ["Answer the exact question", "Use a real example", "Include a measurable result"],
-            "improved_answer": self._build_model_answer(reason, ""),
+            "improved_answer": self._build_model_answer(question_text, "", role_title=role_title),
             "answer_structure": "Situation -> Action -> Result",
             "missing_evidence": ["Specific example", "Personal action", "Measurable result"],
             "stronger_phrasing": ["I owned...", "The measurable result was..."],
-            "coaching_breakdown": self._build_coaching_breakdown(reason, "", ["Specific example", "Personal action", "Measurable result"]),
+            "coaching_breakdown": self._build_coaching_breakdown(question_text, "", ["Specific example", "Personal action", "Measurable result"]),
         }
 
     def _cap_scores(self, analysis: dict, cap: int):

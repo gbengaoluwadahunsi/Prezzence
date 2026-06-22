@@ -3840,8 +3840,9 @@ fun PrezzenceProgressScreen(
     val hasMoreSessions = recentSessions.size > previewSessions.size
     val scoredSessions = recentSessions.filter { it.score > 0 }
     val hasScoredData = scoredSessions.isNotEmpty()
+    val dateFormat = remember { java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US) }
     val chronologicalScores = recentSessions
-        .sortedBy { it.date }
+        .sortedBy { runCatching { dateFormat.parse(it.date)?.time }.getOrNull() ?: 0L }
         .map { it.score }
         .filter { it > 0 }
     val firstScore = chronologicalScores.firstOrNull() ?: 0
@@ -3918,12 +3919,15 @@ fun PrezzenceProgressScreen(
 
             // Stat cards
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 40.dp),
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 40.dp)
+                    .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f))
-                StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f))
-                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f))
+                StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f).fillMaxHeight())
+                StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f).fillMaxHeight())
+                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f).fillMaxHeight())
             }
 
             // Improvement card
@@ -4008,30 +4012,53 @@ fun PrezzenceProgressScreen(
                         ScoreCompareBox("Best", "$bestScore%")
                     }
                     Spacer(Modifier.height(18.dp))
-                    Text("Session scores", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                    Spacer(Modifier.height(10.dp))
-                    // Trend bars
                     Row(
-                        modifier = Modifier.fillMaxWidth().height(118.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("SESSION SCORES", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                        Text("last ${trendData.size} sessions", color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    // Bar chart — each column is one session
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         val maxTrend = (trendData.maxOrNull() ?: 100).coerceAtLeast(1)
-                        trendData.forEach { score ->
+                        trendData.forEachIndexed { index, score ->
                             Column(
                                 Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Bottom,
                             ) {
+                                Text(
+                                    "$score%",
+                                    color = TextPrimary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                Spacer(Modifier.height(4.dp))
                                 Box(
                                     Modifier
-                                        .fillMaxWidth()
-                                        .height((score / maxTrend.toFloat() * 80f).dp.coerceAtLeast(8.dp))
+                                        .widthIn(min = 8.dp, max = 40.dp)
+                                        .fillMaxWidth(0.70f)
+                                        .height((score / maxTrend.toFloat() * 64f).dp.coerceAtLeast(6.dp))
                                         .clip(RoundedCornerShape(999.dp))
-                                        .background(Accent)
+                                        .background(
+                                            if (score == (trendData.maxOrNull() ?: 0)) Accent
+                                            else Accent.copy(alpha = 0.55f)
+                                        )
                                 )
                                 Spacer(Modifier.height(6.dp))
-                                Text("$score", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                                Text(
+                                    "#${index + 1}",
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
                             }
                         }
                     }
@@ -4719,6 +4746,7 @@ private fun SessionSkillBar(label: String, value: Int) {
 @Composable
 private fun SessionQuestionScoreBar(item: SessionReportAnswerItem) {
     val hasScore = item.score > 0
+    val hasTranscript = item.transcript.isNotBlank()
     val barColor = when {
         item.score >= 70 -> Color(0xFF00D68F)
         item.score >= 50 -> Color(0xFFFFB020)
@@ -4726,12 +4754,17 @@ private fun SessionQuestionScoreBar(item: SessionReportAnswerItem) {
         else -> TextSecondary.copy(alpha = 0.45f)
     }
     val displayTranscript = item.transcript.ifBlank { "No response" }
+    val scoreLabel = when {
+        hasScore -> "${item.score}%"
+        hasTranscript -> "Low signal"
+        else -> "No response"
+    }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Q${item.index}", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Text(
-                if (hasScore) "${item.score}%" else "No score",
-                color = barColor,
+                scoreLabel,
+                color = if (hasScore) barColor else TextSecondary.copy(alpha = 0.6f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -4898,12 +4931,15 @@ fun PrezzenceProfileScreen(
 
             // Stats row
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 18.dp),
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 18.dp)
+                    .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f))
-                StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f))
-                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f))
+                StatCard("SESSIONS", "$sessions", "", Modifier.weight(1f).fillMaxHeight())
+                StatCard("AVG SCORE", "$avgScore", "%", Modifier.weight(1f).fillMaxHeight())
+                StatCard("PRACTICE", "$practiceMinutes", "min", Modifier.weight(1f).fillMaxHeight())
             }
 
             // Coaching focus
@@ -5279,18 +5315,59 @@ private fun TabIcon(tab: PrezzenceTab, active: Boolean) {
         val s = Stroke(width = 2.2f, cap = StrokeCap.Round)
         when (tab) {
             PrezzenceTab.HOME -> {
-                // House icon
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(size.width * 0.50f, size.height * 0.12f)
-                    lineTo(size.width * 0.10f, size.height * 0.48f)
-                    lineTo(size.width * 0.22f, size.height * 0.48f)
-                    lineTo(size.width * 0.22f, size.height * 0.88f)
-                    lineTo(size.width * 0.78f, size.height * 0.88f)
-                    lineTo(size.width * 0.78f, size.height * 0.48f)
-                    lineTo(size.width * 0.90f, size.height * 0.48f)
+                val w = size.width
+                val h = size.height
+                val bodyLeft = w * 0.20f
+                val bodyTop = h * 0.50f
+                val bodyW = w * 0.60f
+                val bodyH = h * 0.36f
+                val roofPeak = Offset(w * 0.50f, h * 0.12f)
+                val roofLeft = Offset(w * 0.14f, h * 0.50f)
+                val roofRight = Offset(w * 0.86f, h * 0.50f)
+                val roofPath = Path().apply {
+                    moveTo(roofPeak.x, roofPeak.y)
+                    lineTo(roofLeft.x, roofLeft.y)
+                    lineTo(roofRight.x, roofRight.y)
                     close()
                 }
-                drawPath(path, color, style = if (active) androidx.compose.ui.graphics.drawscope.Fill else s)
+                if (active) {
+                    drawPath(roofPath, color, style = androidx.compose.ui.graphics.drawscope.Fill)
+                    drawRoundRect(
+                        color,
+                        Offset(bodyLeft, bodyTop),
+                        Size(bodyW, bodyH),
+                        CornerRadius(3f),
+                        style = androidx.compose.ui.graphics.drawscope.Fill,
+                    )
+                    val doorW = bodyW * 0.30f
+                    val doorH = bodyH * 0.45f
+                    drawRoundRect(
+                        Bg,
+                        Offset(bodyLeft + (bodyW - doorW) / 2f, bodyTop + bodyH - doorH),
+                        Size(doorW, doorH),
+                        CornerRadius(2f),
+                        style = androidx.compose.ui.graphics.drawscope.Fill,
+                    )
+                } else {
+                    drawLine(color, roofLeft, roofPeak, strokeWidth = 2.2f, cap = StrokeCap.Round)
+                    drawLine(color, roofPeak, roofRight, strokeWidth = 2.2f, cap = StrokeCap.Round)
+                    drawRoundRect(
+                        color,
+                        Offset(bodyLeft, bodyTop),
+                        Size(bodyW, bodyH),
+                        CornerRadius(3f),
+                        style = s,
+                    )
+                    val doorW = bodyW * 0.26f
+                    val doorH = bodyH * 0.34f
+                    drawRoundRect(
+                        color,
+                        Offset(bodyLeft + (bodyW - doorW) / 2f, bodyTop + bodyH - doorH - 1f),
+                        Size(doorW, doorH),
+                        CornerRadius(2f),
+                        style = s,
+                    )
+                }
             }
             PrezzenceTab.PRACTICE -> {
                 // Target icon

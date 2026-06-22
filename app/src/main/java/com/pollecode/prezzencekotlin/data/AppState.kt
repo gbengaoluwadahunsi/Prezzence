@@ -12,12 +12,6 @@ class AppState(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("prezzence_kotlin_state", Context.MODE_PRIVATE)
 
-    private val unlimitedAccessEmails = setOf(
-        "gbengaoluwadahunsicodes@gmail.com",
-        "gbengaoluwadahunsicode@gmail.com",
-        "alabiolusola399@gmail.com",
-    )
-
     var onboardingComplete: Boolean
         get() = prefs.getBoolean("onboardingComplete", false)
         set(value) = prefs.edit().putBoolean("onboardingComplete", value).apply()
@@ -163,11 +157,7 @@ class AppState(context: Context) {
         set(value) = prefs.edit().putString("activeSessionId", value).apply()
 
     var subscriptionEntitled: Boolean
-        get() {
-            val email = userEmail.lowercase().trim()
-            if (email in unlimitedAccessEmails) return true
-            return prefs.getBoolean("subscriptionEntitled", false)
-        }
+        get() = prefs.getBoolean("subscriptionEntitled", false)
         set(value) = prefs.edit().putBoolean("subscriptionEntitled", value).apply()
 
     var subscriptionStatus: String
@@ -379,12 +369,10 @@ class AppState(context: Context) {
                         expressionEnergy = it.optInt("expressionEnergy", 0),
                     )
                 }
+                val storedTranscript = SessionScoring.normalizeStoredTranscript(item.optString("transcript", ""))
                 AnswerResult(
-                    transcript = SessionScoring.normalizeStoredTranscript(item.optString("transcript", "")),
-                    score = SessionScoring.sanitizeScore(
-                        item.optString("transcript", ""),
-                        item.optInt("score", 0),
-                    ),
+                    transcript = storedTranscript,
+                    score = if (SessionScoring.isBlankTranscript(storedTranscript)) 0 else item.optInt("score", 0),
                     feedback = item.optString("feedback", ""),
                     improvedAnswer = item.optString("improvedAnswer", ""),
                     what = item.optString("what", ""),
