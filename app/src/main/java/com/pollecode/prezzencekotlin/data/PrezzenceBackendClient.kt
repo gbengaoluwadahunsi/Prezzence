@@ -8,6 +8,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import android.util.Log
 import org.json.JSONArray
@@ -695,9 +696,12 @@ class PrezzenceBackendClient {
         transcript: String,
         audioBase64: String? = null,
         audioDurationSeconds: Int = 0,
+        refreshToken: String? = null,
+        onTokenRefreshed: ((newAccessToken: String) -> Unit)? = null,
     ): AnswerResult? = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank() || sessionId.isBlank()) return@withContext null
-        runCatching {
+
+        fun buildRequestBody(): RequestBody {
             val body = JSONObject()
                 .put("question_id", questionId)
                 .put("question_text", questionText)
@@ -710,16 +714,20 @@ class PrezzenceBackendClient {
                 body.put("audio_mime_type", "audio/wav")
                 body.put("audio_duration_seconds", audioDurationSeconds.coerceAtLeast(1))
             }
-            val requestBody = body.toString().toRequestBody(jsonMediaType)
+            return body.toString().toRequestBody(jsonMediaType)
+        }
+
+        suspend fun executeRequest(token: String): AnswerResult? {
+            val requestBody = buildRequestBody()
             Log.i("PrezzenceBackend", "Sending answer: audioLen=${audioBase64?.length ?: 0}, duration=$audioDurationSeconds, session=$sessionId, q=$questionId")
 
             val request = Request.Builder()
                 .url("$baseUrl/api/sessions/$sessionId/answers")
-                .header("Authorization", "Bearer $bearerToken")
+                .header("Authorization", "Bearer $token")
                 .post(requestBody)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            return client.newCall(request).execute().use { response ->
                 Log.i("PrezzenceBackend", "Answer response: code=${response.code}")
                 if (!response.isSuccessful) {
                     Log.w("PrezzenceBackend", "Backend error: ${response.code} ${response.body?.string()?.take(500)}")
@@ -737,7 +745,7 @@ class PrezzenceBackendClient {
                 val score = analysis.optInt("score", 0)
                 val source = root.optJSONObject("performance")?.optString("analysis_source", "")
                 Log.i("PrezzenceBackend", "Result: transcript=${transcript_result.take(80)}, score=$score, retry=$retry, source=$source")
-                AnswerResult(
+                return@use AnswerResult(
                     transcript = root.optString("transcript", transcript),
                     score = SessionScoring.sanitizeScore(
                         root.optString("transcript", transcript).ifBlank { transcript },
@@ -752,7 +760,27 @@ class PrezzenceBackendClient {
                     retryRequired = root.optBoolean("retry_required", false),
                 )
             }
-        }.getOrNull()
+        }
+
+        // First attempt with the current token
+        val firstResult = executeRequest(bearerToken)
+        if (firstResult != null) return@withContext firstResult
+
+        // If first attempt failed (null), check if it was a 401 by inspecting the raw response
+        // We don't know the exact failure reason from null alone, so try token refresh + retry
+        if (!refreshToken.isNullOrBlank()) {
+            Log.i("PrezzenceBackend", "First attempt failed; attempting token refresh before retry...")
+            val refreshed = refreshSession(refreshToken)
+            if (refreshed != null) {
+                Log.i("PrezzenceBackend", "Token refreshed successfully, retrying answer submission")
+                onTokenRefreshed?.invoke(refreshed.accessToken)
+                val retryResult = executeRequest(refreshed.accessToken)
+                if (retryResult != null) return@withContext retryResult
+            } else {
+                Log.w("PrezzenceBackend", "Token refresh failed")
+            }
+        }
+        null
     }
 
     private fun localQualityScore(question: String, transcript: String): Int =

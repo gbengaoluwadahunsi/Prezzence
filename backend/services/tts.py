@@ -17,7 +17,7 @@ os.makedirs(TEMP_TTS_DIR, exist_ok=True)
 TTS_MAX_FILE_AGE_SECONDS = int(os.getenv("TTS_MAX_FILE_AGE_SECONDS", "86400"))
 TTS_CLEANUP_INTERVAL_SECONDS = int(os.getenv("TTS_CLEANUP_INTERVAL_SECONDS", "900"))
 TTS_STORAGE_BUCKET = os.getenv("TTS_STORAGE_BUCKET", "tts")
-TTS_AUDIO_FORMAT = os.getenv("TTS_AUDIO_FORMAT", "wav").lower()
+TTS_AUDIO_FORMAT = os.getenv("TTS_AUDIO_FORMAT", "mp3").lower()
 
 class TTSService:
     def __init__(self):
@@ -129,7 +129,8 @@ class TTSService:
         storage = "local"
         if self.storage_backend == "supabase":
             self.ensure_storage_ready()
-            uploaded_url = self._upload_to_supabase(file_path, file_name, content_type)
+            # Supabase storage only supports audio/mpeg — always upload the MP3 original
+            uploaded_url = self._upload_to_supabase(mp3_file_path, mp3_file_name, "audio/mpeg")
             if uploaded_url:
                 audio_url = uploaded_url
                 storage = "supabase"

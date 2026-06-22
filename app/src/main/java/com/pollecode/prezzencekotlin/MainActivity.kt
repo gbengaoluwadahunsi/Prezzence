@@ -4471,6 +4471,10 @@ class MainActivity : ComponentActivity() {
                 transcript = "",
                 audioBase64 = capture.audioBase64,
                 audioDurationSeconds = capture.audioDurationSeconds,
+                refreshToken = appState.authRefreshToken,
+                onTokenRefreshed = { newToken ->
+                    appState.authToken = newToken
+                },
             )
 
             if (remoteResult == null) {
