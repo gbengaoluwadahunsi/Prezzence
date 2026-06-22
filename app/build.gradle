@@ -6,8 +6,14 @@ plugins {
     id 'com.google.firebase.crashlytics'
 }
 
+def signingProps = new Properties()
+def signingPropsFile = rootProject.file('release/signing.properties')
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+
 def envOrProp = { String name, String fallback = "" ->
-    (findProperty(name) ?: System.getenv(name) ?: fallback).toString()
+    (findProperty(name) ?: System.getenv(name) ?: signingProps.getProperty(name) ?: fallback).toString()
 }
 
 def playApplicationId = envOrProp('PREZZENCE_PLAY_APPLICATION_ID', 'com.pollecode.prezzencekotlin')
@@ -22,7 +28,7 @@ def releaseKeyAlias = envOrProp('PREZZENCE_UPLOAD_KEY_ALIAS', '')
 def releaseKeyPassword = envOrProp('PREZZENCE_UPLOAD_KEY_PASSWORD', '')
 def prezzenceSubscriptionProductId = envOrProp('PREZZENCE_SUBSCRIPTION_PRODUCT_ID', 'prezzence_pro')
 def duixModelBaseUrl = envOrProp('DUIX_MODEL_BASE_URL', '')
-def releaseStorePath = releaseStoreFile ? file(releaseStoreFile) : null
+def releaseStorePath = releaseStoreFile ? rootProject.file(releaseStoreFile) : null
 
 def escapeBuildConfig = { String value ->
     value.replace('\\', '\\\\').replace('"', '\\"')
@@ -85,7 +91,10 @@ tasks.register('verifyPrezzenceReleaseEnv') {
     description = 'Verifies Play Store, Supabase, backend, and signing inputs for a production Kotlin release.'
     doLast {
         def failures = []
-        if (playApplicationId != 'com.pollecode.prezzence') failures << "PREZZENCE_PLAY_APPLICATION_ID must be com.pollecode.prezzence for Play Store replacement builds. Current: ${playApplicationId}"
+        def allowedPlayIds = ['com.pollecode.prezzencekotlin', 'com.pollecode.prezzence']
+        if (!allowedPlayIds.contains(playApplicationId)) {
+            failures << "PREZZENCE_PLAY_APPLICATION_ID must be com.pollecode.prezzencekotlin or com.pollecode.prezzence. Current: ${playApplicationId}"
+        }
         if (!prezzenceApiUrl.startsWith('https://')) failures << 'PREZZENCE_API_URL must be an HTTPS production backend URL.'
         if (!supabaseUrl.startsWith('https://')) failures << 'PREZZENCE_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_URL is missing or not HTTPS.'
         if (supabaseAnonKey.length() < 20) failures << 'PREZZENCE_SUPABASE_ANON_KEY / EXPO_PUBLIC_SUPABASE_ANON_KEY is missing or too short.'

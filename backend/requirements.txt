@@ -14,3 +14,5 @@ pytest-asyncio
 asyncpg
 python-multipart
 pypdf
+google-api-python-client
+google-auth

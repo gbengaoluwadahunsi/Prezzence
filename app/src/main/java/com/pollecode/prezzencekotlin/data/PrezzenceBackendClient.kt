@@ -826,18 +826,21 @@ class PrezzenceBackendClient {
         bearerToken: String,
         purchaseToken: String,
         productId: String,
+        packageName: String,
+        orderId: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         if (bearerToken.isBlank() || purchaseToken.isBlank()) return@withContext false
         runCatching {
             val body = JSONObject()
                 .put("purchase_token", purchaseToken)
                 .put("product_id", productId)
-                .toString()
+                .put("package_name", packageName)
+            if (!orderId.isNullOrBlank()) body.put("order_id", orderId)
             val request = Request.Builder()
-                .url("$baseUrl/api/users/me/entitlement/sync")
+                .url("$baseUrl/api/billing/google/sync")
                 .header("Authorization", "Bearer $bearerToken")
                 .header("Content-Type", "application/json")
-                .post(body.toRequestBody(jsonMediaType))
+                .post(body.toString().toRequestBody(jsonMediaType))
                 .build()
             client.newCall(request).execute().use { response ->
                 response.isSuccessful && JSONObject(response.body?.string().orEmpty()).optBoolean("is_premium", false)

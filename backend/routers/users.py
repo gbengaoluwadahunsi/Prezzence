@@ -6,8 +6,8 @@ import os
 from services.database import neon_db
 from services.resume_parser import build_resume_profile, extract_resume_text
 from middleware.auth import get_current_user
-from services.supabase import db as supabase_auth
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
+from services.billing_entitlements import sync_verified_google_subscription
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 PROGRESS_QUERY_TIMEOUT_SECONDS = float(os.getenv("PROGRESS_QUERY_TIMEOUT_SECONDS", "12"))
@@ -27,6 +27,8 @@ class ResumeTextRequest(BaseModel):
 class EntitlementSyncRequest(BaseModel):
     purchase_token: str
     product_id: str = "prezzence_pro"
+    package_name: str | None = None
+    order_id: str | None = None
 
 
 def _localized_coaching_tip(language: str, strongest: str, strongest_score: int, weakest: str, weakest_score: int) -> str:
@@ -94,15 +96,18 @@ async def sync_entitlement(
     payload: EntitlementSyncRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Record a verified Google Play purchase token for server-side premium checks."""
+    """Verify and record a Google Play subscription for server-side premium checks."""
     token = payload.purchase_token.strip()
     product_id = payload.product_id.strip() or "prezzence_pro"
     if len(token) < 8:
         raise HTTPException(status_code=400, detail="Invalid purchase token")
-    synced = await neon_db.set_user_premium(str(current_user["id"]), plan=product_id)
-    if not synced:
-        raise HTTPException(status_code=503, detail="Could not update entitlement")
-    return {"is_premium": True, "plan": "premium", "synced": True}
+    return await sync_verified_google_subscription(
+        user_id=str(current_user["id"]),
+        product_id=product_id,
+        purchase_token=token,
+        package_name=payload.package_name,
+        order_id=payload.order_id,
+    )
 
 
 @router.get("/{user_id}/progress", status_code=200)

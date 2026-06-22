@@ -7,7 +7,7 @@ import os
 import time
 import traceback
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
-from routers import analytics, personas, sessions, tts, users, feedback, legal, duix
+from routers import analytics, personas, sessions, tts, users, feedback, legal, duix, billing
 from services.database import neon_db
 from services.tts import tts_service
 from core.logging_config import setup_logging, get_logger
@@ -107,6 +107,7 @@ app.include_router(sessions.router)
 app.include_router(tts.router)
 app.include_router(feedback.router)
 app.include_router(users.router)
+app.include_router(billing.router)
 app.include_router(analytics.router)
 app.include_router(legal.router)
 app.include_router(duix.router)

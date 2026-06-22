@@ -27,6 +27,7 @@ local.properties
 captures/
 *.keystore
 !debug.keystore
+release/signing.properties
 render.log
 .externalNativeBuild
 .cmake

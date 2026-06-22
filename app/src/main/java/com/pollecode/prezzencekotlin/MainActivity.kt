@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
     private val danger = Color.rgb(255, 71, 87)
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private lateinit var billingManager: PrezzenceBillingManager
+    private var subscriptionDisplayPrice: String? = null
 
     private var activeAvatar: NativeDuixAvatarView? = null
     private var coachingMediaPlayer: MediaPlayer? = null
@@ -211,19 +212,11 @@ class MainActivity : ComponentActivity() {
         onboardingInterviewerStyle = appState.interviewerStyle
         onboardingPreviewGender = appState.previewGender
         updateDuixDownloadAuth()
-        billingManager = PrezzenceBillingManager(this) { entitled, status, purchaseToken ->
+        billingManager = PrezzenceBillingManager(this) { entitled, status, purchaseToken, orderId ->
             appState.subscriptionEntitled = entitled
             appState.subscriptionStatus = status
             appState.subscriptionProductId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
-            if (entitled && !purchaseToken.isNullOrBlank() && appState.authToken.isNotBlank()) {
-                scope.launch {
-                    backend.syncEntitlement(
-                        bearerToken = appState.authToken,
-                        purchaseToken = purchaseToken,
-                        productId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID,
-                    )
-                }
-            }
+            if (entitled) syncPlayPurchase(purchaseToken, orderId)
         }
         setContentView(root)
         
@@ -922,6 +915,8 @@ class MainActivity : ComponentActivity() {
                             bearerToken = appState.authToken,
                             purchaseToken = playState.purchaseToken,
                             productId = playState.productId,
+                            packageName = packageName,
+                            orderId = playState.orderId,
                         )
                     }
                 }
@@ -2673,6 +2668,19 @@ class MainActivity : ComponentActivity() {
         setScreen(scroll(column))
     }
 
+    private fun syncPlayPurchase(purchaseToken: String?, orderId: String? = null) {
+        if (purchaseToken.isNullOrBlank() || appState.authToken.isBlank()) return
+        scope.launch {
+            backend.syncEntitlement(
+                bearerToken = appState.authToken,
+                purchaseToken = purchaseToken,
+                productId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID,
+                packageName = packageName,
+                orderId = orderId,
+            )
+        }
+    }
+
     private fun showPaywall() {
         val column = baseColumn()
         column.addView(backButton { showSettings() })
@@ -2741,7 +2749,8 @@ class MainActivity : ComponentActivity() {
                 })
             })
         } else {
-            // â”€â”€ Price card â”€â”€
+            val priceLabel = subscriptionDisplayPrice ?: "…"
+            // ── Price card ──
             column.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -2749,7 +2758,7 @@ class MainActivity : ComponentActivity() {
                 background = rounded(Color.argb(12, 108, 99, 255), radius = 24, strokeColor = Color.argb(40, 108, 99, 255))
                 layoutParams = blockParams()
                 addView(TextView(this@MainActivity).apply {
-                    text = "$9.99"
+                    text = priceLabel
                     textSize = 48f
                     setTextColor(Color.WHITE)
                     typeface = interBold
@@ -2838,11 +2847,12 @@ class MainActivity : ComponentActivity() {
         column.addView(spacer(16))
         
         // â”€â”€ CTA Button â”€â”€
+        val ctaPrice = subscriptionDisplayPrice?.let { "$it / month" } ?: "…"
         column.addView(LinearLayout(this).apply {
             layoutParams = blockParams()
             setPadding(dp(4), 0, dp(4), 0)
             addView(TextView(this@MainActivity).apply {
-                text = if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro - $9.99 / month"
+                text = if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro - $ctaPrice"
                 textSize = 17f
                 setTextColor(Color.WHITE)
                 typeface = interBold
@@ -2866,6 +2876,15 @@ class MainActivity : ComponentActivity() {
         })
         
         setScreen(scroll(column))
+        if (subscriptionDisplayPrice == null) {
+            scope.launch {
+                val price = billingManager.refresh().price
+                if (!price.isNullOrBlank() && price != subscriptionDisplayPrice) {
+                    subscriptionDisplayPrice = price
+                    runOnUiThread { showPaywall() }
+                }
+            }
+        }
     }
 
     private fun showSubscription() {
@@ -2944,15 +2963,8 @@ class MainActivity : ComponentActivity() {
         appState.subscriptionEntitled = state.entitled
         appState.subscriptionStatus = state.status
         appState.subscriptionProductId = state.productId
-        if (state.entitled && !state.purchaseToken.isNullOrBlank() && appState.authToken.isNotBlank()) {
-            scope.launch {
-                backend.syncEntitlement(
-                    bearerToken = appState.authToken,
-                    purchaseToken = state.purchaseToken,
-                    productId = state.productId,
-                )
-            }
-        }
+        if (!state.price.isNullOrBlank()) subscriptionDisplayPrice = state.price
+        if (state.entitled) syncPlayPurchase(state.purchaseToken, state.orderId)
         if (!silent) showAppToast(state.status, if (state.entitled) ToastKind.green else ToastKind.INFO)
     }
 

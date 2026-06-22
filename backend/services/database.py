@@ -125,6 +125,13 @@ class NeonDatabase:
                     is_premium BOOLEAN NOT NULL DEFAULT FALSE,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+                ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS purchase_token TEXT;
+                ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS product_id VARCHAR(80);
+                ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS order_id TEXT;
+                ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+                ALTER TABLE user_entitlements ADD COLUMN IF NOT EXISTS source VARCHAR(40) DEFAULT 'manual';
+                CREATE INDEX IF NOT EXISTS idx_user_entitlements_purchase_token
+                    ON user_entitlements(purchase_token);
 
                 CREATE TABLE IF NOT EXISTS user_devices (
                     user_id UUID NOT NULL,
@@ -411,7 +418,7 @@ class NeonDatabase:
         try:
             row = await self.pool.fetchrow(
                 """
-                SELECT is_premium, plan
+                SELECT is_premium, plan, expires_at
                 FROM user_entitlements
                 WHERE user_id = $1
                 """,
@@ -419,12 +426,68 @@ class NeonDatabase:
             )
             if not row:
                 return False
-            return bool(row["is_premium"]) or str(row["plan"] or "").lower() in {"premium", "pro", "paid"}
+            if not bool(row["is_premium"]) and str(row["plan"] or "").lower() not in {"premium", "pro", "paid"}:
+                return False
+            expires_at = row.get("expires_at")
+            if expires_at is not None:
+                now = datetime.now(timezone.utc)
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at <= now:
+                    return False
+            return True
         except Exception as exc:
             print(f"[Neon] Premium entitlement check failed: {exc}")
             return False
 
-    async def set_user_premium(self, user_id: str, plan: str = "premium") -> bool:
+    async def upsert_play_entitlement(
+        self,
+        user_id: str,
+        product_id: str,
+        purchase_token: str,
+        order_id: str | None,
+        expires_at,
+        is_premium: bool,
+        source: str = "google_play",
+    ) -> bool:
+        if not self.pool:
+            return False
+        try:
+            import uuid as uuid_mod
+            user_uuid = uuid_mod.UUID(str(user_id))
+            plan = "premium" if is_premium else "free"
+            await self.pool.execute(
+                """
+                INSERT INTO user_entitlements (
+                    user_id, plan, is_premium, purchase_token, product_id, order_id,
+                    expires_at, source, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                SET plan = EXCLUDED.plan,
+                    is_premium = EXCLUDED.is_premium,
+                    purchase_token = EXCLUDED.purchase_token,
+                    product_id = EXCLUDED.product_id,
+                    order_id = EXCLUDED.order_id,
+                    expires_at = EXCLUDED.expires_at,
+                    source = EXCLUDED.source,
+                    updated_at = NOW()
+                """,
+                user_uuid,
+                plan,
+                is_premium,
+                purchase_token,
+                product_id,
+                order_id,
+                expires_at,
+                source,
+            )
+            return True
+        except Exception as exc:
+            print(f"[Neon] Failed to upsert play entitlement: {exc}")
+            return False
+
+    async def revoke_play_entitlement(self, user_id: str) -> bool:
         if not self.pool:
             return False
         try:
@@ -432,20 +495,43 @@ class NeonDatabase:
             user_uuid = uuid_mod.UUID(str(user_id))
             await self.pool.execute(
                 """
-                INSERT INTO user_entitlements (user_id, plan, is_premium, updated_at)
-                VALUES ($1, $2, TRUE, NOW())
-                ON CONFLICT (user_id) DO UPDATE
-                SET plan = EXCLUDED.plan,
-                    is_premium = TRUE,
+                UPDATE user_entitlements
+                SET is_premium = FALSE,
+                    plan = 'free',
                     updated_at = NOW()
+                WHERE user_id = $1
                 """,
                 user_uuid,
-                plan,
             )
             return True
         except Exception as exc:
-            print(f"[Neon] Failed to set premium entitlement: {exc}")
+            print(f"[Neon] Failed to revoke play entitlement: {exc}")
             return False
+
+    async def get_user_id_by_purchase_token(self, purchase_token: str) -> str | None:
+        if not self.pool or not purchase_token:
+            return None
+        row = await self.pool.fetchrow(
+            """
+            SELECT user_id::text AS user_id
+            FROM user_entitlements
+            WHERE purchase_token = $1
+            LIMIT 1
+            """,
+            purchase_token,
+        )
+        return row["user_id"] if row else None
+
+    async def set_user_premium(self, user_id: str, plan: str = "premium") -> bool:
+        return await self.upsert_play_entitlement(
+            user_id=user_id,
+            product_id=plan,
+            purchase_token="",
+            order_id=None,
+            expires_at=None,
+            is_premium=True,
+            source="manual",
+        )
 
     async def verify_device_allowance(self, user_id: str, device_id: str, max_devices: int = 2) -> bool:
         if not self.pool or not device_id:
