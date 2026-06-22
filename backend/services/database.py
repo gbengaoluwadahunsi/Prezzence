@@ -92,6 +92,21 @@ class NeonDatabase:
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS missing_evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS stronger_phrasing JSONB NOT NULL DEFAULT '[]'::jsonb;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS coaching_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+                -- Remove duplicate answers before adding the unique constraint
+                DELETE FROM answers
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY session_id, question_id
+                                   ORDER BY created_at DESC NULLS LAST, id DESC
+                               ) AS rn
+                        FROM answers
+                    ) ranked
+                    WHERE rn > 1
+                );
+
                 DO $$ BEGIN
                     IF NOT EXISTS (
                         SELECT 1 FROM pg_constraint
@@ -487,27 +502,17 @@ class NeonDatabase:
 
         row = await self.pool.fetchrow(
             """
+            WITH deleted AS (
+                DELETE FROM answers
+                WHERE session_id = $1 AND question_id = $2
+                RETURNING id
+            )
             INSERT INTO answers (
                 session_id, question_id, transcript, score, clarity, pacing, impact,
                 confidence, knowledge, feedback, tips, improved_answer, answer_structure,
                 missing_evidence, stronger_phrasing, coaching_breakdown
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (session_id, question_id) DO UPDATE SET
-                transcript = EXCLUDED.transcript,
-                score = EXCLUDED.score,
-                clarity = EXCLUDED.clarity,
-                pacing = EXCLUDED.pacing,
-                impact = EXCLUDED.impact,
-                confidence = EXCLUDED.confidence,
-                knowledge = EXCLUDED.knowledge,
-                feedback = EXCLUDED.feedback,
-                tips = EXCLUDED.tips,
-                improved_answer = EXCLUDED.improved_answer,
-                answer_structure = EXCLUDED.answer_structure,
-                missing_evidence = EXCLUDED.missing_evidence,
-                stronger_phrasing = EXCLUDED.stronger_phrasing,
-                coaching_breakdown = EXCLUDED.coaching_breakdown
             RETURNING id
             """,
             answer_data["session_id"],
