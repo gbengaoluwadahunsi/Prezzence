@@ -3762,6 +3762,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startRecordingTimer() {
+        recordingStartTime = System.currentTimeMillis()
+        recordingDurationState.intValue = 0
+        recordingTimer?.cancel()
+        recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                recordingDurationState.intValue = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
+            }
+            override fun onFinish() {}
+        }.start()
+    }
+
+    private fun stopRecordingTimer() {
+        recordingTimer?.cancel()
+        recordingTimer = null
+        recordingDurationState.intValue = 0
+    }
+
     private fun showInterview(answering: Boolean, processing: Boolean = false, forceRebuild: Boolean = false) {
         val wasAnswering = interviewAnsweringState.value
         interviewAnsweringState.value = answering
@@ -3784,8 +3802,11 @@ class MainActivity : ComponentActivity() {
 
         if (!forceRebuild && isInterviewRoomVisible()) {
             if (answering && !processing && !wasAnswering) {
+                startRecordingTimer()
                 startSpeechCapture()
                 scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
+            } else if (!answering && wasAnswering) {
+                stopRecordingTimer()
             }
             return
         }
@@ -3793,21 +3814,10 @@ class MainActivity : ComponentActivity() {
         val question = appState.currentQuestion()
         val interviewer = appState.interviewerFor(question)
 
-        // Start recording timer if answering (not when processing)
         if (answering && !processing) {
-            recordingStartTime = System.currentTimeMillis()
-            recordingDurationState.intValue = 0
-            recordingTimer?.cancel()
-            recordingTimer = object : android.os.CountDownTimer(Long.MAX_VALUE, 1000) {
-                override fun onTick(millisUntilFinished: Long) {
-                    recordingDurationState.intValue = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                }
-                override fun onFinish() {}
-            }.start()
+            startRecordingTimer()
         } else if (!answering) {
-            recordingTimer?.cancel()
-            recordingTimer = null
-            recordingDurationState.intValue = 0
+            stopRecordingTimer()
         }
 
         val composeView = ComposeView(this)
@@ -3817,6 +3827,7 @@ class MainActivity : ComponentActivity() {
             val processingNow by processingAnswerState
             val stage by processingStageState
             val progress by processingProgressState
+            val recordingDuration by recordingDurationState
             val currentQuestion = appState.currentQuestion()
             val currentInterviewer = appState.interviewerFor(currentQuestion)
             PrezzenceInterviewRoomScreen(
@@ -3839,7 +3850,7 @@ class MainActivity : ComponentActivity() {
                 transcript = activeTranscript,
                 error = speechError,
                 cameraCoachEnabled = appState.cameraCoachEnabled,
-                recordingDuration = recordingDurationState.intValue,
+                recordingDuration = recordingDuration,
                 isRecording = answeringNow && !processingNow && activeTranscriber != null,
                 createAvatarView = {
                     if (suppressNativeAvatarForEntry) {
