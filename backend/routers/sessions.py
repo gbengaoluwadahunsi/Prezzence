@@ -22,6 +22,7 @@ SESSION_META_TIMEOUT_SECONDS = float(os.getenv("SESSION_META_TIMEOUT_SECONDS", "
 SESSION_ANALYTICS_TIMEOUT_SECONDS = float(os.getenv("SESSION_ANALYTICS_TIMEOUT_SECONDS", "2"))
 SESSION_WEB_RESEARCH_TIMEOUT_SECONDS = float(os.getenv("SESSION_WEB_RESEARCH_TIMEOUT_SECONDS", "6"))
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES, FREE_SESSION_LIMIT
+from services.entitlements import has_unlimited_access
 
 DEFAULT_PERSONAS = {
     "maya": {"name": "Maya", "title": "People Lead", "personality": "friendly"},
@@ -418,14 +419,17 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
     """
     try:
         interview_type = (request.interview_type or "").strip().lower()
-        try:
-            is_premium = await asyncio.wait_for(
-                neon_db.is_user_premium(str(current_user["id"]), current_user.get("email")),
-                timeout=SESSION_META_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            print("[Sessions] Premium lookup timed out; treating as free for this request.")
-            is_premium = False
+        admin_access = has_unlimited_access(current_user.get("email"))
+        is_premium = admin_access
+        if not is_premium:
+            try:
+                is_premium = await asyncio.wait_for(
+                    neon_db.is_user_premium(str(current_user["id"]), current_user.get("email")),
+                    timeout=SESSION_META_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                print("[Sessions] Premium lookup timed out; treating as free for this request.")
+                is_premium = False
         if BETA_UNLOCK_ALL_FEATURES:
             is_premium = True
 

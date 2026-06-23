@@ -8,6 +8,7 @@ from services.resume_parser import build_resume_profile, extract_resume_text
 from middleware.auth import get_current_user
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
 from services.billing_entitlements import sync_verified_google_subscription
+from services.entitlements import has_unlimited_access
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 PROGRESS_QUERY_TIMEOUT_SECONDS = float(os.getenv("PROGRESS_QUERY_TIMEOUT_SECONDS", "12"))
@@ -75,6 +76,7 @@ def _empty_coaching_tip(language: str) -> str:
 @router.get("/me/entitlement", status_code=200)
 async def get_entitlement(current_user: dict = Depends(get_current_user)):
     """Returns the server-authoritative entitlement status for the authenticated user."""
+    admin_access = has_unlimited_access(current_user.get("email"))
     try:
         is_premium = await asyncio.wait_for(
             neon_db.is_user_premium(str(current_user["id"]), current_user.get("email")),
@@ -82,12 +84,22 @@ async def get_entitlement(current_user: dict = Depends(get_current_user)):
         )
     except Exception:
         is_premium = False
-    if BETA_UNLOCK_ALL_FEATURES:
+    if BETA_UNLOCK_ALL_FEATURES or admin_access:
         is_premium = True
+    unlock_all = BETA_UNLOCK_ALL_FEATURES or admin_access
+    if admin_access:
+        plan = "admin"
+    elif BETA_UNLOCK_ALL_FEATURES:
+        plan = "beta"
+    elif is_premium:
+        plan = "premium"
+    else:
+        plan = "free"
     return {
         "is_premium": is_premium,
-        "plan": "beta" if BETA_UNLOCK_ALL_FEATURES else ("premium" if is_premium else "free"),
-        "beta_unlock_all_features": BETA_UNLOCK_ALL_FEATURES,
+        "plan": plan,
+        "beta_unlock_all_features": unlock_all,
+        "admin_access": admin_access,
     }
 
 
