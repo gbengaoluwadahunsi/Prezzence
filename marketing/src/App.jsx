@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 
 /* ─── Logo ─── */
@@ -61,170 +61,58 @@ const IconClose = () => (
   </svg>
 );
 
-/* ─── Persona Avatars (inline SVG, no image dependency) ─── */
-const PersonaAvatar = ({ name, color1, color2, size = 88 }) => {
-  const id = name.toLowerCase();
-  return (
-    <svg width={size} height={size} viewBox="0 0 88 88" fill="none">
-      <defs>
-        <linearGradient id={`pg-${id}`} x1="0" y1="0" x2="88" y2="88" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor={color1} />
-          <stop offset="100%" stopColor={color2} />
-        </linearGradient>
-        <clipPath id={`pc-${id}`}><circle cx="44" cy="44" r="44" /></clipPath>
-      </defs>
-      <circle cx="44" cy="44" r="44" fill={`url(#pg-${id})`} fillOpacity="0.18" />
-      <circle cx="44" cy="44" r="44" fill="none" stroke={color1} strokeWidth="1.5" strokeOpacity="0.4" />
-      {/* Body */}
-      <ellipse cx="44" cy="78" rx="20" ry="14" fill={color1} fillOpacity="0.35" clipPath={`url(#pc-${id})`} />
-      {/* Head */}
-      <circle cx="44" cy="34" r="16" fill={color1} fillOpacity="0.55" />
-      <circle cx="44" cy="34" r="12" fill={color1} fillOpacity="0.7" />
-      {/* Highlight */}
-      <circle cx="40" cy="30" r="3.5" fill="#fff" fillOpacity="0.35" />
-    </svg>
-  );
+/* ─── Persona Photos ─── */
+const PersonaPhoto = ({ src, name, color, size = 80 }) => (
+  <img
+    src={src}
+    alt={name}
+    className="persona-photo"
+    width={size}
+    height={size}
+    style={{ "--pcolor": color }}
+  />
+);
+
+/* ─── App Store Badges — official SVG assets ─── */
+const STORE_BADGES = {
+  play: {
+    src: "/badge-playstore.svg",
+    alt: "Get it on Google Play",
+    href: "https://play.google.com/store/apps/details?id=com.pollecode.prezzence",
+  },
+  apple: {
+    src: "/badge-appstore.svg",
+    alt: "Download on the App Store",
+    href: "https://apps.apple.com/app/prezzence",
+  },
 };
 
-/* ─── App Store Badges — real official images ─── */
-const PlayStoreBadge = () => (
-  <img src="/badge-playstore.png" alt="Get it on Google Play" className="store-badge-img" />
+const StoreBadgeButton = ({ store }) => (
+  <a href={STORE_BADGES[store].href} className="store-btn" target="_blank" rel="noopener noreferrer">
+    <img src={STORE_BADGES[store].src} alt={STORE_BADGES[store].alt} className="store-badge-img" />
+  </a>
 );
 
-const AppStoreBadge = () => (
-  <img src="/badge-appstore.svg" alt="Download on the App Store" className="store-badge-img" />
-);
-
-/* ─── Animated Phone Demo ─── */
-const PhoneDemo = () => {
-  const [step, setStep] = useState(0);
-  const [typed, setTyped] = useState("");
-  const [score, setScore] = useState(0);
-
-  const question = "Tell me about a time you led a team through a difficult challenge.";
-  const answer = "In my last role, I guided a 6-person team through a critical product launch under a tight 3-week deadline...";
-
-  useEffect(() => {
-    const sequence = [
-      () => { setStep(1); },
-      () => { setStep(2); },
-      () => {
-        setStep(3);
-        let i = 0;
-        const t = setInterval(() => {
-          setTyped(answer.slice(0, i));
-          i++;
-          if (i > answer.length) clearInterval(t);
-        }, 28);
-      },
-      () => { setStep(4); let s = 0; const t = setInterval(() => { s += 2; setScore(s); if (s >= 84) clearInterval(t); }, 20); },
-      () => { setStep(5); },
-    ];
-    let idx = 0;
-    sequence[idx]();
-    const iv = setInterval(() => {
-      idx++;
-      if (idx < sequence.length) sequence[idx]();
-      else { clearInterval(iv); setTimeout(() => { setStep(0); setTyped(""); setScore(0); }, 2000); }
-    }, step === 3 ? 4000 : 1800);
-    return () => clearInterval(iv);
-  }, []);
-
-  return (
-    <div className="phone-wrap">
-      <div className="phone-outer">
-        <div className="phone-inner">
-          {/* Status bar */}
-          <div className="phone-status">
-            <span className="phone-time">9:41</span>
-            <div className="phone-dot-live"><span />LIVE</div>
-          </div>
-
-          {/* Avatar area */}
-          <div className="phone-avatar-area">
-            <div className={`phone-avatar-ring ${step >= 1 && step < 4 ? "speaking" : ""}`}>
-              <PersonaAvatar name="maya" color1="#6C63FF" color2="#24C8F2" size={72} />
-            </div>
-            <div className="phone-interviewer-info">
-              <span className="phone-interviewer-name">Maya</span>
-              <span className="phone-interviewer-role">AI Interviewer · Job Interview</span>
-            </div>
-          </div>
-
-          {/* Question */}
-          {step >= 1 && (
-            <div className="phone-question">
-              <div className="phone-question-label">Q2 of 5</div>
-              <p>{question}</p>
-            </div>
-          )}
-
-          {/* Answer / state */}
-          {step === 3 && (
-            <div className="phone-answer">
-              <div className="phone-rec"><span className="phone-rec-dot" /> Recording</div>
-              <p className="phone-typed">{typed}<span className="phone-cursor" /></p>
-              <div className="phone-waveform">
-                {[4,7,12,8,14,6,10,13,5,9,11,7,14,8,5,12].map((h, i) => (
-                  <div key={i} className="phone-bar" style={{ height: h * 2, animationDelay: `${i * 0.07}s` }} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 4 && (
-            <div className="phone-scoring">
-              <div className="phone-score-ring">
-                <svg width="80" height="80" viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#1C1C2E" strokeWidth="6" />
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="url(#scoreGrad)" strokeWidth="6"
-                    strokeDasharray="213.6"
-                    strokeDashoffset={213.6 - (213.6 * score / 100)}
-                    strokeLinecap="round"
-                    transform="rotate(-90 40 40)" />
-                  <defs>
-                    <linearGradient id="scoreGrad" x1="0" y1="0" x2="80" y2="0">
-                      <stop stopColor="#6C63FF" /><stop offset="1" stopColor="#00D68F" />
-                    </linearGradient>
-                  </defs>
-                  <text x="40" y="45" textAnchor="middle" fill="white" fontSize="20" fontWeight="800" fontFamily="Inter,sans-serif">{score}</text>
-                </svg>
-              </div>
-              <p className="phone-score-label">Analyzing your answer...</p>
-            </div>
-          )}
-
-          {step === 5 && (
-            <div className="phone-result">
-              <div className="phone-result-score">84</div>
-              <div className="phone-result-label">Strong Answer</div>
-              <div className="phone-result-tags">
-                <span className="rtag green">Clarity +12</span>
-                <span className="rtag blue">Structure +9</span>
-                <span className="rtag purple">Impact +11</span>
-              </div>
-            </div>
-          )}
-
-          {/* Bottom bar */}
-          <div className="phone-bottom">
-            <div className="phone-btn-row">
-              <div className="phone-btn-sm">Skip</div>
-              <div className="phone-btn-main">{step === 3 ? "Finish Answer" : "Answer Now"}</div>
-              <div className="phone-btn-sm">Coach</div>
-            </div>
-          </div>
-        </div>
+/* ─── Phone Demo — real app recording ─── */
+const PhoneDemo = () => (
+  <div className="phone-wrap">
+    <div className="phone-outer phone-outer-video">
+      <div className="phone-notch" />
+      <div className="phone-screen">
+        <video
+          className="phone-video"
+          src="/app-demo.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label="Prezzence app interview practice demo"
+        />
       </div>
-      {/* Floating score badge */}
-      {step >= 5 && (
-        <div className="phone-float-badge">
-          <span>🔥</span> Session score <strong>84</strong>
-        </div>
-      )}
     </div>
-  );
-};
+  </div>
+);
 
 /* ─── Data ─── */
 const features = [
@@ -237,9 +125,9 @@ const features = [
 ];
 
 const personas = [
-  { name: "Maya",   role: "Peer Reviewer",    color1: "#24C8F2", color2: "#6C63FF", desc: "Friendly and collaborative. Helps you sharpen your STAR stories and delivery with supportive, focused feedback." },
-  { name: "Jonas",  role: "Hiring Manager",   color1: "#6C63FF", color2: "#8E7DFF", desc: "Direct, professional, and results-focused. Asks tough questions and expects clear evidence of impact." },
-  { name: "Sophia", role: "Domain Expert",    color1: "#FF5A7A", color2: "#FFB020", desc: "Deep domain knowledge across tech, finance, and leadership. Tests breadth and depth with probing follow-ups." },
+  { name: "Maya",   role: "Peer Reviewer",    color1: "#24C8F2", color2: "#6C63FF", photo: "/personas/maya.jpg",   desc: "Friendly and collaborative. Helps you sharpen your STAR stories and delivery with supportive, focused feedback." },
+  { name: "Jonas",  role: "Hiring Manager",   color1: "#6C63FF", color2: "#8E7DFF", photo: "/personas/jonas.jpg",  desc: "Direct, professional, and results-focused. Asks tough questions and expects clear evidence of impact." },
+  { name: "Sophia", role: "Domain Expert",    color1: "#FF5A7A", color2: "#FFB020", photo: "/personas/sophia.jpg", desc: "Deep domain knowledge across tech, finance, and leadership. Tests breadth and depth with probing follow-ups." },
 ];
 
 const tracks = [
@@ -342,12 +230,8 @@ export default function App() {
             </p>
 
             <div className="hero-badges-row">
-              <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-btn">
-                <PlayStoreBadge />
-              </a>
-              <a href="https://apps.apple.com/app/prezzence" className="store-btn">
-                <AppStoreBadge />
-              </a>
+              <StoreBadgeButton store="play" />
+              <StoreBadgeButton store="apple" />
             </div>
 
             <div className="hero-stats">
@@ -396,7 +280,7 @@ export default function App() {
           {personas.map((p) => (
             <div className="persona-card" key={p.name} style={{ "--pcolor": p.color1 }}>
               <div className="persona-avatar-wrap">
-                <PersonaAvatar name={p.name} color1={p.color1} color2={p.color2} size={80} />
+                <PersonaPhoto src={p.photo} name={p.name} color={p.color1} size={80} />
               </div>
               <div className="persona-name">{p.name}</div>
               <div className="persona-role" style={{ color: p.color1 }}>{p.role}</div>
@@ -500,12 +384,8 @@ export default function App() {
           <h2>Your next interview is closer than you think.</h2>
           <p>Download Prezzence and do your first practice session today — it's free.</p>
           <div className="cta-badges">
-            <a href="https://play.google.com/store/apps/details?id=com.pollecode.prezzence" className="store-btn">
-              <PlayStoreBadge />
-            </a>
-            <a href="https://apps.apple.com/app/prezzence" className="store-btn">
-              <AppStoreBadge />
-            </a>
+            <StoreBadgeButton store="play" />
+            <StoreBadgeButton store="apple" />
           </div>
         </div>
       </section>

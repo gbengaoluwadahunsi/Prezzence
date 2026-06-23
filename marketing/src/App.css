@@ -213,8 +213,9 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 156px;
-  height: 52px;
+  flex-shrink: 0;
+  width: 168px;
+  height: 50px;
   transition: transform 0.2s, opacity 0.2s;
   text-decoration: none;
 }
@@ -224,6 +225,7 @@ h1 {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center;
 }
 .hero-stats {
   display: flex;
@@ -262,6 +264,36 @@ h1 {
     0 0 0 1px rgba(255,255,255,0.06),
     0 32px 80px rgba(0,0,0,0.6),
     0 0 80px rgba(108,99,255,0.12);
+}
+.phone-outer-video {
+  padding: 14px 10px 16px;
+  position: relative;
+}
+.phone-outer-video .phone-notch {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 108px;
+  height: 22px;
+  background: #0D0C16;
+  border-radius: 0 0 16px 16px;
+  z-index: 3;
+}
+.phone-screen {
+  border-radius: 34px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 9 / 19.5;
+  max-height: 620px;
+  line-height: 0;
+}
+.phone-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
 }
 .phone-inner {
   background: #0D0C16;
@@ -621,6 +653,13 @@ h1 {
   transform: translateY(-4px);
 }
 .persona-avatar-wrap { margin-bottom: 16px; }
+.persona-photo {
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid color-mix(in srgb, var(--pcolor) 55%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pcolor) 14%, transparent);
+}
 .persona-name {
   font-size: 18px;
   font-weight: 800;
