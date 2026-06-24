@@ -237,6 +237,10 @@ class MainActivity : ComponentActivity() {
     private val interBlack: android.graphics.Typeface by lazy { androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_black)!! }
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
+    private val homeTabState = androidx.compose.runtime.mutableStateOf(PrezzenceTab.HOME)
+    private var homeComposeView: ComposeView? = null
+    private var homeShellAttached = false
+    private val homeUiRefreshState = androidx.compose.runtime.mutableIntStateOf(0)
     private var coachingMessage: String = ""
 
     private data class DashboardMetrics(
@@ -527,7 +531,10 @@ class MainActivity : ComponentActivity() {
         resultOverlay = null
     }
 
-    private fun setScreen(view: View) {
+    private fun setScreen(view: View, animate: Boolean = true) {
+        if (root.childCount == 1 && root.getChildAt(0) === view) {
+            return
+        }
         dismissResultOverlay()
         dismissConfirmOverlay()
         if (view !== interviewComposeView) {
@@ -536,7 +543,7 @@ class MainActivity : ComponentActivity() {
         releaseNativeSurfaces()
         root.removeAllViews()
         root.setBackgroundColor(bg)
-        view.alpha = 0f
+        view.alpha = if (animate) 0f else 1f
         root.addView(
             view,
             FrameLayout.LayoutParams(
@@ -544,7 +551,9 @@ class MainActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ),
         )
-        view.animate().alpha(1f).setDuration(300).start()
+        if (animate) {
+            view.animate().alpha(1f).setDuration(300).start()
+        }
     }
 
     private fun showSplash() {
@@ -1011,38 +1020,27 @@ class MainActivity : ComponentActivity() {
         showEnteringRoom()
     }
 
-    private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME, skipDataRefresh: Boolean = false) {
-        activeTab = tab
-        val firstName = appState.userFullName.ifBlank { appState.userEmail.substringBefore('@') }.takeIf { it.isNotBlank() }
-        val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
-        val questions = appState.questions()
-        val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
-            appState.currentQuestionIndex < questions.size
-
-        // Verify entitlement from server; fall back to Google Play and sync purchase to server.
-        if (appState.authToken.isNotBlank()) {
-            scope.launch { refreshServerEntitlement() }
-        }
-
-        // Preload DUIX models for all personas on first app launch
-        // This downloads models (~50MB) to device storage when user first signs in
-        if (appState.duixModelsPreloaded) {
-            // Models already preloaded, skip
-        } else {
-            appState.duixModelsPreloaded = true
-            scope.launch {
-                try {
-                    // Preload all 3 personas: Sofia, Lily, Oliver
-                    val preloadNames = listOf("Sofia", "Lily", "Oliver")
-                    com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView.preloadModelFiles(this@MainActivity, preloadNames)
-                } catch (e: Exception) {
-                    // Model preload failed - they'll be downloaded on-demand when needed
-                }
+    private fun refreshHomeData(tab: PrezzenceTab) {
+        if (appState.authToken.isBlank()) return
+        scope.launch {
+            if (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE) {
+                refreshRemoteHistory()
             }
+            if (tab == PrezzenceTab.HOME || tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PROFILE) {
+                refreshUserProgress()
+            }
+            if (tab == PrezzenceTab.PROFILE) {
+                refreshResumeProfileName()
+            }
+            refreshUnreadNotifications()
         }
-        
-        setScreen(ComposeView(this).apply {
+    }
+
+    private fun ensureHomeShell() {
+        if (homeComposeView != null) return
+        homeComposeView = ComposeView(this).apply {
             setContent {
+                val currentTab by homeTabState
                 val remoteHistory by remoteHistoryState
                 val progressSnapshot by userProgressState
                 val unreadCount by unreadNotificationsState
@@ -1050,9 +1048,14 @@ class MainActivity : ComponentActivity() {
                     buildDashboardMetrics(sessionHistoryItems(), progressSnapshot)
                 }
                 val historyItems = remember(remoteHistory, progressSnapshot) { historyItemsForUi() }
+                val firstName = appState.userFullName.ifBlank { appState.userEmail.substringBefore('@') }
+                    .takeIf { it.isNotBlank() }
+                val questions = appState.questions()
+                val hasIncomplete = appState.activeSessionId.isNotBlank() && questions.isNotEmpty() &&
+                    appState.currentQuestionIndex < questions.size
                 androidx.compose.material3.MaterialTheme {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        when (tab) {
+                        when (currentTab) {
                             PrezzenceTab.HOME -> PrezzenceHomeScreen(
                                 completedSessions = metrics.sessions,
                                 readinessScore = metrics.avgScore,
@@ -1070,7 +1073,11 @@ class MainActivity : ComponentActivity() {
                                     appState.resetActiveSession()
                                     showOnboardingType()
                                 },
-                                onProgress = { showHome(PrezzenceTab.PROGRESS) },
+                                onProgress = {
+                                    homeTabState.value = PrezzenceTab.PROGRESS
+                                    activeTab = PrezzenceTab.PROGRESS
+                                    refreshHomeData(PrezzenceTab.PROGRESS)
+                                },
                                 onSettings = { showSettings() },
                                 onNotifications = { showNotifications() },
                             )
@@ -1151,6 +1158,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             PrezzenceTab.PROFILE -> {
+                                homeUiRefreshState.intValue
                                 val displayName = appState.userFullName.ifBlank {
                                     appState.userEmail.substringBefore('@').ifBlank { "Prezzence user" }
                                 }
@@ -1175,14 +1183,13 @@ class MainActivity : ComponentActivity() {
                                     goalValue = appState.weeklyGoal,
                                     onToggleCameraCoach = {
                                         appState.cameraCoachEnabled = !appState.cameraCoachEnabled
-                                        showHome(PrezzenceTab.PROFILE)
+                                        homeUiRefreshState.intValue++
                                     },
                                     onUploadResume = { pickResumeDocument() },
                                     onDeleteResume = {
                                         scope.launch {
                                             backend.deleteResumeProfile(appState.authToken.ifBlank { null })
                                             resumeFileNameState.value = null
-                                            showHome(PrezzenceTab.PROFILE)
                                         }
                                     },
                                     onAccount = { showAccount() },
@@ -1198,44 +1205,61 @@ class MainActivity : ComponentActivity() {
                                     unreadNotifications = unreadCount,
                                     onGoalChange = { newGoal ->
                                         appState.weeklyGoal = newGoal
-                                        showHome(PrezzenceTab.PROFILE)
                                     },
                                 )
                             }
                         }
-                        // Bottom tab bar always visible
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
                         ) {
                             PrezzenceBottomTabBar(
-                                activeTab = tab,
-                                onTabSelected = { newTab -> showHome(newTab) },
+                                activeTab = currentTab,
+                                onTabSelected = { newTab ->
+                                    if (newTab != homeTabState.value) {
+                                        homeTabState.value = newTab
+                                        activeTab = newTab
+                                        refreshHomeData(newTab)
+                                    }
+                                },
                             )
                         }
                     }
                 }
             }
-        })
+        }
+    }
 
-        if (!skipDataRefresh && appState.authToken.isNotBlank()) {
+    private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME, skipDataRefresh: Boolean = false) {
+        activeTab = tab
+        homeTabState.value = tab
+
+        if (skipDataRefresh) return
+
+        if (appState.authToken.isNotBlank()) {
+            scope.launch { refreshServerEntitlement() }
+        }
+
+        if (!appState.duixModelsPreloaded) {
+            appState.duixModelsPreloaded = true
             scope.launch {
-                if (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE) {
-                    refreshRemoteHistory()
-                }
-                if (tab == PrezzenceTab.HOME || tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PROFILE) {
-                    refreshUserProgress()
-                }
-                if (tab == PrezzenceTab.PROFILE) {
-                    refreshResumeProfileName()
-                }
-                refreshUnreadNotifications()
-                if (activeTab == tab) {
-                    showHome(tab, skipDataRefresh = true)
+                try {
+                    val preloadNames = listOf("Sofia", "Lily", "Oliver")
+                    com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView.preloadModelFiles(this@MainActivity, preloadNames)
+                } catch (_: Exception) {
                 }
             }
         }
+
+        val alreadyOnHome = homeComposeView?.parent == root
+        ensureHomeShell()
+        if (!alreadyOnHome) {
+            val animate = !homeShellAttached
+            setScreen(homeComposeView!!, animate = animate)
+            homeShellAttached = true
+        }
+        refreshHomeData(tab)
     }
 
     private fun resumeActiveSession() {
@@ -1372,7 +1396,6 @@ class MainActivity : ComponentActivity() {
                     onBack = { showHome() },
                     onToggleCameraCoach = {
                         appState.cameraCoachEnabled = !appState.cameraCoachEnabled
-                        showSettings()
                     },
                     onInterviewerSetup = { showOnboardingType() },
                     onLanguage = { showLanguage() },
