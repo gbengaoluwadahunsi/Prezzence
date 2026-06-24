@@ -27,7 +27,18 @@ data class InterviewQuestion(
     val role: String,
     val interviewerId: String,
     val type: String = "behavioral",
-)
+    val learnMoreTopic: String = "",
+    val learnMoreUrl: String = "",
+) {
+    fun resolvedLearnMoreTopic(): String =
+        learnMoreTopic.ifBlank { text.take(72).trim().ifBlank { "Interview question prep" } }
+
+    fun resolvedLearnMoreUrl(): String {
+        if (learnMoreUrl.isNotBlank()) return learnMoreUrl
+        val query = java.net.URLEncoder.encode("${text.take(90)} STAR behavioral interview", Charsets.UTF_8.name())
+        return "https://www.google.com/search?q=$query"
+    }
+}
 
 data class PresenceMetrics(
     val faceVisible: Boolean = false,
@@ -85,6 +96,14 @@ data class NotificationItem(
     val message: String,
     val createdAt: String,
     val isRead: Boolean,
+)
+
+data class NotificationPreferences(
+    val pushNotificationsEnabled: Boolean = true,
+    val emailSummariesEnabled: Boolean = false,
+    val practiceRemindersEnabled: Boolean = true,
+    val achievementAlertsEnabled: Boolean = true,
+    val productUpdatesEnabled: Boolean = true,
 )
 object PrezzenceDefaults {
     const val FREE_SESSION_LIMIT = 3

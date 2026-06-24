@@ -164,7 +164,11 @@ class AppState(context: Context) {
         get() = prefs.getBoolean("betaUnlockAllFeatures", false)
         set(value) = prefs.edit().putBoolean("betaUnlockAllFeatures", value).apply()
 
-    fun hasPremiumAccess(): Boolean = subscriptionEntitled || betaUnlockAllFeatures
+    var adminAccess: Boolean
+        get() = prefs.getBoolean("adminAccess", false)
+        set(value) = prefs.edit().putBoolean("adminAccess", value).apply()
+
+    fun hasPremiumAccess(): Boolean = subscriptionEntitled || betaUnlockAllFeatures || adminAccess
 
     var subscriptionStatus: String
         get() = prefs.getString("subscriptionStatus", "Not checked") ?: "Not checked"
@@ -194,7 +198,9 @@ class AppState(context: Context) {
                 .put("text", question.text)
                 .put("role", question.role)
                 .put("interviewerId", question.interviewerId)
-                .put("type", question.type))
+                .put("type", question.type)
+                .put("learnMoreTopic", question.learnMoreTopic)
+                .put("learnMoreUrl", question.learnMoreUrl))
         }
         prefs.edit().putString("generatedQuestions", array.toString()).apply()
     }
@@ -217,6 +223,8 @@ class AppState(context: Context) {
                     role = item.optString("role", selectedRole),
                     interviewerId = item.optString("interviewerId", PrezzenceDefaults.panelIdsForStyle(interviewerStyle)[index % 3]),
                     type = item.optString("type", if (index == 0) "introduction" else "behavioral"),
+                    learnMoreTopic = item.optString("learnMoreTopic", item.optString("learn_more_topic", "")),
+                    learnMoreUrl = item.optString("learnMoreUrl", item.optString("learn_more_url", "")),
                 )
             }
         }.getOrDefault(emptyList())
@@ -333,7 +341,9 @@ class AppState(context: Context) {
                 .put("text", question.text)
                 .put("role", question.role)
                 .put("interviewerId", question.interviewerId)
-                .put("type", question.type))
+                .put("type", question.type)
+                .put("learnMoreTopic", question.learnMoreTopic)
+                .put("learnMoreUrl", question.learnMoreUrl))
         }
         prefs.edit().putString("sessionQuestions_$sessionId", array.toString()).apply()
     }
@@ -352,6 +362,8 @@ class AppState(context: Context) {
                     role = item.optString("role", selectedRole),
                     interviewerId = item.optString("interviewerId", PrezzenceDefaults.panelIdsForStyle(interviewerStyle)[index % 3]),
                     type = item.optString("type", if (index == 0) "introduction" else "behavioral"),
+                    learnMoreTopic = item.optString("learnMoreTopic", item.optString("learn_more_topic", "")),
+                    learnMoreUrl = item.optString("learnMoreUrl", item.optString("learn_more_url", "")),
                 )
             }
         }.getOrDefault(emptyList())
@@ -412,6 +424,7 @@ class AppState(context: Context) {
         userFocus = ""
         onboardingComplete = false
         betaUnlockAllFeatures = false
+        adminAccess = false
         subscriptionEntitled = false
         resetActiveSession()
     }

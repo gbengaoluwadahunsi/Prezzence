@@ -184,6 +184,16 @@ class NeonDatabase:
                     raw_text_excerpt TEXT,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+
+                CREATE TABLE IF NOT EXISTS user_notification_preferences (
+                    user_id UUID PRIMARY KEY,
+                    push_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    email_summaries_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    practice_reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    achievement_alerts_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    product_updates_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
             """)
             print("[Neon] Migrations applied successfully")
         except Exception as e:
@@ -844,6 +854,79 @@ class NeonDatabase:
             user_uuid,
         )
         return result.endswith(" 1")
+
+    async def get_notification_preferences(self, user_id: str) -> Dict:
+        if not self.pool:
+            return {
+                "push_notifications_enabled": True,
+                "email_summaries_enabled": False,
+                "practice_reminders_enabled": True,
+                "achievement_alerts_enabled": True,
+                "product_updates_enabled": True,
+            }
+        import uuid as uuid_mod
+        user_uuid = uuid_mod.UUID(str(user_id))
+        row = await self.pool.fetchrow(
+            """
+            SELECT push_notifications_enabled, email_summaries_enabled,
+                   practice_reminders_enabled, achievement_alerts_enabled,
+                   product_updates_enabled, updated_at
+            FROM user_notification_preferences
+            WHERE user_id = $1
+            """,
+            user_uuid,
+        )
+        if not row:
+            return {
+                "push_notifications_enabled": True,
+                "email_summaries_enabled": False,
+                "practice_reminders_enabled": True,
+                "achievement_alerts_enabled": True,
+                "product_updates_enabled": True,
+            }
+        saved = dict(row)
+        saved["updated_at"] = saved["updated_at"].isoformat() if saved.get("updated_at") else None
+        return saved
+
+    async def upsert_notification_preferences(self, user_id: str, prefs: dict) -> Dict:
+        if not self.pool:
+            raise RuntimeError("Database is unavailable")
+        import uuid as uuid_mod
+        user_uuid = uuid_mod.UUID(str(user_id))
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO user_notification_preferences (
+                user_id,
+                push_notifications_enabled,
+                email_summaries_enabled,
+                practice_reminders_enabled,
+                achievement_alerts_enabled,
+                product_updates_enabled,
+                updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                push_notifications_enabled = EXCLUDED.push_notifications_enabled,
+                email_summaries_enabled = EXCLUDED.email_summaries_enabled,
+                practice_reminders_enabled = EXCLUDED.practice_reminders_enabled,
+                achievement_alerts_enabled = EXCLUDED.achievement_alerts_enabled,
+                product_updates_enabled = EXCLUDED.product_updates_enabled,
+                updated_at = NOW()
+            RETURNING push_notifications_enabled, email_summaries_enabled,
+                      practice_reminders_enabled, achievement_alerts_enabled,
+                      product_updates_enabled, updated_at
+            """,
+            user_uuid,
+            bool(prefs.get("push_notifications_enabled", True)),
+            bool(prefs.get("email_summaries_enabled", False)),
+            bool(prefs.get("practice_reminders_enabled", True)),
+            bool(prefs.get("achievement_alerts_enabled", True)),
+            bool(prefs.get("product_updates_enabled", True)),
+        )
+        saved = dict(row)
+        saved["updated_at"] = saved["updated_at"].isoformat() if saved.get("updated_at") else None
+        return saved
 
     async def get_user_progress(self, user_id: str) -> Optional[Dict]:
         if not self.pool:

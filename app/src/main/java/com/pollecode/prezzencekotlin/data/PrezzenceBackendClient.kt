@@ -601,6 +601,49 @@ class PrezzenceBackendClient {
         }.getOrDefault(emptyList())
     }
 
+    suspend fun fetchNotificationPreferences(bearerToken: String?): NotificationPreferences? = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank()) return@withContext null
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/users/me/notification-preferences")
+                .header("Authorization", "Bearer $bearerToken")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val prefs = JSONObject(response.body?.string().orEmpty()).optJSONObject("preferences") ?: return@use null
+                prefs.toNotificationPreferences()
+            }
+        }.getOrNull()
+    }
+
+    suspend fun updateNotificationPreferences(
+        bearerToken: String?,
+        preferences: NotificationPreferences,
+    ): NotificationPreferences? = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank()) return@withContext null
+        runCatching {
+            val body = JSONObject()
+                .put("push_notifications_enabled", preferences.pushNotificationsEnabled)
+                .put("email_summaries_enabled", preferences.emailSummariesEnabled)
+                .put("practice_reminders_enabled", preferences.practiceRemindersEnabled)
+                .put("achievement_alerts_enabled", preferences.achievementAlertsEnabled)
+                .put("product_updates_enabled", preferences.productUpdatesEnabled)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/api/users/me/notification-preferences")
+                .header("Authorization", "Bearer $bearerToken")
+                .put(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val prefs = JSONObject(response.body?.string().orEmpty()).optJSONObject("preferences") ?: return@use null
+                prefs.toNotificationPreferences()
+            }
+        }.getOrNull()
+    }
+
     suspend fun markNotificationRead(bearerToken: String?, notificationId: String): Boolean = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank() || notificationId.isBlank()) return@withContext false
         runCatching {
@@ -717,8 +760,12 @@ class PrezzenceBackendClient {
         audioDurationSeconds: Int = 0,
         refreshToken: String? = null,
         onTokenRefreshed: ((newAccessToken: String) -> Unit)? = null,
-    ): AnswerResult? = withContext(Dispatchers.IO) {
-        if (bearerToken.isNullOrBlank() || sessionId.isBlank()) return@withContext null
+    ): BackendScoreResult = withContext(Dispatchers.IO) {
+        if (bearerToken.isNullOrBlank() || sessionId.isBlank()) {
+            return@withContext BackendScoreResult(
+                failureMessage = "Sign in and start a session to score your answer.",
+            )
+        }
 
         fun buildRequestBody(): RequestBody {
             val body = JSONObject()
@@ -736,7 +783,7 @@ class PrezzenceBackendClient {
             return body.toString().toRequestBody(jsonMediaType)
         }
 
-        suspend fun executeRequest(token: String): AnswerResult? {
+        suspend fun executeRequest(token: String): BackendScoreResult {
             val requestBody = buildRequestBody()
             Log.i("PrezzenceBackend", "Sending answer: audioLen=${audioBase64?.length ?: 0}, duration=$audioDurationSeconds, session=$sessionId, q=$questionId")
 
@@ -749,15 +796,24 @@ class PrezzenceBackendClient {
             return client.newCall(request).execute().use { response ->
                 Log.i("PrezzenceBackend", "Answer response: code=${response.code}")
                 if (!response.isSuccessful) {
-                    Log.w("PrezzenceBackend", "Backend error: ${response.code} ${response.body?.string()?.take(500)}")
-                    return@use null
+                    val raw = response.body?.string()?.take(500).orEmpty()
+                    Log.w("PrezzenceBackend", "Backend error: ${response.code} $raw")
+                    val message = when (response.code) {
+                        401 -> "Your session expired. Sign in again and try again."
+                        in 500..599 -> "Our servers are busy. Please wait a moment and try again."
+                        408, 429 -> "The request timed out. Try again with a shorter answer."
+                        else -> "We could not score your answer. Check your connection and try again."
+                    }
+                    return@use BackendScoreResult(failureCode = response.code, failureMessage = message)
                 }
                 val responseBody = response.body?.string().orEmpty()
                 val root = JSONObject(responseBody)
                 val analysis = root.optJSONObject("analysis")
                 if (analysis == null) {
                     Log.w("PrezzenceBackend", "No analysis in response: ${responseBody.take(500)}")
-                    return@use null
+                    return@use BackendScoreResult(
+                        failureMessage = "We could not analyze your answer. Please try again.",
+                    )
                 }
                 val transcript_result = root.optString("transcript", transcript)
                 val retry = root.optBoolean("retry_required", false)
@@ -766,28 +822,26 @@ class PrezzenceBackendClient {
                 Log.i("PrezzenceBackend", "Result: transcript=${transcript_result.take(80)}, score=$score, retry=$retry, source=$source")
                 val rawTranscript = root.optString("transcript", transcript)
                 val backendScore = analysis.optInt("score", 0)
-                // Trust the backend score directly; only zero it when there is genuinely no transcript
                 val resolvedScore = if (SessionScoring.isBlankTranscript(rawTranscript)) 0 else backendScore
-                return@use AnswerResult(
-                    transcript = rawTranscript,
-                    score = resolvedScore,
-                    feedback = analysis.optString("feedback", ""),
-                    improvedAnswer = analysis.optString("improved_answer", ""),
-                    what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
-                    how = analysis.optJSONObject("coaching_breakdown")?.optString("how_to_structure", "") ?: "",
-                    why = analysis.optJSONObject("coaching_breakdown")?.optString("why_it_works", "") ?: "",
-                    coachingMessage = analysis.optString("coaching_message", ""),
-                    retryRequired = root.optBoolean("retry_required", false),
+                return@use BackendScoreResult(
+                    answer = AnswerResult(
+                        transcript = rawTranscript,
+                        score = resolvedScore,
+                        feedback = analysis.optString("feedback", ""),
+                        improvedAnswer = analysis.optString("improved_answer", ""),
+                        what = analysis.optJSONObject("coaching_breakdown")?.optString("what_to_include", "") ?: "",
+                        how = analysis.optJSONObject("coaching_breakdown")?.optString("how_to_structure", "") ?: "",
+                        why = analysis.optJSONObject("coaching_breakdown")?.optString("why_it_works", "") ?: "",
+                        coachingMessage = analysis.optString("coaching_message", ""),
+                        retryRequired = root.optBoolean("retry_required", false),
+                    ),
                 )
             }
         }
 
-        // First attempt with the current token
         val firstResult = executeRequest(bearerToken)
-        if (firstResult != null) return@withContext firstResult
+        if (firstResult.answer != null || firstResult.failureCode == 401) return@withContext firstResult
 
-        // If first attempt failed (null), check if it was a 401 by inspecting the raw response
-        // We don't know the exact failure reason from null alone, so try token refresh + retry
         if (!refreshToken.isNullOrBlank()) {
             Log.i("PrezzenceBackend", "First attempt failed; attempting token refresh before retry...")
             val refreshed = refreshSession(refreshToken)
@@ -795,12 +849,88 @@ class PrezzenceBackendClient {
                 Log.i("PrezzenceBackend", "Token refreshed successfully, retrying answer submission")
                 onTokenRefreshed?.invoke(refreshed.accessToken)
                 val retryResult = executeRequest(refreshed.accessToken)
-                if (retryResult != null) return@withContext retryResult
+                if (retryResult.answer != null || retryResult.failureCode == 401) return@withContext retryResult
             } else {
                 Log.w("PrezzenceBackend", "Token refresh failed")
             }
         }
-        null
+        BackendScoreResult(
+            failureMessage = "We could not reach the server. Check your connection and try again.",
+        )
+    }
+
+    suspend fun fetchUserProgress(
+        bearerToken: String,
+        userId: String,
+        language: String = "en",
+        refreshToken: String? = null,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
+    ): UserProgressSnapshot? = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank() || userId.isBlank()) return@withContext null
+
+        suspend fun doFetch(token: String): UserProgressSnapshot? {
+            val encodedLanguage = URLEncoder.encode(language.ifBlank { "en" }, "UTF-8")
+            val request = Request.Builder()
+                .url("$baseUrl/api/users/$userId/progress?language=$encodedLanguage")
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+            return client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("PrezzenceBackend", "Progress fetch failed: ${response.code}")
+                    return@use null
+                }
+                parseUserProgress(JSONObject(response.body?.string().orEmpty()))
+            }
+        }
+
+        doFetch(bearerToken) ?: run {
+            if (refreshToken.isNullOrBlank()) return@withContext null
+            val refreshed = refreshSession(refreshToken) ?: return@withContext null
+            onTokenRefreshed?.invoke(refreshed)
+            doFetch(refreshed.accessToken)
+        }
+    }
+
+    private fun parseUserProgress(json: JSONObject): UserProgressSnapshot {
+        val stats = json.optJSONObject("stats")
+        val improvement = json.optJSONObject("improvement")
+        val readiness = json.optJSONObject("readiness")
+        val skillFocus = json.optJSONObject("skill_focus")
+        val coachingPlan = json.optJSONArray("coaching_plan")?.let { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optString(index).trim()
+                    if (item.isNotBlank()) add(item)
+                }
+            }
+        }.orEmpty()
+        val radarData = json.optJSONArray("radar_data")?.let { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val label = item.optString("label").trim()
+                    if (label.isNotBlank()) add(label to item.optInt("value", 0))
+                }
+            }
+        }.orEmpty()
+
+        return UserProgressSnapshot(
+            avgScore = stats?.optInt("avg_score", 0) ?: 0,
+            sessions = stats?.optInt("sessions", 0) ?: 0,
+            practiceHours = stats?.optDouble("practice_hours", 0.0)?.toFloat() ?: 0f,
+            growth = json.optInt("growth", improvement?.optInt("from_previous", 0) ?: 0),
+            improvementFromFirst = improvement?.optInt("from_first", 0) ?: 0,
+            coachingTip = json.optString("coaching_tip", ""),
+            readinessLabel = readiness?.optString("label", "") ?: "",
+            readinessScore = readiness?.optInt("score", stats?.optInt("avg_score", 0) ?: 0) ?: 0,
+            strongestSkill = skillFocus?.optString("strongest", "").orEmpty(),
+            strongestScore = skillFocus?.optInt("strongest_score", 0) ?: 0,
+            weakestSkill = skillFocus?.optString("weakest", "").orEmpty(),
+            weakestScore = skillFocus?.optInt("weakest_score", 0) ?: 0,
+            coachingPlan = coachingPlan,
+            radarData = radarData,
+        )
     }
 
     suspend fun fetchEntitlement(bearerToken: String): EntitlementStatus = withContext(Dispatchers.IO) {
@@ -817,6 +947,7 @@ class PrezzenceBackendClient {
                 EntitlementStatus(
                     isPremium = body.optBoolean("is_premium", false),
                     betaUnlockAllFeatures = body.optBoolean("beta_unlock_all_features", false),
+                    adminAccess = body.optBoolean("admin_access", false),
                 )
             }
         }.getOrDefault(EntitlementStatus(false))
@@ -878,6 +1009,30 @@ class SessionCreateException(val reason: SessionErrorReason, message: String? = 
 data class EntitlementStatus(
     val isPremium: Boolean,
     val betaUnlockAllFeatures: Boolean = false,
+    val adminAccess: Boolean = false,
+)
+
+data class BackendScoreResult(
+    val answer: AnswerResult? = null,
+    val failureCode: Int? = null,
+    val failureMessage: String? = null,
+)
+
+data class UserProgressSnapshot(
+    val avgScore: Int,
+    val sessions: Int,
+    val practiceHours: Float,
+    val growth: Int,
+    val improvementFromFirst: Int,
+    val coachingTip: String,
+    val readinessLabel: String,
+    val readinessScore: Int,
+    val strongestSkill: String,
+    val strongestScore: Int,
+    val weakestSkill: String,
+    val weakestScore: Int,
+    val coachingPlan: List<String>,
+    val radarData: List<Pair<String, Int>>,
 )
 
 data class AuthSession(
@@ -920,6 +1075,8 @@ private fun JSONArray?.toInterviewQuestions(role: String, panelIds: List<String>
             role = role.ifBlank { "Interview" },
             interviewerId = interviewerId,
             type = item.optString("type", if (index == 0) "introduction" else "behavioral"),
+            learnMoreTopic = item.optString("learn_more_topic", item.optString("learnMoreTopic", "")),
+            learnMoreUrl = item.optString("learn_more_url", item.optString("learnMoreUrl", "")),
         )
     }
 }
@@ -945,6 +1102,16 @@ private fun JSONObject.toNotificationItem(): NotificationItem {
         message = optString("message", optString("body", "")),
         createdAt = optString("created_at", optString("date", "")),
         isRead = optBoolean("is_read", optBoolean("read", false)),
+    )
+}
+
+private fun JSONObject.toNotificationPreferences(): NotificationPreferences {
+    return NotificationPreferences(
+        pushNotificationsEnabled = optBoolean("push_notifications_enabled", true),
+        emailSummariesEnabled = optBoolean("email_summaries_enabled", false),
+        practiceRemindersEnabled = optBoolean("practice_reminders_enabled", true),
+        achievementAlertsEnabled = optBoolean("achievement_alerts_enabled", true),
+        productUpdatesEnabled = optBoolean("product_updates_enabled", true),
     )
 }
 

@@ -43,6 +43,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.pollecode.prezzencekotlin.billing.BillingUiState
@@ -55,6 +57,7 @@ import com.pollecode.prezzencekotlin.data.InterviewMode
 import com.pollecode.prezzencekotlin.data.Interviewer
 import com.pollecode.prezzencekotlin.data.NotificationItem
 import com.pollecode.prezzencekotlin.data.PrezzenceBackendClient
+import com.pollecode.prezzencekotlin.data.UserProgressSnapshot
 import com.pollecode.prezzencekotlin.data.ResumeProfile
 import com.pollecode.prezzencekotlin.data.PrezzenceDefaults
 import com.pollecode.prezzencekotlin.data.SessionCreateException
@@ -89,7 +92,39 @@ import com.pollecode.prezzencekotlin.ui.PrezzenceTab
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionReportScreen
 import com.pollecode.prezzencekotlin.ui.SessionReportAnswerItem
 import com.pollecode.prezzencekotlin.ui.SessionHistoryItem
+import com.pollecode.prezzencekotlin.ui.PrezzenceSessionHistoryScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceAnswerResultOverlay
+import com.pollecode.prezzencekotlin.ui.PrezzenceModelAnswerOverlay
+import com.pollecode.prezzencekotlin.ui.PrezzenceInterviewPausedOverlay
+import com.pollecode.prezzencekotlin.data.NotificationPreferences
 import com.pollecode.prezzencekotlin.ui.PracticeSessionItem
+import com.pollecode.prezzencekotlin.ui.PrezzenceSettingsScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSettingsLanguageScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceAccountScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceDeleteAccountScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceEditProfileScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceHelpScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceNotificationSettingsScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceAppSettingsScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceAccessibilitySettingsScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceFeedbackScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceDeviceQaScreen
+import com.pollecode.prezzencekotlin.ui.PrezzencePrivacySettingsScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceLegalScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceResumeProfileScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceNotificationsInboxScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceMicDeniedScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceLowStorageScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSimpleMessageScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceAuthCallbackScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceNetworkErrorScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSessionErrorScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSessionInterruptedScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSessionSaveErrorScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceNotFoundScreen
+import com.pollecode.prezzencekotlin.ui.PrezzencePaymentSuccessScreen
+import com.pollecode.prezzencekotlin.ui.PrezzencePaywallScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceSubscriptionScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -121,11 +156,15 @@ class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private lateinit var billingManager: PrezzenceBillingManager
     private var subscriptionDisplayPrice: String? = null
+    private val subscriptionPriceState = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     private var activeAvatar: NativeDuixAvatarView? = null
     private var coachingMediaPlayer: MediaPlayer? = null
     private var resultOverlay: FrameLayout? = null
     private var teachingOverlay: FrameLayout? = null
+    private val answerReviewVisibleState = androidx.compose.runtime.mutableStateOf(false)
+    private val modelAnswerVisibleState = androidx.compose.runtime.mutableStateOf(false)
+    private val interviewPausedState = androidx.compose.runtime.mutableStateOf(false)
     private var confirmOverlay: FrameLayout? = null
     private var activeCamera: NativePresenceCameraView? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
@@ -159,8 +198,17 @@ class MainActivity : ComponentActivity() {
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
     private val remoteHistoryState = androidx.compose.runtime.mutableStateOf<List<SessionSummary>>(emptyList())
+    private val userProgressState = androidx.compose.runtime.mutableStateOf<UserProgressSnapshot?>(null)
     private val unreadNotificationsState = androidx.compose.runtime.mutableIntStateOf(0)
     private val resumeFileNameState = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val deviceQaResultsState = androidx.compose.runtime.mutableStateOf<List<DeviceQaResult>>(emptyList())
+    private val deviceQaRunningState = androidx.compose.runtime.mutableStateOf(false)
+    private val deviceQaStatusState = androidx.compose.runtime.mutableStateOf("Ready")
+    private val resumeProfileTextState = androidx.compose.runtime.mutableStateOf("")
+    private val resumeProfileStatusState = androidx.compose.runtime.mutableStateOf("Loading saved profile...")
+    private val resumeProfileLoadingState = androidx.compose.runtime.mutableStateOf(true)
+    private val notificationsInboxState = androidx.compose.runtime.mutableStateOf<List<NotificationItem>>(emptyList())
+    private val notificationsLoadingState = androidx.compose.runtime.mutableStateOf(true)
     private var oauthCodeVerifier: String = ""
     private var passwordResetAccessToken: String = ""
     private var onboardingTrack: String = "job"
@@ -190,6 +238,17 @@ class MainActivity : ComponentActivity() {
     private var appToastView: View? = null
     private var activeTab: PrezzenceTab = PrezzenceTab.HOME
     private var coachingMessage: String = ""
+
+    private data class DashboardMetrics(
+        val sessions: Int,
+        val avgScore: Int,
+        val improvementDelta: Int,
+        val readinessLabel: String,
+        val coachingTip: String,
+        val bestSkillLabel: String?,
+        val bestSkillValue: Int?,
+        val weakestSkillLabel: String?,
+    )
 
     private val resumeDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) uploadResumeDocument(uri)
@@ -247,6 +306,71 @@ class MainActivity : ComponentActivity() {
         if (session.fullName.isNotBlank()) appState.userFullName = session.fullName
         if (session.focus.isNotBlank()) appState.userFocus = session.focus
         updateDuixDownloadAuth()
+        scope.launch {
+            refreshNotificationPreferencesFromServer()
+            refreshServerEntitlement()
+        }
+    }
+
+    private suspend fun refreshServerEntitlement() {
+        if (appState.authToken.isBlank()) return
+        val entitlement = backend.fetchEntitlement(appState.authToken)
+        appState.betaUnlockAllFeatures = entitlement.betaUnlockAllFeatures
+        appState.adminAccess = entitlement.adminAccess
+        var entitled = entitlement.isPremium || entitlement.adminAccess
+        if (!entitled) {
+            val playState = billingManager.refresh()
+            entitled = playState.entitled
+            if (entitled && !playState.purchaseToken.isNullOrBlank()) {
+                backend.syncEntitlement(
+                    bearerToken = appState.authToken,
+                    purchaseToken = playState.purchaseToken,
+                    productId = playState.productId,
+                    packageName = packageName,
+                    orderId = playState.orderId,
+                )
+            }
+            if (!playState.price.isNullOrBlank()) {
+                subscriptionDisplayPrice = playState.price
+                subscriptionPriceState.value = playState.price
+            }
+        }
+        appState.subscriptionEntitled = entitled
+        updateDuixDownloadAuth()
+    }
+
+    private fun currentNotificationPreferences(): NotificationPreferences = NotificationPreferences(
+        pushNotificationsEnabled = appState.pushNotificationsEnabled,
+        emailSummariesEnabled = appState.emailSummariesEnabled,
+        practiceRemindersEnabled = appState.practiceRemindersEnabled,
+        achievementAlertsEnabled = appState.achievementAlertsEnabled,
+        productUpdatesEnabled = appState.productUpdatesEnabled,
+    )
+
+    private fun applyNotificationPreferences(preferences: NotificationPreferences) {
+        appState.pushNotificationsEnabled = preferences.pushNotificationsEnabled
+        appState.emailSummariesEnabled = preferences.emailSummariesEnabled
+        appState.practiceRemindersEnabled = preferences.practiceRemindersEnabled
+        appState.achievementAlertsEnabled = preferences.achievementAlertsEnabled
+        appState.productUpdatesEnabled = preferences.productUpdatesEnabled
+    }
+
+    private suspend fun refreshNotificationPreferencesFromServer() {
+        if (appState.authToken.isBlank()) return
+        backend.fetchNotificationPreferences(appState.authToken)?.let { applyNotificationPreferences(it) }
+    }
+
+    private suspend fun syncNotificationPreferencesToServer() {
+        if (appState.authToken.isBlank()) return
+        backend.updateNotificationPreferences(appState.authToken, currentNotificationPreferences())
+    }
+
+    private fun updateNotificationPreference(onUpdated: () -> Unit = {}, block: () -> Unit) {
+        block()
+        scope.launch {
+            syncNotificationPreferencesToServer()
+            withContext(Dispatchers.Main) { onUpdated() }
+        }
     }
 
     private fun handleAuthCallback(uri: Uri?): Boolean {
@@ -318,6 +442,7 @@ class MainActivity : ComponentActivity() {
 
         if (session != null) {
             saveAuthSession(session)
+            refreshServerEntitlement()
             routeAfterAuth(isVerify)
             return
         }
@@ -326,6 +451,7 @@ class MainActivity : ComponentActivity() {
             val existing = backend.sessionFromAccessToken(appState.authToken)
             if (existing != null) {
                 saveAuthSession(existing)
+                refreshServerEntitlement()
                 routeAfterAuth(isVerify)
                 return
             }
@@ -333,6 +459,7 @@ class MainActivity : ComponentActivity() {
             if (storedRefresh.isNotBlank()) {
                 backend.refreshSession(storedRefresh)?.let {
                     saveAuthSession(it)
+                    refreshServerEntitlement()
                     routeAfterAuth(isVerify)
                     return
                 }
@@ -387,6 +514,7 @@ class MainActivity : ComponentActivity() {
     private fun dismissTeachingOverlay() {
         activeAvatar?.stopSpeaking()
         stopCoachingAudioFallback()
+        modelAnswerVisibleState.value = false
         teachingOverlay?.let { runCatching { root.removeView(it) } }
         teachingOverlay = null
     }
@@ -394,6 +522,7 @@ class MainActivity : ComponentActivity() {
     private fun dismissResultOverlay() {
         dismissTeachingOverlay()
         activeAvatar?.stopSpeaking()
+        answerReviewVisibleState.value = false
         resultOverlay?.let { runCatching { root.removeView(it) } }
         resultOverlay = null
     }
@@ -580,7 +709,10 @@ class MainActivity : ComponentActivity() {
                             }
                             saveAuthSession(session)
                             if (appState.userEmail.isBlank()) appState.userEmail = email.trim()
-                            if (appState.onboardingComplete) showHome() else showOnboardingType()
+                            refreshServerEntitlement()
+                            withContext(Dispatchers.Main) {
+                                if (appState.onboardingComplete) showHome() else showOnboardingType()
+                            }
                         }
                     },
                     onGoogleSignIn = { startGoogleAuth() },
@@ -595,44 +727,26 @@ class MainActivity : ComponentActivity() {
             showSignIn(error = error)
             return
         }
-        setScreen(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-            background = rounded(bg)
-            addView(LinearLayout(this@MainActivity).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(dp(210), dp(136))
-                background = rounded(panel, radius = 24, strokeColor = border)
-                setPadding(dp(24), dp(24), dp(24), dp(24))
-                addView(ProgressBar(this@MainActivity).apply {
-                    isIndeterminate = true
-                    layoutParams = LinearLayout.LayoutParams(dp(32), dp(32))
-                })
-                addView(spacer(16))
-                addView(TextView(this@MainActivity).apply {
-                    text = "Signing you in"
-                    textSize = 16f
-                    setTextColor(Color.WHITE)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                })
-            })
+        setScreen(ComposeView(this).apply {
+            setContent { PrezzenceAuthCallbackScreen() }
         })
         if (!token.isNullOrBlank()) {
             scope.launch {
-                val session = backend.sessionFromAccessToken(token!!)
+                val session = backend.sessionFromAccessToken(token)
                 if (session != null) {
                     saveAuthSession(session)
-                    if (appState.onboardingComplete) showHome() else showOnboardingType()
+                    refreshServerEntitlement()
+                    withContext(Dispatchers.Main) {
+                        if (appState.onboardingComplete) showHome() else showOnboardingType()
+                    }
                 } else {
-                    showSignIn(error = "Unable to complete sign in.")
+                    withContext(Dispatchers.Main) {
+                        showSignIn(error = "Unable to complete sign in.")
+                    }
                 }
             }
         }
     }
-
     private fun showSignUp(error: String? = null, loading: Boolean = false, successEmail: String? = null) {
         setScreen(ComposeView(this).apply {
             setContent {
@@ -755,16 +869,20 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onSelectTrack = { track ->
-                        // Free tier: only "job" track available
-                        if (!appState.hasPremiumAccess() && !track.equals("job", ignoreCase = true)) {
-                            showAppToast("Only the Job Interview track is available on the Free plan. Upgrade to Pro for all tracks.", ToastKind.WARNING)
-                            showPaywall()
-                            return@PrezzenceOnboardingTypeScreen
+                        scope.launch {
+                            refreshServerEntitlement()
+                            withContext(Dispatchers.Main) {
+                                if (!appState.hasPremiumAccess() && !track.equals("job", ignoreCase = true)) {
+                                    showAppToast("Only the Job Interview track is available on the Free plan. Upgrade to Pro for all tracks.", ToastKind.WARNING)
+                                    showPaywall()
+                                    return@withContext
+                                }
+                                onboardingTrack = track
+                                appState.interviewMode = if (track == "leadership") InterviewMode.PANEL else InterviewMode.SINGLE
+                                applyTrackDefaults(track)
+                                showOnboardingType()
+                            }
                         }
-                        onboardingTrack = track
-                        appState.interviewMode = if (track == "leadership") InterviewMode.PANEL else InterviewMode.SINGLE
-                        applyTrackDefaults(track)
-                        showOnboardingType()
                     },
                     onContinue = { showOnboardingRole() },
                 )
@@ -893,7 +1011,7 @@ class MainActivity : ComponentActivity() {
         showEnteringRoom()
     }
 
-    private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME) {
+    private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME, skipDataRefresh: Boolean = false) {
         activeTab = tab
         val firstName = appState.userFullName.ifBlank { appState.userEmail.substringBefore('@') }.takeIf { it.isNotBlank() }
         val history = if (remoteHistoryState.value.isNotEmpty()) remoteHistoryState.value else appState.sessionHistory()
@@ -903,26 +1021,7 @@ class MainActivity : ComponentActivity() {
 
         // Verify entitlement from server; fall back to Google Play and sync purchase to server.
         if (appState.authToken.isNotBlank()) {
-            scope.launch {
-                val entitlement = backend.fetchEntitlement(appState.authToken)
-                appState.betaUnlockAllFeatures = entitlement.betaUnlockAllFeatures
-                var entitled = entitlement.isPremium
-                if (!entitled) {
-                    val playState = billingManager.refresh()
-                    entitled = playState.entitled
-                    if (entitled && !playState.purchaseToken.isNullOrBlank()) {
-                        backend.syncEntitlement(
-                            bearerToken = appState.authToken,
-                            purchaseToken = playState.purchaseToken,
-                            productId = playState.productId,
-                            packageName = packageName,
-                            orderId = playState.orderId,
-                        )
-                    }
-                }
-                appState.subscriptionEntitled = entitled
-                updateDuixDownloadAuth()
-            }
+            scope.launch { refreshServerEntitlement() }
         }
 
         // Preload DUIX models for all personas on first app launch
@@ -944,32 +1043,40 @@ class MainActivity : ComponentActivity() {
         
         setScreen(ComposeView(this).apply {
             setContent {
+                val remoteHistory by remoteHistoryState
+                val progressSnapshot by userProgressState
+                val unreadCount by unreadNotificationsState
+                val metrics = remember(remoteHistory, progressSnapshot) {
+                    buildDashboardMetrics(sessionHistoryItems(), progressSnapshot)
+                }
+                val historyItems = remember(remoteHistory, progressSnapshot) { historyItemsForUi() }
                 androidx.compose.material3.MaterialTheme {
                     Box(modifier = Modifier.fillMaxSize()) {
                         when (tab) {
                             PrezzenceTab.HOME -> PrezzenceHomeScreen(
-                                completedSessions = appState.completedSessions,
-                                readinessScore = appState.readinessScore,
+                                completedSessions = metrics.sessions,
+                                readinessScore = metrics.avgScore,
                                 signedInAs = appState.userEmail.ifBlank { null },
                                 firstName = firstName,
                                 hasIncompleteSession = hasIncomplete,
                                 currentQuestionIndex = appState.currentQuestionIndex,
                                 totalQuestions = questions.size.coerceAtLeast(1),
-                                unreadNotifications = unreadNotificationsState.intValue,
+                                unreadNotifications = unreadCount,
+                                improvementDelta = metrics.improvementDelta,
+                                homeCoachingTip = metrics.coachingTip,
                                 onStart = { showOnboardingType() },
                                 onContinueSession = { resumeActiveSession() },
                                 onNewSession = {
                                     appState.resetActiveSession()
                                     showOnboardingType()
                                 },
-                                onQuestions = { showQuestions() },
                                 onProgress = { showHome(PrezzenceTab.PROGRESS) },
                                 onSettings = { showSettings() },
-                                onQa = { showDeviceQa() },
                                 onNotifications = { showNotifications() },
                             )
                             PrezzenceTab.PRACTICE -> {
-                                val practiceSessions = sessionHistoryItems().take(5).map { s ->
+                                val allHistory = sessionHistoryItems()
+                                val practiceSessions = allHistory.take(5).map { s ->
                                     PracticeSessionItem(
                                         id = s.id,
                                         title = s.role,
@@ -983,11 +1090,15 @@ class MainActivity : ComponentActivity() {
                                 }
                                 PrezzencePracticeScreen(
                                     recentSessions = practiceSessions,
+                                    totalSessionCount = allHistory.size,
                                     onSessionTap = { sessionId -> showSessionReport(sessionId, PrezzenceTab.PRACTICE) },
                                     onDeleteSession = { sessionId ->
-                                        val sessionTitle = practiceSessions.firstOrNull { it.id == sessionId }?.title ?: "this session"
+                                        val sessionTitle = practiceSessions.firstOrNull { it.id == sessionId }?.title
+                                            ?: allHistory.firstOrNull { it.id == sessionId }?.role
+                                            ?: "this session"
                                         confirmDeleteSession(sessionId, sessionTitle, PrezzenceTab.PRACTICE)
                                     },
+                                    onViewAllHistory = { showAllHistory(PrezzenceTab.PRACTICE) },
                                     onSelectMode = { modeId ->
                                         when (modeId) {
                                             "full" -> {
@@ -1027,51 +1138,37 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             PrezzenceTab.PROGRESS -> {
-                                val historyItems = sessionHistoryItems()
-                                    .map { s ->
-                                        SessionHistoryItem(id = s.id, role = s.role, score = s.score, date = s.date, answered = s.answered, total = s.total)
-                                    }
-                                val scoredItems = historyItems.filter { it.score > 0 }
-                                val sessionAvgScore = if (scoredItems.isNotEmpty()) {
-                                    scoredItems.map { it.score }.average().toInt().coerceIn(0, 100)
-                                } else {
-                                    0
-                                }
-                                val progressReadinessLabel = when {
-                                    sessionAvgScore >= 75 -> "Interview Ready"
-                                    sessionAvgScore >= 45 -> "Building Confidence"
-                                    sessionAvgScore >= 25 -> "Building Momentum"
-                                    sessionAvgScore > 0 -> "Foundation Built"
-                                    historyItems.isNotEmpty() -> "Sessions Started"
-                                    else -> "No Baseline"
-                                }
                                 PrezzenceProgressScreen(
-                                    avgScore = sessionAvgScore,
-                                    sessions = historyItems.size,
+                                    avgScore = metrics.avgScore,
+                                    sessions = metrics.sessions,
                                     practiceMinutes = appState.practiceMinutes,
-                                    readinessLabel = progressReadinessLabel,
+                                    readinessLabel = metrics.readinessLabel,
                                     recentSessions = historyItems,
-                                    coachingTip = "",
+                                    coachingTip = metrics.coachingTip,
                                     onSettings = { showSettings() },
                                     onSessionTap = { sessionId -> showSessionReport(sessionId, PrezzenceTab.PROGRESS) },
-                                    onViewAllHistory = { showAllHistory() },
+                                    onViewAllHistory = { showAllHistory(PrezzenceTab.PROGRESS) },
                                 )
                             }
                             PrezzenceTab.PROFILE -> {
-                                val name = appState.userEmail.substringBefore('@').ifBlank { "Candidate" }
-                                val initials = name.split(' ').filter { it.isNotBlank() }.take(2)
+                                val displayName = appState.userFullName.ifBlank {
+                                    appState.userEmail.substringBefore('@').ifBlank { "Prezzence user" }
+                                }
+                                val initials = displayName.split(' ').filter { it.isNotBlank() }.take(2)
                                     .mapNotNull { it.firstOrNull()?.uppercaseChar() }
                                     .joinToString("").ifBlank { "C" }
                                 PrezzenceProfileScreen(
-                                    fullName = name,
+                                    fullName = displayName,
                                     email = appState.userEmail.ifBlank { "No email connected" },
                                     initials = initials,
-                                    avgScore = appState.readinessScore,
-                                    sessions = appState.completedSessions,
+                                    planLabel = accountPlanLabel(),
+                                    avgScore = metrics.avgScore,
+                                    sessions = metrics.sessions,
                                     practiceMinutes = appState.practiceMinutes,
-                                    coachingTip = "",
-                                    bestSkillLabel = null,
-                                    bestSkillValue = null,
+                                    coachingTip = metrics.coachingTip,
+                                    bestSkillLabel = metrics.bestSkillLabel,
+                                    bestSkillValue = metrics.bestSkillValue,
+                                    focusSkillLabel = metrics.weakestSkillLabel,
                                     cameraCoachEnabled = appState.cameraCoachEnabled,
                                     resumeFileName = resumeFileNameState.value,
                                     language = appState.language,
@@ -1091,13 +1188,14 @@ class MainActivity : ComponentActivity() {
                                     onAccount = { showAccount() },
                                     onLanguage = { showLanguage() },
                                     onPrivacy = { showLegal() },
-                                    onHelp = { showHelp() },
+                                    onHelp = { showHelp { showHome(PrezzenceTab.PROFILE) } },
                                     onSignOut = {
                                         appState.signOut()
                                         showLanding()
                                     },
                                     onSettings = { showSettings() },
                                     onNotifications = { showNotifications() },
+                                    unreadNotifications = unreadCount,
                                     onGoalChange = { newGoal ->
                                         appState.weeklyGoal = newGoal
                                         showHome(PrezzenceTab.PROFILE)
@@ -1121,20 +1219,21 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        // Refresh remote history for progress/practice tabs
-        if (appState.authToken.isNotBlank() && (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE)) {
+        if (!skipDataRefresh && appState.authToken.isNotBlank()) {
             scope.launch {
-                refreshRemoteHistory()
-            }
-        }
-        if (appState.authToken.isNotBlank() && tab == PrezzenceTab.PROFILE) {
-            scope.launch { refreshResumeProfileName() }
-        }
-        // Fetch unread notification count
-        if (appState.authToken.isNotBlank() && tab == PrezzenceTab.HOME) {
-            scope.launch {
-                val notifications = backend.getNotifications(appState.authToken)
-                unreadNotificationsState.intValue = notifications.count { !it.isRead }
+                if (tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PRACTICE) {
+                    refreshRemoteHistory()
+                }
+                if (tab == PrezzenceTab.HOME || tab == PrezzenceTab.PROGRESS || tab == PrezzenceTab.PROFILE) {
+                    refreshUserProgress()
+                }
+                if (tab == PrezzenceTab.PROFILE) {
+                    refreshResumeProfileName()
+                }
+                refreshUnreadNotifications()
+                if (activeTab == tab) {
+                    showHome(tab, skipDataRefresh = true)
+                }
             }
         }
     }
@@ -1238,21 +1337,11 @@ class MainActivity : ComponentActivity() {
             setMargins(0, dp(2), 0, dp(8))
         }
     }
-    private fun showQuestions() {
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(title("Questions", 36))
-        column.addView(body("Pick a role, choose one question, and start practicing."))
-        column.addView(roleScroller())
-        appState.questions().forEachIndexed { index, question ->
-            column.addView(card(question.role, question.text).apply {
-                setOnClickListener {
-                    appState.currentQuestionIndex = index
-                    showRoomSetup()
-                }
-            })
-        }
-        setScreen(scroll(column))
+    private fun accountPlanLabel(): String = when {
+        appState.adminAccess -> "Admin"
+        appState.subscriptionEntitled -> "Pro"
+        appState.betaUnlockAllFeatures -> "Beta"
+        else -> "Free"
     }
 
     private fun settingsCard(items: List<View>, padding: Int = 8) = LinearLayout(this).apply {
@@ -1272,326 +1361,171 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSettings() {
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(title("Settings", 40))
-        column.addView(body("Manage account access, language, subscription, privacy, and interview preferences."))
-        column.addView(spacer(8))
-
-        column.addView(label("INTERVIEW SETUP"))
-        column.addView(settingsCard(listOf(
-            settingsRow("Camera presence coach", if (appState.cameraCoachEnabled) "On \u00B7 Uses your camera during answers only" else "Off. Turn on for face, eyes, posture feedback", icon = SettingsIcon.Camera) {
-                appState.cameraCoachEnabled = !appState.cameraCoachEnabled; showSettings()
-            },
-            settingsRow("Interviewer setup", "Choose one interviewer or a panel, plus the style", icon = SettingsIcon.Sound) { showQuestions() },
-            settingsRow("App language", "Current: ${appState.language.uppercase()}", icon = SettingsIcon.Globe) { showLanguage() },
-        )))
-        column.addView(spacer(8))
-
-        column.addView(label("ACCOUNT"))
-        column.addView(settingsCard(listOf(
-            settingsRow("Account details", "Name, email, password reset, and your practice profile", icon = SettingsIcon.User) { showAccount() },
-            settingsRow("Subscription", if (appState.subscriptionEntitled) "Active" else "Free plan, upgrade", icon = SettingsIcon.Sub) { showPaywall() },
-            settingsRow("Privacy and deletion", "Data, devices, and deletion controls", icon = SettingsIcon.Shield) { showPrivacySettings() },
-            settingsRow("Notification preferences", "Push, reminders, and milestone alerts", icon = SettingsIcon.Bell) { showNotificationSettings() },
-            settingsRow("Notification inbox", "View past notifications", icon = SettingsIcon.Notif) { showNotifications() },
-            settingsRow("Feedback", "Send product feedback", icon = SettingsIcon.Feedback) { showFeedback() },
-        )))
-        column.addView(spacer(8))
-
-        column.addView(label("TOOLS"))
-        column.addView(settingsCard(listOf(
-            settingsRow("Device QA", "Mic, backend, camera, and Duix checks", icon = SettingsIcon.QA) { showDeviceQa() },
-            settingsRow("Accessibility", "Text size, contrast, and motion", icon = SettingsIcon.A11y) { showAccessibility() },
-            settingsRow("App Settings", "Wi-Fi only downloads", icon = SettingsIcon.Settings) { showAppSettings() },
-            settingsRow("Resume / CV profile", "Tune questions with your resume", icon = SettingsIcon.File) { showResumeProfile() },
-            settingsRow("Help & FAQ", "Search support topics and tutorials", icon = SettingsIcon.Help) { showHelp() },
-        )))
-        column.addView(spacer(8))
-
-        column.addView(label("SIGN OUT"))
-        if (appState.userEmail.isNotBlank()) {
-            column.addView(settingsRow("Sign out", "Signed in as ${appState.userEmail}", icon = SettingsIcon.LogOut) {
-                appState.signOut(); showLanding()
-            })
-        } else {
-            column.addView(settingsRow("Sign in", "Not signed in", icon = SettingsIcon.User) { showSignIn() })
-        }
-        setScreen(scroll(column))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSettingsScreen(
+                    cameraCoachEnabled = appState.cameraCoachEnabled,
+                    language = appState.language,
+                    subscriptionActive = appState.hasPremiumAccess(),
+                    userEmail = appState.userEmail,
+                    showDeviceQa = BuildConfig.DEBUG,
+                    onBack = { showHome() },
+                    onToggleCameraCoach = {
+                        appState.cameraCoachEnabled = !appState.cameraCoachEnabled
+                        showSettings()
+                    },
+                    onInterviewerSetup = { showOnboardingType() },
+                    onLanguage = { showLanguage() },
+                    onAccount = { showAccount() },
+                    onSubscription = { showPaywall() },
+                    onPrivacy = { showPrivacySettings() },
+                    onNotificationPreferences = { showNotificationSettings() },
+                    onFeedback = { showFeedback() },
+                    onDeviceQa = { showDeviceQa() },
+                    onAccessibility = { showAccessibility() },
+                    onAppSettings = { showAppSettings() },
+                    onResumeProfile = { showResumeProfile() },
+                    onHelp = { showHelp() },
+                    onSignOut = { appState.signOut(); showLanding() },
+                    onSignIn = { showSignIn() },
+                )
+            }
+        })
     }
 
     private fun showLanguage() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Language", 34))
-        column.addView(body("Choose the speech and session language used by the native interview flow."))
-        listOf("en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "pt-BR", "ja-JP", "ko-KR", "zh-CN").forEach { tag ->
-            column.addView(settingsRow(tag, if (appState.language == tag) "Selected" else "Tap to select") {
-                appState.language = tag
-                showLanguage()
-            })
-        }
-        setScreen(scroll(column))
+        val languages = listOf("en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "pt-BR", "ja-JP", "ko-KR", "zh-CN")
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSettingsLanguageScreen(
+                    selectedLanguage = appState.language,
+                    languages = languages,
+                    onBack = { showSettings() },
+                    onLanguageSelected = { tag ->
+                        appState.language = tag
+                        showLanguage()
+                    },
+                )
+            }
+        })
     }
 
     private fun showAccount() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Account details", 34))
-        if (appState.userEmail.isNotBlank()) {
-            column.addView(LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(24), dp(24), dp(24), dp(24))
-                layoutParams = blockParams()
-                addView(LinearLayout(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(120), dp(120))
-                    gravity = Gravity.CENTER
-                    background = rounded(Color.TRANSPARENT, radius = 60).apply { setStroke(dp(1), accent) }
-                    setPadding(dp(4), dp(4), dp(4), dp(4))
-                    addView(LinearLayout(this@MainActivity).apply {
-                        layoutParams = LinearLayout.LayoutParams(dp(110), dp(110))
-                        gravity = Gravity.CENTER
-                        background = rounded(panel, radius = 55, strokeColor = border)
-                        addView(TextView(this@MainActivity).apply {
-                            text = appState.userFullName.take(2).uppercase().ifBlank { "U" }
-                            textSize = 32f
-                            setTextColor(accent)
-                            typeface = interBold
-                            gravity = Gravity.CENTER
-                        })
-                    })
-                })
-                addView(spacer(20))
-                addView(TextView(this@MainActivity).apply {
-                    text = appState.userFullName.ifBlank { "Prezzence user" }
-                    textSize = 24f
-                    setTextColor(Color.WHITE)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = appState.userEmail.uppercase()
-                    textSize = 14f
-                    setTextColor(accent)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                    setPadding(0, dp(4), 0, 0)
-                })
-            })
-            column.addView(label("PROFILE DETAILS"))
-            column.addView(settingsRow("Display name", appState.userFullName.ifBlank { "Set your name" }, icon = SettingsIcon.User) { showEditProfile() })
-            column.addView(settingsRow("Email address", appState.userEmail, icon = SettingsIcon.User) { })
-            column.addView(settingsRow("Interview focus", appState.userFocus.ifBlank { "Set your focus" }, icon = SettingsIcon.Globe) { showEditProfile() })
-            column.addView(spacer(16))
-            column.addView(label("ACCOUNT ACTIONS"))
-            column.addView(dangerButton("Delete account") {
-                showDeleteAccountConfirmation()
-            })
-            column.addView(spacer(12))
-            column.addView(secondaryButton("Sign out") {
-                appState.signOut()
-                showLanding()
-            })
-        } else {
-            column.addView(body("You are not signed in."))
-            column.addView(primaryButton("Sign in") { showSignIn() })
-        }
-        setScreen(scroll(column))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceAccountScreen(
+                    fullName = appState.userFullName,
+                    email = appState.userEmail,
+                    focus = appState.userFocus,
+                    signedIn = appState.userEmail.isNotBlank(),
+                    onBack = { showSettings() },
+                    onEditProfile = { showEditProfile() },
+                    onDeleteAccount = { showDeleteAccountConfirmation() },
+                    onSignOut = { appState.signOut(); showLanding() },
+                    onSignIn = { showSignIn() },
+                )
+            }
+        })
     }
 
     private fun showDeleteAccountConfirmation() {
-        val column = baseColumn()
-        column.addView(backButton { showAccount() })
-        column.addView(title("Delete Account", 48))
-        column.addView(body("Type DELETE to permanently remove data."))
-        column.addView(card("This deletes all sessions", "Scores, recordings, progress history, and saved interview settings will be removed."))
-        column.addView(label("CONFIRM"))
-        val confirmInput = input("Type DELETE")
-        column.addView(confirmInput)
-        column.addView(spacer(24))
-        column.addView(primaryButton("Delete Account") {
-            if (confirmInput.text.toString().trim() == "DELETE") {
-                scope.launch {
-                    val deleted = backend.deleteAccount(appState.authToken.ifBlank { null })
-                    showAppToast(
-                        if (deleted) "Account data deleted." else "Could not delete account.",
-                        if (deleted) ToastKind.green else ToastKind.ERROR,
-                    )
-                    if (deleted) {
-                        appState.signOut()
-                        showLanding()
-                    }
-                }
-            } else {
-                showAppToast("Type DELETE to confirm.", ToastKind.WARNING)
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceDeleteAccountScreen(
+                    onBack = { showAccount() },
+                    onDelete = {
+                        scope.launch {
+                            val deleted = backend.deleteAccount(appState.authToken.ifBlank { null })
+                            showAppToast(
+                                if (deleted) "Account data deleted." else "Could not delete account.",
+                                if (deleted) ToastKind.green else ToastKind.ERROR,
+                            )
+                            if (deleted) {
+                                appState.signOut()
+                                showLanding()
+                            }
+                        }
+                    },
+                )
             }
         })
-        setScreen(scroll(column))
     }
 
     private fun showEditProfile() {
-        val column = baseColumn()
-        column.addView(backButton { showAccount() })
-        column.addView(title("Edit profile", 34))
-        
-        // Avatar section with halo
-        column.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(24), 0, dp(40))
-            layoutParams = blockParams().apply { setMargins(0, dp(8), 0, 0) }
-            addView(LinearLayout(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(120), dp(120))
-                gravity = Gravity.CENTER
-                background = rounded(Color.TRANSPARENT, radius = 60).apply { setStroke(dp(1), accent) }
-                setPadding(dp(4), dp(4), dp(4), dp(4))
-                addView(LinearLayout(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(110), dp(110))
-                    gravity = Gravity.CENTER
-                    background = rounded(panel, radius = 55)
-                    addView(TextView(this@MainActivity).apply {
-                        textSize = 48f; setTextColor(accent)
-                        val userIcon = object : android.graphics.drawable.Drawable() {
-                            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = accent; style = Paint.Style.STROKE
-                                strokeWidth = 3f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceEditProfileScreen(
+                    initialName = appState.userFullName,
+                    email = appState.userEmail,
+                    initialFocus = appState.userFocus,
+                    onBack = { showAccount() },
+                    onSave = { name, focus ->
+                        scope.launch {
+                            val updated = backend.updateUserProfile(appState.authToken, name, focus)
+                            if (updated) {
+                                appState.userFullName = name
+                                appState.userFocus = focus
+                                showAppToast("Profile updated.", ToastKind.green)
+                                showAccount()
+                            } else {
+                                showAppToast("Failed to update profile.", ToastKind.ERROR)
                             }
-                            override fun draw(canvas: Canvas) {
-                                val w = bounds.width().toFloat(); val h = bounds.height().toFloat()
-                                val cx = w / 2f; val cy = h * 0.32f
-                                canvas.drawCircle(cx, cy, w * 0.18f, p)
-                                val body = android.graphics.Path()
-                                body.addArc(android.graphics.RectF(cx - w * 0.22f, cy + w * 0.08f, cx + w * 0.22f, h + w * 0.05f), 0f, -180f)
-                                canvas.drawPath(body, p)
-                            }
-                            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-                            override fun setAlpha(alpha: Int) {}
-                            override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
                         }
-                        userIcon.setBounds(0, 0, dp(48), dp(48))
-                        setCompoundDrawables(userIcon, null, null, null)
-                    })
-                })
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = appState.userEmail.ifBlank { "Signed in account" }
-                textSize = 12f; setTextColor(muted); typeface = interBold
-                setPadding(0, dp(16), 0, 0)
-            })
-        })
-        
-        val nameInput = input("Name").apply { setText(appState.userFullName) }
-        val emailInput = input("Email").apply { setText(appState.userEmail); isEnabled = false }
-        val focusInput = input("Interview Focus").apply { setText(appState.userFocus) }
-        
-        column.addView(label("NAME"))
-        column.addView(nameInput)
-        column.addView(spacer(16))
-        column.addView(label("EMAIL"))
-        column.addView(emailInput)
-        column.addView(spacer(16))
-        column.addView(label("INTERVIEW FOCUS"))
-        column.addView(focusInput)
-        column.addView(spacer(24))
-        
-        column.addView(primaryButton("Save profile") {
-            val name = nameInput.text.toString()
-            val focus = focusInput.text.toString()
-            scope.launch {
-                val updated = backend.updateUserProfile(appState.authToken, name, focus)
-                if (updated) {
-                    appState.userFullName = name
-                    appState.userFocus = focus
-                    showAppToast("Profile updated.", ToastKind.green)
-                    showAccount()
-                } else {
-                    showAppToast("Failed to update profile.", ToastKind.ERROR)
-                }
+                    },
+                )
             }
         })
-        setScreen(scroll(column))
     }
 
     private fun showLowStorage() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Low Storage Warning", 34))
-        column.addView(body("Clear space for best recording quality."))
-        column.addView(spacer(16))
-        // Storage items
-        column.addView(errorItemRow("R", "Recording may fail", "Recommended", green))
-        column.addView(errorItemRow("F", "Free up storage", "Ready", accent))
-        column.addView(errorItemRow("T", "Try again", "Ready", accent))
-        column.addView(spacer(16))
-        column.addView(primaryButton("Manage storage") {
-            runCatching {
-                startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceLowStorageScreen(
+                    onBack = { showSettings() },
+                    onManageStorage = {
+                        runCatching {
+                            startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION))
+                        }
+                    },
+                )
             }
         })
-        setScreen(scroll(column))
     }
 
     private fun showMicDenied() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Microphone access", 34))
-        column.addView(body("Prezzence needs microphone access to record your answer and give feedback."))
-        // Mic blocked indicator
-        column.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(24), 0, dp(24))
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "Ã°Å¸Å½Â¤"
-                textSize = 48f
-                gravity = Gravity.CENTER
-            })
-            addView(pill("MIC BLOCKED", danger))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceMicDeniedScreen(
+                    onBack = { showSettings() },
+                    onOpenSettings = {
+                        runCatching {
+                            startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    .apply { data = android.net.Uri.parse("package:$packageName") },
+                            )
+                        }
+                    },
+                    onPrivacy = { showLegal() },
+                    onDeviceQa = { showDeviceQa() },
+                )
+            }
         })
-        column.addView(label("HOW TO FIX IT"))
-        column.addView(settingsRow("Phone settings", "Allow microphone access in your device settings", icon = SettingsIcon.Shield) {
-            runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = android.net.Uri.parse("package:$packageName") }) }
-        })
-        column.addView(settingsRow("Privacy", "Recording starts only when you answer a question", icon = SettingsIcon.Shield) { showLegal() })
-        column.addView(settingsRow("Microphone check", "Make sure your microphone works in other apps", icon = SettingsIcon.Sound) { showDeviceQa() })
-        column.addView(spacer(8))
-        column.addView(primaryButton("Open Device Settings") {
-            runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = android.net.Uri.parse("package:$packageName") }) }
-        })
-        setScreen(scroll(column))
     }
 
     private fun showNetworkError(returnToHome: Boolean = false) {
-        val column = baseColumn()
-        column.addView(backButton { if (returnToHome) showHome() else finish() })
-        column.addView(title("Connection problem", 34))
-        column.addView(body("We could not connect. Check your connection and try again."))
-        // Glitch orb
-        column.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(24), 0, dp(24))
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "\uD83D\uDCF6"
-                textSize = 48f
-                gravity = Gravity.CENTER
-            })
-            addView(pill("CONNECTION UNAVAILABLE", accent))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceNetworkErrorScreen(
+                    returnToHome = returnToHome,
+                    onBack = { if (returnToHome) showHome() else finish() },
+                    onRetry = { if (returnToHome) showHome() else finish() },
+                    onKeepProgress = { showHome() },
+                    onOpenWifiSettings = {
+                        runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
+                    },
+                )
+            }
         })
-        column.addView(label("WHAT YOU CAN DO"))
-        column.addView(settingsRow("Try again", "Retry the request when your connection is stable", icon = SettingsIcon.QA) {
-            if (returnToHome) showHome() else finish()
-        })
-        column.addView(settingsRow("Keep progress on this device", "Your unfinished session can be continued later", icon = SettingsIcon.File) { showHome() })
-        column.addView(settingsRow("Check your network", "Switch Wi-Fi or mobile data, then try again", icon = SettingsIcon.Globe) {
-            runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
-        })
-        column.addView(spacer(8))
-        column.addView(primaryButton("Go back") { if (returnToHome) showHome() else finish() })
-        setScreen(scroll(column))
     }
 
     private data class SessionErrorInfo(val title: String, val subtitle: String, val badgeLabel: String, val tips: List<String>)
@@ -1629,24 +1563,17 @@ class MainActivity : ComponentActivity() {
                 listOf("Try again", "Your progress is saved on this device"),
             )
         }
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(title(errorInfo.title, 34))
-        column.addView(body(errorInfo.subtitle))
-        column.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(24), 0, dp(24))
-            layoutParams = blockParams()
-            addView(pill(errorInfo.badgeLabel, accent))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSessionErrorScreen(
+                    title = errorInfo.title,
+                    subtitle = errorInfo.subtitle,
+                    badgeLabel = errorInfo.badgeLabel,
+                    tips = errorInfo.tips,
+                    onBack = { showHome() },
+                )
+            }
         })
-        column.addView(label("WHAT YOU CAN DO"))
-        for (tip in errorInfo.tips) {
-            column.addView(settingsRow(tip, "", icon = SettingsIcon.QA) { showHome() })
-        }
-        column.addView(spacer(8))
-        column.addView(primaryButton("Go back") { showHome() })
-        setScreen(scroll(column))
     }
 
     private fun showAnswerRetryRequired(message: String) {
@@ -1665,174 +1592,109 @@ class MainActivity : ComponentActivity() {
     private fun isInterviewRoomVisible(): Boolean = interviewComposeView?.parent == root
 
     private fun showSessionInterrupted() {
-        val column = baseColumn()
-        column.addView(headerWithHome("Session Interrupted") { showSessionInterrupted() })
-        column.addView(progressSegments(3, 7))
-        column.addView(title("Session paused.", 34))
-        column.addView(body("You were away for 12 minutes."))
-        column.addView(avatarStageHero())
-        column.addView(label("WHAT YOU CAN DO"))
-        column.addView(errorItemRow("R", "Resume", "Recommended", green))
-        column.addView(errorItemRow("R", "Restart from this question", "Ready", accent))
-        column.addView(spacer(8))
-        column.addView(primaryButton("Resume Practice") { showHome() })
-        setScreen(scroll(column))
-    }
-
-    private fun showSessionSaveError() {
-        val column = baseColumn()
-        column.addView(headerWithHome("Session Failed to Save") { showSessionSaveError() })
-        column.addView(progressSegments(3, 7))
-        column.addView(title("Session couldn't be saved.", 34))
-        column.addView(body("We'll keep retrying before you lose anything."))
-        column.addView(avatarStageHero())
-        column.addView(label("CAREFUL ACTION"))
-        column.addView(errorItemRow("M", "Manual retry", "Recommended", green))
-        column.addView(errorItemRow("E", "Export audio", "Recommended", green))
-        column.addView(spacer(8))
-        column.addView(primaryButton("Manual Retry") { showHome() })
-        setScreen(scroll(column))
-    }
-
-    private fun showNotFound(returnTo: () -> Unit = { showHome() }) {
-        setScreen(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(32), dp(32), dp(32), dp(32))
-            background = rounded(bg)
-            addView(LinearLayout(this@MainActivity).apply {
-                gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(dp(160), dp(160)).apply { setMargins(0, 0, 0, dp(48)) }
-                background = rounded(Color.argb(12, 108, 99, 255), radius = 80)
-                addView(TextView(this@MainActivity).apply {
-                    text = "?"
-                    textSize = 48f
-                    setTextColor(accent)
-                    gravity = Gravity.CENTER
-                    typeface = Typeface.DEFAULT_BOLD
-                })
-                addView(View(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(180), dp(180))
-                    background = rounded(Color.TRANSPARENT, radius = 90).apply { setStroke(dp(1), Color.argb(25, 108, 99, 255)) }
-                })
-            })
-            addView(title("Page not found", 32))
-            addView(body("This page does not exist or the link is no longer available."))
-            addView(spacer(48))
-            addView(primaryButton("Return home") { returnTo() })
+        setScreen(ComposeView(this).apply {
+            setContent { PrezzenceSessionInterruptedScreen(onResume = { showHome() }) }
         })
     }
-
-    private fun showHelp() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(24), dp(8), dp(24), 0)
-            (0 until 7).forEach { i ->
-                addView(View(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f).apply { setMargins(dp(4), 0, dp(4), 0) }
-                    background = rounded(if (i < 3) accent else Color.argb(25, 255, 255, 255), radius = 2)
-                })
+    private fun showSessionSaveError() {
+        setScreen(ComposeView(this).apply {
+            setContent { PrezzenceSessionSaveErrorScreen(onRetry = { showHome() }) }
+        })
+    }
+    private fun showNotFound(returnTo: () -> Unit = { showHome() }) {
+        setScreen(ComposeView(this).apply {
+            setContent { PrezzenceNotFoundScreen(onReturnHome = returnTo) }
+        })
+    }
+    private fun showHelp(onBack: () -> Unit = { showSettings() }) {
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceHelpScreen(
+                    onBack = onBack,
+                    onContactSupport = { contactSupportEmail() },
+                )
             }
         })
-        column.addView(spacer(24))
-        column.addView(TextView(this).apply {
-            text = "Help"; textSize = 48f; setTextColor(Color.WHITE)
-            typeface = interBold
-        })
-        column.addView(body("Search support topics and tutorials."))
-        column.addView(spacer(8))
-        column.addView(label("SEARCH HELP"))
-        column.addView(input("Scoring, subscriptions, microphone..."))
-        column.addView(spacer(8))
-        column.addView(errorItemRow("G", "Getting Started", "Recommended", green))
-        column.addView(errorItemRow("I", "Interview Modes", "Ready", accent))
-        column.addView(errorItemRow("S", "Scoring & Feedback", "Ready", accent))
-        column.addView(errorItemRow("A", "Avatar Interviews", "Animated preview", accent))
-        column.addView(spacer(8))
-        column.addView(primaryButton("Contact Support") { showFeedback() })
-        setScreen(scroll(column))
+    }
+
+    private fun contactSupportEmail() {
+        val email = "support@prezzence.app"
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = android.net.Uri.parse("mailto:$email")
+            putExtra(Intent.EXTRA_SUBJECT, "Prezzence support")
+            putExtra(Intent.EXTRA_TEXT, "Describe what you need help with:\n\n")
+        }
+        if (intent.resolveActivity(packageManager) != null) {
+            startActivity(intent)
+        } else {
+            showAppToast("Email us at $email", ToastKind.INFO)
+        }
     }
 
     private fun showPaymentSuccess() {
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(spacer(24))
-        column.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-            orientation = LinearLayout.VERTICAL
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "\u2713"
-                textSize = 36f; setTextColor(green); gravity = Gravity.CENTER
-                setPadding(dp(24), dp(24), dp(24), dp(24))
-                background = rounded(green, radius = 36)
-            })
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzencePaymentSuccessScreen(onGoToProfile = { showHome(PrezzenceTab.PROFILE) })
+            }
         })
-        column.addView(TextView(this).apply {
-            text = "PAYMENT SUCCESS"
-            textSize = 12f; setTextColor(accent); typeface = interBold
-            letterSpacing = 0.06f; gravity = Gravity.CENTER
-        })
-        column.addView(title("Prezzence Pro unlocked", 34))
-        column.addView(body("Your account is ready for deeper practice."))
-        column.addView(spacer(8))
-        column.addView(card("You're ready for deeper practice", "You now have access to more sessions, deeper reports, and shareable score cards."))
-        column.addView(spacer(16))
-        column.addView(primaryButton("Go to Profile") { showHome(PrezzenceTab.PROFILE) })
-        setScreen(scroll(column))
     }
-
     private fun showNotificationSettings() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Notifications", 40))
-        column.addView(body("Choose when Prezzence reminds you to practice or review progress."))
-        column.addView(spacer(8))
-        column.addView(label("CHANNELS"))
-        val pushEnabled = booleanArrayOf(appState.pushNotificationsEnabled)
-        val emailEnabled = booleanArrayOf(appState.emailSummariesEnabled)
-        column.addView(settingsCard(listOf(
-            toggleRow("Push notifications", "Practice reminders on this device", pushEnabled) { enabled ->
-                appState.pushNotificationsEnabled = enabled
-            },
-            toggleRow("Email summaries", "Weekly progress and coaching summaries", emailEnabled) { enabled ->
-                appState.emailSummariesEnabled = enabled
-            },
-        )))
-        column.addView(spacer(8))
-        column.addView(label("ACTIVITY ALERTS"))
-        val remindersEnabled = booleanArrayOf(appState.practiceRemindersEnabled)
-        val achievementsEnabled = booleanArrayOf(appState.achievementAlertsEnabled)
-        column.addView(settingsCard(listOf(
-            toggleRow("Practice reminders", "Get reminded before your interview date", remindersEnabled) { enabled ->
-                appState.practiceRemindersEnabled = enabled
-            },
-            toggleRow("Milestone alerts", "Get alerts when your score or streak improves", achievementsEnabled) { enabled ->
-                appState.achievementAlertsEnabled = enabled
-            },
-            toggleRow("Product updates", "New features and useful interview tips", booleanArrayOf(appState.productUpdatesEnabled)) { enabled ->
-                appState.productUpdatesEnabled = enabled
-            },
-        )))
-        column.addView(spacer(16))
-        column.addView(primaryButton("Done") { showSettings() })
-        setScreen(scroll(column))
+        scope.launch {
+            refreshNotificationPreferencesFromServer()
+            withContext(Dispatchers.Main) {
+                setScreen(ComposeView(this@MainActivity).apply {
+                    setContent {
+                        PrezzenceNotificationSettingsScreen(
+                            pushEnabled = appState.pushNotificationsEnabled,
+                            emailEnabled = appState.emailSummariesEnabled,
+                            remindersEnabled = appState.practiceRemindersEnabled,
+                            achievementsEnabled = appState.achievementAlertsEnabled,
+                            productUpdatesEnabled = appState.productUpdatesEnabled,
+                            onBack = { showSettings() },
+                            onDone = { showSettings() },
+                            onTogglePush = { enabled ->
+                                updateNotificationPreference {
+                                    appState.pushNotificationsEnabled = enabled
+                                }
+                            },
+                            onToggleEmail = { enabled ->
+                                updateNotificationPreference {
+                                    appState.emailSummariesEnabled = enabled
+                                }
+                            },
+                            onToggleReminders = { enabled ->
+                                updateNotificationPreference {
+                                    appState.practiceRemindersEnabled = enabled
+                                }
+                            },
+                            onToggleAchievements = { enabled ->
+                                updateNotificationPreference {
+                                    appState.achievementAlertsEnabled = enabled
+                                }
+                            },
+                            onToggleProductUpdates = { enabled ->
+                                updateNotificationPreference {
+                                    appState.productUpdatesEnabled = enabled
+                                }
+                            },
+                        )
+                    }
+                })
+            }
+        }
     }
 
     private fun showAppSettings() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("App Settings", 34))
-        column.addView(body("Manage accessibility and app settings."))
-        // Already have accessibility, so focus on WiFi-only
-        column.addView(toggleRow("Download over Wi-Fi only", "Only download model files on Wi-Fi", booleanArrayOf(appState.wifiOnlyDownloads)) { enabled ->
-            appState.wifiOnlyDownloads = enabled
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceAppSettingsScreen(
+                    wifiOnlyDownloads = appState.wifiOnlyDownloads,
+                    onBack = { showSettings() },
+                    onToggleWifiOnly = { enabled -> appState.wifiOnlyDownloads = enabled },
+                    onSave = { showSettings() },
+                )
+            }
         })
-        column.addView(spacer(8))
-        column.addView(primaryButton("Save Settings") { showSettings() })
-        setScreen(scroll(column))
     }
 
     // --- Helpers for the new screens ---
@@ -1987,73 +1849,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showAccessibility() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Accessibility", 40))
-        column.addView(body("Adjust text, motion, and audio settings to make the app easier to use."))
-        
-        column.addView(spacer(8))
-        column.addView(label("VISION & DISPLAY"))
-        val largeText = booleanArrayOf(appState.a11yLargeText)
-        column.addView(toggleRow("Large text", "200% font scale across all screens", largeText) { enabled ->
-            appState.a11yLargeText = enabled; showAccessibility()
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceAccessibilitySettingsScreen(
+                    largeText = appState.a11yLargeText,
+                    highContrast = appState.a11yHighContrast,
+                    reducedMotion = appState.a11yReducedMotion,
+                    onBack = { showSettings() },
+                    onToggleLargeText = { enabled ->
+                        appState.a11yLargeText = enabled
+                        showAccessibility()
+                    },
+                    onToggleHighContrast = { enabled ->
+                        appState.a11yHighContrast = enabled
+                        showAccessibility()
+                    },
+                    onToggleReducedMotion = { enabled ->
+                        appState.a11yReducedMotion = enabled
+                        showAccessibility()
+                    },
+                )
+            }
         })
-        val highContrast = booleanArrayOf(appState.a11yHighContrast)
-        column.addView(toggleRow("High contrast", "Enhanced edge definition for UI elements", highContrast) { enabled ->
-            appState.a11yHighContrast = enabled; showAccessibility()
-        })
-        val reducedMotion = booleanArrayOf(appState.a11yReducedMotion)
-        column.addView(toggleRow("Reduced Motion", "Minimize animations and motion effects", reducedMotion) { enabled ->
-            appState.a11yReducedMotion = enabled; showAccessibility()
-        })
-        
-        column.addView(spacer(8))
-        column.addView(label("AUDIO & FEEDBACK"))
-        column.addView(toggleRow("Screen reader support", "Clear voice and label support", booleanArrayOf(false)) {})
-        column.addView(toggleRow("Mono Audio", "Combine channels for single-ear focus", booleanArrayOf(false)) {})
-        
-        column.addView(spacer(8))
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(32), dp(32), dp(32), dp(32))
-            background = rounded(Color.argb(5, 255, 255, 255), radius = 32, strokeColor = border)
-            layoutParams = blockParams()
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(TextView(this@MainActivity).apply {
-                    val checkDrawable = object : android.graphics.drawable.Drawable() {
-                        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            color = green; style = Paint.Style.STROKE; strokeWidth = 2.5f; strokeCap = Paint.Cap.ROUND
-                        }
-                        override fun draw(canvas: Canvas) {
-                            val w = bounds.width().toFloat(); val h = bounds.height().toFloat()
-                            canvas.drawLine(w*0.22f, h*0.52f, w*0.42f, h*0.72f, p)
-                            canvas.drawLine(w*0.42f, h*0.72f, w*0.78f, h*0.28f, p)
-                        }
-                        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-                        override fun setAlpha(alpha: Int) {}
-                        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
-                    }
-                    checkDrawable.setBounds(0, 0, dp(18), dp(18))
-                    setCompoundDrawables(checkDrawable, null, null, null)
-                    setPadding(dp(4), 0, 0, 0)
-                    text = " PREVIEW"
-                    textSize = 18f; setTextColor(green)
-                    typeface = interBold
-                })
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Easy to read"
-                textSize = 28f; setTextColor(Color.WHITE); typeface = interBold
-                setPadding(0, dp(16), 0, dp(12))
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "\"Tell me about a time you solved a difficult problem.\" Text should stay readable without clipping."
-                textSize = 20f; setTextColor(Color.argb(180, 255, 255, 255)); setLineSpacing(0f, 1.5f)
-            })
-        })
-        
-        setScreen(scroll(column))
     }
 
     private fun sessionHistoryItems(): List<SessionSummary> {
@@ -2080,6 +1897,119 @@ class MainActivity : ComponentActivity() {
         }
         val remoteIds = mergedRemote.map { it.id }.toSet()
         return mergedRemote + local.filterNot { it.id in remoteIds }
+    }
+
+    private fun computeLocalImprovementDelta(history: List<SessionSummary>): Int {
+        val dateFormat = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+        val chronologicalScores = history
+            .sortedBy { runCatching { dateFormat.parse(it.date)?.time }.getOrNull() ?: 0L }
+            .map { it.score }
+            .filter { it > 0 }
+        return if (chronologicalScores.size >= 2) {
+            chronologicalScores.last() - chronologicalScores.first()
+        } else {
+            0
+        }
+    }
+
+    private fun localReadinessLabel(avgScore: Int, historySize: Int): String = when {
+        avgScore >= 75 -> "Interview Ready"
+        avgScore >= 45 -> "Building Confidence"
+        avgScore >= 25 -> "Building Momentum"
+        avgScore > 0 -> "Foundation Built"
+        historySize > 0 -> "Sessions Started"
+        else -> "No Baseline"
+    }
+
+    private fun formatSkillLabel(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank()) return null
+        return value.split(Regex("\\s+")).joinToString(" ") { word ->
+            word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+        }
+    }
+
+    private fun buildDashboardMetrics(
+        history: List<SessionSummary>,
+        progress: UserProgressSnapshot?,
+    ): DashboardMetrics {
+        val scored = history.filter { it.score > 0 }
+        val sessions = maxOf(progress?.sessions ?: 0, history.size)
+        val localAvg = if (scored.isNotEmpty()) {
+            scored.map { it.score }.average().toInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+        val avgScore = when {
+            (progress?.avgScore ?: 0) > 0 -> progress!!.avgScore
+            localAvg > 0 -> localAvg
+            else -> 0
+        }
+        val improvementDelta = when {
+            (progress?.improvementFromFirst ?: 0) != 0 -> progress!!.improvementFromFirst
+            else -> computeLocalImprovementDelta(history)
+        }
+        val readinessLabel = progress?.readinessLabel?.takeIf { it.isNotBlank() }
+            ?: localReadinessLabel(avgScore, history.size)
+        val coachingTip = progress?.coachingTip.orEmpty()
+        val strongest = formatSkillLabel(progress?.strongestSkill)
+        val weakest = formatSkillLabel(progress?.weakestSkill)
+
+        return DashboardMetrics(
+            sessions = sessions,
+            avgScore = avgScore,
+            improvementDelta = improvementDelta,
+            readinessLabel = readinessLabel,
+            coachingTip = coachingTip,
+            bestSkillLabel = strongest,
+            bestSkillValue = progress?.strongestScore?.takeIf { it > 0 },
+            weakestSkillLabel = weakest,
+        )
+    }
+
+    private suspend fun refreshUserProgress() {
+        val userId = appState.userId
+        if (appState.authToken.isBlank() || userId.isBlank()) {
+            userProgressState.value = null
+            return
+        }
+        val progress = backend.fetchUserProgress(
+            bearerToken = appState.authToken,
+            userId = userId,
+            language = appState.language,
+            refreshToken = appState.authRefreshToken,
+            onTokenRefreshed = { refreshed ->
+                appState.authToken = refreshed.accessToken
+                appState.authRefreshToken = refreshed.refreshToken
+            },
+        )
+        userProgressState.value = progress
+        if (progress != null) {
+            if (progress.avgScore > 0) appState.readinessScore = progress.avgScore
+            if (progress.sessions > 0) appState.completedSessions = progress.sessions
+        }
+    }
+
+    private suspend fun refreshUnreadNotifications() {
+        if (appState.authToken.isBlank()) {
+            unreadNotificationsState.intValue = 0
+            return
+        }
+        val notifications = backend.getNotifications(appState.authToken)
+        unreadNotificationsState.intValue = notifications.count { !it.isRead }
+    }
+
+    private fun historyItemsForUi(): List<SessionHistoryItem> {
+        return sessionHistoryItems().map { session ->
+            SessionHistoryItem(
+                id = session.id,
+                role = session.role,
+                score = session.score,
+                date = session.date,
+                answered = session.answered,
+                total = session.total,
+            )
+        }
     }
 
     private suspend fun deleteSessionEverywhere(sessionId: String): Boolean {
@@ -2217,14 +2147,21 @@ class MainActivity : ComponentActivity() {
         } else {
             "Most answers in this session were not scored as real interview responses. Retry with direct answers that include one example, your action, and a result."
         }
-        val coachingTips = if (hasSignal) {
-            listOf(
+        val progressPlan = userProgressState.value?.coachingPlan.orEmpty()
+        val weakestSkill = formatSkillLabel(userProgressState.value?.weakestSkill)
+        val coachingTips = when {
+            progressPlan.isNotEmpty() -> progressPlan.take(3)
+            hasSignal && weakestSkill != null -> listOf(
+                "Your next focus area is $weakestSkill. Use one STAR example with a clear result.",
+                "Lead with your direct answer, then one situation-action-result example.",
+                "Practice one more behavioral question before your next session.",
+            )
+            hasSignal -> listOf(
                 "Lead with your direct answer, then one situation-action-result example.",
                 "Include a measurable result or outcome in every answer.",
                 "Practice one more behavioral question before your next session.",
             )
-        } else {
-            listOf(
+            else -> listOf(
                 "Hold the phone close and speak until a transcript appears after each answer.",
                 "Finish each question before tapping Continue.",
             )
@@ -2266,6 +2203,7 @@ class MainActivity : ComponentActivity() {
                     answers = bundle.answers,
                     isPro = appState.hasPremiumAccess(),
                     onBack = { showHome(returnTab) },
+                    onShareScore = { shareSessionScore(bundle) },
                     onExportPdf = { exportSessionPdf(sessionId) },
                     onPracticeAgain = {
                         appState.resetActiveSession()
@@ -2275,6 +2213,29 @@ class MainActivity : ComponentActivity() {
                 )
             }
         })
+    }
+
+    private fun shareSessionScore(bundle: SessionReportBundle) {
+        if (!bundle.hasSignal) {
+            showAppToast("Complete a scored answer before sharing your score.", ToastKind.INFO)
+            return
+        }
+        val text = buildString {
+            append("My Prezzence interview score: ${bundle.displayScore}%")
+            append('\n')
+            append(bundle.session.role.ifBlank { "Interview session" })
+            if (bundle.session.date.isNotBlank()) {
+                append(" · ")
+                append(bundle.session.date)
+            }
+            append('\n')
+            append("Practiced with Prezzence — AI interview coaching.")
+        }
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(shareIntent, "Share score"))
     }
 
     private fun exportSessionPdf(sessionId: String) {
@@ -2306,9 +2267,73 @@ class MainActivity : ComponentActivity() {
                 }
                 startActivity(Intent.createChooser(shareIntent, "Share session report"))
             } catch (e: Exception) {
-                showAppToast("Export failed: ${e.message}", ToastKind.ERROR)
+                showAppToast("Export failed. Try again.", ToastKind.ERROR)
             }
         }
+    }
+
+    private fun exportUserData() {
+        scope.launch {
+            try {
+                val exportJson = withContext(Dispatchers.IO) { buildUserDataExportJson() }
+                val file = java.io.File(cacheDir, "prezzence-export-${System.currentTimeMillis()}.json")
+                withContext(Dispatchers.IO) { file.writeText(exportJson) }
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${packageName}.fileprovider",
+                    file,
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "Prezzence data export")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Export your data"))
+            } catch (e: Exception) {
+                showAppToast("Export failed. Try again.", ToastKind.ERROR)
+            }
+        }
+    }
+
+    private fun buildUserDataExportJson(): String {
+        val root = org.json.JSONObject()
+        root.put("exported_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).format(java.util.Date()))
+        root.put("email", appState.userEmail)
+        root.put("display_name", appState.userFullName)
+        root.put("language", appState.language)
+        root.put("completed_sessions", appState.completedSessions)
+        root.put("readiness_score", appState.readinessScore)
+        root.put("practice_minutes", appState.practiceMinutes)
+
+        val sessionsArray = org.json.JSONArray()
+        sessionHistoryItems().forEach { session ->
+            val sessionJson = org.json.JSONObject()
+                .put("id", session.id)
+                .put("role", session.role)
+                .put("score", session.score)
+                .put("date", session.date)
+                .put("answered", session.answered)
+                .put("total", session.total)
+                .put("status", session.status)
+            val answers = appState.getSessionAnswers(session.id)
+            if (answers.isNotEmpty()) {
+                val answersArray = org.json.JSONArray()
+                answers.forEachIndexed { index, answer ->
+                    answersArray.put(
+                        org.json.JSONObject()
+                            .put("question_number", index + 1)
+                            .put("score", answer.score)
+                            .put("transcript", answer.transcript)
+                            .put("feedback", answer.feedback),
+                    )
+                }
+                sessionJson.put("answers", answersArray)
+            }
+            sessionsArray.put(sessionJson)
+        }
+        root.put("sessions", sessionsArray)
+        return root.toString(2)
     }
 
     private fun writeSessionReportPdf(bundle: SessionReportBundle, sessionId: String): java.io.File {
@@ -2483,191 +2508,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showFeedback() {
-        val column = baseColumn()
-        var rating = 5
-        var submitted = false
-        val comment = EditText(this).apply {
-            hint = "What should we improve?"
-            minLines = 5
-            setTextColor(Color.WHITE)
-            setHintTextColor(muted)
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = rounded(panel)
-            layoutParams = blockParams()
-        }
-        val progressRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(dp(300), dp(4)).apply { gravity = Gravity.CENTER }
-            for (i in 0 until 5) {
-                val segment = View(this@MainActivity)
-                val color = if (i < rating) green else panel
-                segment.setBackgroundColor(color)
-                segment.layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f).apply { setMargins(dp(2), 0, dp(2), 0) }
-                val radius = android.graphics.Outline().apply { setRoundRect(0, 0, 1, 1, dp(2).toFloat()) }
-                segment.clipToOutline = true
-                segment.outlineProvider = object : android.view.ViewOutlineProvider() {
-                    override fun getOutline(v: View, outline: android.graphics.Outline) {
-                        outline.setRoundRect(0, 0, v.width, v.height, dp(2).toFloat())
-                    }
-                }
-                addView(segment)
-            }
-        }
-        val ratingContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = blockParams()
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        ratingContainer.addView(spacer(24))
-        // Circular rating indicator
-        ratingContainer.addView(object : android.view.View(this) {
-            var currentRating = 5
-            override fun onDraw(canvas: Canvas) {
-                val cx = width / 2f
-                val cy = height / 2f
-                val r = minOf(cx, cy) - dp(8).toFloat()
-                val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = panel; style = Paint.Style.STROKE; strokeWidth = dp(6).toFloat(); strokeCap = Paint.Cap.ROUND }
-                val fgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = green; style = Paint.Style.STROKE; strokeWidth = dp(6).toFloat(); strokeCap = Paint.Cap.ROUND }
-                canvas.drawCircle(cx, cy, r, bgPaint)
-                val sweep = 360f * currentRating / 5f
-                canvas.drawArc(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), -90f, sweep, false, fgPaint)
-                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = dp(48).toFloat(); textAlign = Paint.Align.CENTER; typeface = interBold }
-                canvas.drawText("$currentRating", cx, cy + dp(16).toFloat(), textPaint)
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(150), dp(150))
-        })
-        // Stars row
-        val starsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, dp(50)).apply { gravity = Gravity.CENTER; topMargin = dp(28) }
-        }
-        for (s in 1..5) {
-            val starIndex = s
-            val star = object : android.view.View(this) {
-                var filled = starIndex <= rating
-                override fun onDraw(canvas: Canvas) {
-                    val c = if (filled) green else panel
-                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c; style = Paint.Style.FILL }
-                    val path = starPath(width / 2f, height / 2f, minOf(width, height) / 2.2f)
-                    canvas.drawPath(path, paint)
-                    if (!filled) {
-                        canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = border; style = Paint.Style.STROKE; strokeWidth = 2f })
-                    }
-                }
-            }.apply {
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { setMargins(dp(6), 0, dp(6), 0) }
-                setOnClickListener {
-                    rating = starIndex
-                    progressRow.removeAllViews()
-                    for (i in 0 until 5) {
-                        val seg = View(this@MainActivity)
-                        seg.setBackgroundColor(if (i < rating) green else panel)
-                        seg.layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f).apply { setMargins(dp(2), 0, dp(2), 0) }
-                        seg.clipToOutline = true
-                        seg.outlineProvider = object : android.view.ViewOutlineProvider() {
-                            override fun getOutline(v: View, outline: android.graphics.Outline) {
-                                outline.setRoundRect(0, 0, v.width, v.height, dp(2).toFloat())
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceFeedbackScreen(
+                    onBack = { showSettings() },
+                    onSubmit = { rating, comment ->
+                        if (comment.length < 4 && rating == 5) {
+                            showAppToast("Add a comment or lower your rating.", ToastKind.WARNING)
+                            false
+                        } else {
+                            scope.launch {
+                                val sent = backend.submitFeedback(
+                                    appState.authToken.ifBlank { null },
+                                    appState.activeSessionId.ifBlank { null },
+                                    rating,
+                                    comment,
+                                )
+                                if (!sent) showAppToast("Could not send feedback. Sign in and try again.", ToastKind.ERROR)
                             }
+                            true
                         }
-                        progressRow.addView(seg)
-                    }
-                    for (i in 0 until starsRow.childCount) {
-                        (starsRow.getChildAt(i) as? android.view.View)?.invalidate()
-                    }
-                    (ratingContainer.getChildAt(1) as? android.view.View)?.let {
-                        (it as? android.view.View)?.invalidate()
-                    }
-                }
-                setTag(starIndex)
-            }
-            starsRow.addView(star)
-        }
-        ratingContainer.addView(starsRow)
-        ratingContainer.addView(spacer(24))
-
-        column.addView(backButton { showSettings() })
-        column.addView(title("Feedback", 34))
-        column.addView(spacer(8))
-        column.addView(progressRow)
-        column.addView(ratingContainer)
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "How was it?"
-                textSize = 32f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                layoutParams = blockParams()
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Rate your interview practice experience."
-                textSize = 15f
-                setTextColor(muted)
-                gravity = Gravity.CENTER
-                layoutParams = blockParams()
-            })
-        })
-        column.addView(spacer(16))
-        column.addView(TextView(this@MainActivity).apply {
-            text = "COMMENT (OPTIONAL)"
-            textSize = 11f
-            setTextColor(muted)
-            typeface = interBold
-        })
-        column.addView(comment)
-        column.addView(primaryButton("Submit feedback") {
-            val text = comment.text.toString().trim()
-            if (text.length < 4 && rating == 5) {
-                showAppToast("Add a comment or lower your rating.", ToastKind.WARNING)
-                return@primaryButton
-            }
-            submitted = true
-            column.removeAllViews()
-            column.addView(backButton { showSettings() })
-            column.addView(spacer(60))
-            column.addView(object : android.view.View(this) {
-                override fun onDraw(canvas: Canvas) {
-                    val cx = width / 2f
-                    val cy = height / 2f
-                    val r = minOf(cx, cy) - dp(4).toFloat()
-                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = green; style = Paint.Style.STROKE; strokeWidth = dp(5).toFloat(); strokeCap = Paint.Cap.ROUND }
-                    canvas.drawArc(android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), 0f, 360f, false, paint)
-                    val check = android.graphics.Path().apply {
-                        moveTo(cx - r * 0.35f, cy)
-                        lineTo(cx - r * 0.08f, cy + r * 0.30f)
-                        lineTo(cx + r * 0.40f, cy - r * 0.25f)
-                    }
-                    canvas.drawPath(check, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = green; style = Paint.Style.STROKE; strokeWidth = dp(5).toFloat(); strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND })
-                }
-            }.apply {
-                layoutParams = LinearLayout.LayoutParams(dp(100), dp(100)).apply { gravity = Gravity.CENTER }
-            })
-            column.addView(spacer(24))
-            column.addView(TextView(this@MainActivity).apply {
-                this.text = "Thank You!"
-                textSize = 32f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-            })
-            column.addView(TextView(this@MainActivity).apply {
-                this.text = "Your feedback helps us improve the app."
-                textSize = 15f
-                setTextColor(muted)
-                gravity = Gravity.CENTER
-            })
-            setScreen(scroll(column))
-            scope.launch {
-                val sent = backend.submitFeedback(appState.authToken.ifBlank { null }, appState.activeSessionId.ifBlank { null }, rating, text)
-                if (!sent) showAppToast("Could not send feedback. Sign in and try again.", ToastKind.ERROR)
+                    },
+                )
             }
         })
-        setScreen(scroll(column))
     }
-
     private fun syncPlayPurchase(purchaseToken: String?, orderId: String? = null) {
         if (purchaseToken.isNullOrBlank() || appState.authToken.isBlank()) return
         scope.launch {
@@ -2682,260 +2547,42 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showPaywall() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        
-        // â”€â”€ Hero section with star icon â”€â”€
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(16), 0, dp(8))
-            layoutParams = blockParams()
-            // Star icon
-            addView(LinearLayout(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(72), dp(72)).apply { setMargins(0, 0, 0, dp(16)) }
-                gravity = Gravity.CENTER
-                background = rounded(Color.argb(30, 108, 99, 255), radius = 36, strokeColor = Color.argb(60, 108, 99, 255))
-                addView(TextView(this@MainActivity).apply {
-                    text = "\u2B50"
-                    textSize = 28f
-                    gravity = Gravity.CENTER
-                })
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Upgrade to Pro"
-                textSize = 30f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                includeFontPadding = false
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Unlock unlimited interview practice"
-                textSize = 14f
-                setTextColor(muted)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, 0)
-            })
-        })
-        
-        if (appState.subscriptionEntitled) {
-            // Already subscribed state
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(32), dp(32), dp(32), dp(32))
-                background = rounded(Color.argb(12, 0, 214, 143), radius = 24, strokeColor = Color.argb(38, 0, 214, 143))
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = "\u2713"
-                    textSize = 36f
-                    setTextColor(green)
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "You're a Pro member"
-                    textSize = 22f
-                    setTextColor(Color.WHITE)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                    setPadding(0, dp(12), 0, dp(4))
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "All features are unlocked. Thank you for subscribing!"
-                    textSize = 14f
-                    setTextColor(Color.argb(180, 255, 255, 255))
-                    gravity = Gravity.CENTER
-                })
-            })
-        } else {
-            val priceLabel = subscriptionDisplayPrice ?: "…"
-            // ── Price card ──
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(24), dp(24), dp(24), dp(24))
-                background = rounded(Color.argb(12, 108, 99, 255), radius = 24, strokeColor = Color.argb(40, 108, 99, 255))
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = priceLabel
-                    textSize = 48f
-                    setTextColor(Color.WHITE)
-                    typeface = interBold
-                    gravity = Gravity.CENTER
-                    includeFontPadding = false
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "per month \u00B7 Cancel anytime"
-                    textSize = 13f
-                    setTextColor(muted)
-                    gravity = Gravity.CENTER
-                    setPadding(0, dp(4), 0, 0)
-                })
-            })
-            
-            // â”€â”€ What you get â”€â”€
-            column.addView(TextView(this@MainActivity).apply {
-                text = "WHAT YOU GET"
-                textSize = 11f
-                setTextColor(accent)
-                typeface = interBold
-                setPadding(0, dp(16), 0, dp(8))
-            })
-            
-            val benefits = listOf(
-                "Unlimited interview sessions" to "Practice as much as you need",
-                "All 5 interviewers" to "Maya, Jonas, Sophia, Oliver & Lily",
-                "AI-powered scoring" to "Deep coaching with improved answers",
-                "Panel mode" to "Multiple interviewers at once",
-                "Camera presence coach" to "Real-time face, eyes & posture scoring",
-                "Full session reports" to "Radar charts & PDF export",
-                "Company web research" to "Tailored questions for your target role",
-            )
-            benefits.forEach { (title, desc) ->
-                column.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(dp(14), dp(12), dp(14), dp(12))
-                    background = rounded(Color.argb(8, 255, 255, 255), radius = 14)
-                    layoutParams = blockParams()
-                    addView(TextView(this@MainActivity).apply {
-                        text = "\u2713"
-                        textSize = 14f
-                        setTextColor(green)
-                        typeface = interBold
-                        setPadding(0, 0, dp(12), 0)
-                    })
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                        addView(TextView(this@MainActivity).apply {
-                            text = title
-                            textSize = 14f
-                            setTextColor(Color.WHITE)
-                            typeface = interBold
-                            includeFontPadding = false
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = desc
-                            textSize = 12f
-                            setTextColor(muted)
-                            includeFontPadding = false
-                            setPadding(0, dp(2), 0, 0)
-                        })
-                    })
-                })
-                column.addView(spacer(4))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                val price by subscriptionPriceState
+                PrezzencePaywallScreen(
+                    hasPremium = appState.hasPremiumAccess(),
+                    priceLabel = price ?: subscriptionDisplayPrice,
+                    onBack = { showSettings() },
+                    onSubscribe = { purchaseSubscription() },
+                    onRestore = { restoreSubscription() },
+                )
             }
-            
-            // â”€â”€ Free reminder â”€â”€
-            column.addView(spacer(8))
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                setPadding(dp(16), dp(12), dp(16), dp(12))
-                background = rounded(Color.argb(10, 255, 255, 255), radius = 16)
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = "Free plan: 3 sessions/month with Sophia"
-                    textSize = 12f
-                    setTextColor(Color.argb(180, 255, 255, 255))
-                    gravity = Gravity.CENTER
-                })
-            })
-        }
-        
-        column.addView(spacer(16))
-        
-        // â”€â”€ CTA Button â”€â”€
-        val ctaPrice = subscriptionDisplayPrice?.let { "$it / month" } ?: "…"
-        column.addView(LinearLayout(this).apply {
-            layoutParams = blockParams()
-            setPadding(dp(4), 0, dp(4), 0)
-            addView(TextView(this@MainActivity).apply {
-                text = if (appState.subscriptionEntitled) "Manage Subscription" else "Start Pro - $ctaPrice"
-                textSize = 17f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                setPadding(0, dp(16), 0, dp(16))
-                background = rounded(accent, radius = 28, strokeColor = accent)
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
-                setOnClickListener { purchaseSubscription() }
-            })
         })
-        
-        column.addView(spacer(10))
-        column.addView(TextView(this@MainActivity).apply {
-            text = "Restore purchases"
-            textSize = 14f
-            setTextColor(muted)
-            typeface = interMedium
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(24))
-            setOnClickListener { restoreSubscription() }
-        })
-        
-        setScreen(scroll(column))
-        if (subscriptionDisplayPrice == null) {
+        if (subscriptionDisplayPrice == null && subscriptionPriceState.value == null) {
             scope.launch {
                 val price = billingManager.refresh().price
-                if (!price.isNullOrBlank() && price != subscriptionDisplayPrice) {
+                if (!price.isNullOrBlank()) {
                     subscriptionDisplayPrice = price
-                    runOnUiThread { showPaywall() }
+                    subscriptionPriceState.value = price
                 }
             }
         }
     }
-
     private fun showSubscription() {
-        val column = baseColumn()
-        column.addView(backButton { showPaywall() })
-        column.addView(title("Subscription", 34))
-        column.addView(spacer(8))
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-            background = rounded(panel, radius = 28, strokeColor = border)
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "PLAN"
-                textSize = 10f; setTextColor(accent); typeface = interBold
-                letterSpacing = 0.15f
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Prezzence Pro"
-                textSize = 24f; setTextColor(Color.WHITE); typeface = interBold
-                setPadding(0, dp(8), 0, 0)
-            })
-            addView(spacer(16))
-            listOf("Unlimited practice sessions", "Deep coaching reports", "Shareable score cards", "Export to PDF").forEach { benefit ->
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(0, dp(6), 0, dp(6))
-                    addView(TextView(this@MainActivity).apply {
-                        text = "\u2713"; textSize = 16f; setTextColor(green)
-                    })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "  $benefit"; textSize = 15f; setTextColor(Color.WHITE)
-                    })
-                })
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSubscriptionScreen(
+                    hasPremium = appState.hasPremiumAccess(),
+                    onBack = { showPaywall() },
+                    onSubscribe = { purchaseSubscription() },
+                    onCheckPlan = { refreshSubscription() },
+                    onRestore = { restoreSubscription() },
+                )
             }
-            addView(spacer(16))
-            addView(TextView(this@MainActivity).apply {
-                text = "Status: ${if (appState.subscriptionEntitled) "Active" else "Inactive"}"
-                textSize = 13f; setTextColor(muted)
-            })
         })
-        column.addView(spacer(16))
-        column.addView(primaryButton("Subscribe") { purchaseSubscription() })
-        column.addView(spacer(8))
-        column.addView(secondaryButton("Check plan") { refreshSubscription() })
-        column.addView(spacer(8))
-        column.addView(secondaryButton("Restore purchases") { restoreSubscription() })
-        setScreen(scroll(column))
         refreshSubscription(silent = true)
     }
-
     private fun refreshSubscription(silent: Boolean = false) {
         scope.launch {
             val state = billingManager.refresh()
@@ -2960,108 +2607,58 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showBillingToast(state: BillingUiState, silent: Boolean) {
-        appState.subscriptionEntitled = state.entitled
+        if (state.entitled || !appState.hasPremiumAccess()) {
+            appState.subscriptionEntitled = state.entitled || appState.adminAccess || appState.betaUnlockAllFeatures
+        }
         appState.subscriptionStatus = state.status
         appState.subscriptionProductId = state.productId
-        if (!state.price.isNullOrBlank()) subscriptionDisplayPrice = state.price
+        if (!state.price.isNullOrBlank()) {
+            subscriptionDisplayPrice = state.price
+            subscriptionPriceState.value = state.price
+        }
         if (state.entitled) syncPlayPurchase(state.purchaseToken, state.orderId)
         if (!silent) showAppToast(state.status, if (state.entitled) ToastKind.green else ToastKind.INFO)
     }
 
-    private fun showDeviceQa(results: List<DeviceQaResult> = emptyList(), running: Boolean = false, status: String = "Ready") {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Device QA", 34))
-        column.addView(body(status))
-        column.addView(spacer(8))
-        column.addView(rowOf(
-            secondaryButton("Allow mic/camera") {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), 200)
-            },
-            primaryButton(if (running) "Running" else "Run checks") { if (!running) runDeviceQa() }
-        ))
-        column.addView(spacer(8))
-        
-        // Add model cache management section
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = rounded(panel, radius = 26, strokeColor = border)
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "Avatar Model Cache"; textSize = 18f; setTextColor(Color.WHITE)
-                typeface = interBold
-            })
-            addView(spacer(8))
-            addView(TextView(this@MainActivity).apply {
-                text = "If avatar models fail to load or show corrupted, clear cache to force fresh download."; textSize = 13f; setTextColor(muted)
-            })
-            addView(spacer(12))
-            addView(secondaryButton("Clear Avatar Model Cache") {
-                try {
-                    NativeDuixAvatarView.clearModelCache(this@MainActivity)
-                    showAppToast("Model cache cleared. Models will re-download on next interview.", ToastKind.green)
-                } catch (e: Exception) {
-                    showAppToast("Failed to clear cache: ${e.message}", ToastKind.ERROR)
-                }
-            })
-        })
-        column.addView(spacer(8))
-        
-        if (results.isEmpty()) {
-            column.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(20), dp(20), dp(20))
-                background = rounded(panel, radius = 26, strokeColor = border)
-                layoutParams = blockParams()
-                addView(TextView(this@MainActivity).apply {
-                    text = "Checks"; textSize = 20f; setTextColor(Color.WHITE)
-                    typeface = interBold
-                })
-                addView(spacer(8))
-                listOf("Microphone PCM capture", "Backend transcription API reachability", "CameraX provider open", "Duix model endpoint reachability").forEach { check ->
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        setPadding(0, dp(6), 0, dp(6))
-                        addView(TextView(this@MainActivity).apply {
-                            text = "..."; textSize = 14f; setTextColor(muted)
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "  $check"; textSize = 14f; setTextColor(Color.WHITE)
-                        })
-                    })
-                }
-            })
-        } else {
-            results.forEach { result ->
-                column.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(20), dp(20), dp(20), dp(20))
-                    background = rounded(panel, radius = 26, strokeColor = if (result.passed) Color.argb(25, 0, 214, 143) else Color.argb(25, 255, 71, 87))
-                    layoutParams = blockParams()
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        addView(TextView(this@MainActivity).apply {
-                            text = if (result.passed) "\u2713" else "\u2717"
-                            textSize = 20f; setTextColor(if (result.passed) green else danger)
-                        })
-                        addView(TextView(this@MainActivity).apply {
-                            text = "  ${result.name}"
-                            textSize = 18f; setTextColor(Color.WHITE); typeface = interBold
-                        })
-                    })
-                    addView(spacer(6))
-                    addView(TextView(this@MainActivity).apply {
-                        text = result.detail; textSize = 13f; setTextColor(muted)
-                    })
-                })
-                column.addView(spacer(8))
+    private fun showDeviceQa(
+        results: List<DeviceQaResult> = deviceQaResultsState.value,
+        running: Boolean = deviceQaRunningState.value,
+        status: String = deviceQaStatusState.value,
+    ) {
+        deviceQaResultsState.value = results
+        deviceQaRunningState.value = running
+        deviceQaStatusState.value = status
+        setScreen(ComposeView(this).apply {
+            setContent {
+                val qaResults by deviceQaResultsState
+                val qaRunning by deviceQaRunningState
+                val qaStatus by deviceQaStatusState
+                PrezzenceDeviceQaScreen(
+                    status = qaStatus,
+                    running = qaRunning,
+                    results = qaResults,
+                    onBack = { showSettings() },
+                    onRequestPermissions = {
+                        ActivityCompat.requestPermissions(
+                            this@MainActivity,
+                            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA),
+                            200,
+                        )
+                    },
+                    onRunChecks = { if (!qaRunning) runDeviceQa() },
+                    onClearModelCache = {
+                        try {
+                            NativeDuixAvatarView.clearModelCache(this@MainActivity)
+                            showAppToast("Model cache cleared. Models will re-download on next interview.", ToastKind.green)
+                        } catch (e: Exception) {
+                            showAppToast("Failed to clear cache: ${e.message}", ToastKind.ERROR)
+                        }
+                    },
+                    onRunAgain = { runDeviceQa() },
+                )
             }
-            column.addView(secondaryButton("Run again") { runDeviceQa() })
-        }
-        setScreen(scroll(column))
+        })
     }
-
     private fun runDeviceQa() {
         showDeviceQa(running = true, status = "Starting checks")
         scope.launch {
@@ -3074,66 +2671,23 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private var privacyImprovementEnabled = true
-    private var privacyRetentionEnabled = false
-
     private fun showPrivacySettings() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Privacy", 40))
-        column.addView(body("Control how your interview recordings, transcripts, scores, and account data are handled."))
-        column.addView(spacer(12))
-        column.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-            background = rounded(Color.argb(12, 0, 214, 143), radius = 32, strokeColor = Color.argb(38, 0, 214, 143))
-            layoutParams = blockParams()
-            addView(TextView(this@MainActivity).apply {
-                text = "Protected data"
-                textSize = 18f
-                setTextColor(Color.rgb(0, 214, 143))
-                typeface = interBold
-            })
-            addView(body("Your voice data, transcripts, and scores are stored privately and used to power your own coaching."))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzencePrivacySettingsScreen(
+                    onBack = { showSettings() },
+                    onExportData = { exportUserData() },
+                    onDone = { showSettings() },
+                )
+            }
         })
-        column.addView(label("PRIVACY CONTROLS"))
-        val improvementToggle = toggleRow("Product improvement", "Allow anonymous use of feedback to improve scoring quality", privacyImprovementEnabled) {
-            privacyImprovementEnabled = !privacyImprovementEnabled
-            showPrivacySettings()
-        }
-        column.addView(improvementToggle)
-        val retentionToggle = toggleRow("Data retention", "Choose how long practice data stays in your account", privacyRetentionEnabled) {
-            privacyRetentionEnabled = !privacyRetentionEnabled
-            showPrivacySettings()
-        }
-        column.addView(retentionToggle)
-        column.addView(settingsRow("Export your data", "Download your session history", icon = SettingsIcon.File) {
-            showAppToast("Export feature coming soon.", ToastKind.INFO)
-        })
-        column.addView(spacer(12))
-        column.addView(primaryButton("Done") { showSettings() })
-        setScreen(scroll(column))
     }
-
     private fun showLegal() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Privacy & Terms", 34))
-        column.addView(card("Privacy", "Prezzence stores account, session, transcript, score, feedback, notification, and optional resume profile data to provide interview coaching. You can remove your resume profile or delete account data from the app."))
-        column.addView(card("Terms", "Scores and AI feedback are coaching signals only. Prezzence does not guarantee job offers, admissions, hiring outcomes, or interview green."))
-        column.addView(card("Avatar attribution", "Prezzence uses Duix Mobile avatar technology for on-device interviewer animation. Powered by Duix.com."))
-        setScreen(scroll(column))
-    }
-
-    private fun showPaused() {
-        val column = baseColumn().apply { gravity = Gravity.CENTER }
-        column.addView(title("Interview paused", 30))
-        column.addView(body("Resume when you are ready, or end this answer and review coaching."))
-        column.addView(rowOf(
-            primaryButton("Resume") { showInterview(activeTranscriber != null) },
-            secondaryButton("Back to home") { showHome() }
-        ))
-        setScreen(scroll(column))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceLegalScreen(onBack = { showSettings() })
+            }
+        })
     }
     private fun pickResumeDocument() {
         if (appState.authToken.isBlank()) {
@@ -3151,11 +2705,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun uploadResumeDocument(uri: Uri) {
-        val column = baseColumn()
-        column.addView(backButton { showResumeProfile() })
-        column.addView(title("Uploading CV", 32))
-        column.addView(body("Reading your file and building your practice profile..."))
-        setScreen(scroll(column))
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSimpleMessageScreen(
+                    title = "Uploading CV",
+                    subtitle = "Reading your file and building your practice profile...",
+                    onBack = { showResumeProfile() },
+                )
+            }
+        })
 
         scope.launch {
             val fileName = displayNameFor(uri)
@@ -3191,76 +2749,93 @@ class MainActivity : ComponentActivity() {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: "resume"
     }
     private fun showResumeProfile() {
-        val column = baseColumn()
-        column.addView(backButton { showSettings() })
-        column.addView(title("Resume / CV", 34))
-        column.addView(body("Upload a PDF, DOCX, TXT, or MD resume, or paste resume text. Prezzence uses it to tune interview questions and coaching."))
-        val input = EditText(this).apply {
-            hint = "Paste resume text here"
-            minLines = 8
-            setTextColor(Color.WHITE)
-            setHintTextColor(muted)
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = rounded(panel)
-            layoutParams = blockParams()
-        }
-        column.addView(input)
-        val status = body("Loading saved profile...")
-        column.addView(status)
-        column.addView(rowOf(
-            primaryButton("Upload CV") { pickResumeDocument() },
-            secondaryButton("Save text") {
-                val resumeText = input.text.toString().trim()
-                if (resumeText.length < 40) {
-                    showAppToast("Paste more resume detail first.", ToastKind.WARNING)
-                    return@secondaryButton
-                }
-                status.text = "Saving profile..."
-                scope.launch {
-                    val saved = backend.saveResumeText(appState.authToken.ifBlank { null }, resumeText)
-                    status.text = if (saved != null) "Saved: ${saved.fileName}\n${saved.summary.take(180)}" else "Could not save profile. Sign in and try again."
-                }
-            },
-            secondaryButton("Delete") {
-                status.text = "Deleting profile..."
-                scope.launch {
-                    val deleted = backend.deleteResumeProfile(appState.authToken.ifBlank { null })
-                    input.setText("")
-                    status.text = if (deleted) "Resume profile deleted." else "No profile deleted. Sign in and try again."
-                }
+        resumeProfileLoadingState.value = true
+        resumeProfileStatusState.value = "Loading saved profile..."
+        setScreen(ComposeView(this).apply {
+            setContent {
+                val resumeText by resumeProfileTextState
+                val statusText by resumeProfileStatusState
+                val loading by resumeProfileLoadingState
+                PrezzenceResumeProfileScreen(
+                    initialText = resumeText,
+                    statusText = statusText,
+                    loading = loading,
+                    onBack = { showSettings() },
+                    onTextChange = { resumeProfileTextState.value = it },
+                    onUploadFile = { pickResumeDocument() },
+                    onSaveText = { resumeText ->
+                        if (resumeText.length < 40) {
+                            showAppToast("Paste more resume detail first.", ToastKind.WARNING)
+                            false
+                        } else {
+                            resumeProfileStatusState.value = "Saving profile..."
+                            scope.launch {
+                                val saved = backend.saveResumeText(appState.authToken.ifBlank { null }, resumeText)
+                                resumeProfileStatusState.value = if (saved != null) {
+                                    "Saved: ${saved.fileName}\n${saved.summary.take(180)}"
+                                } else {
+                                    "Could not save profile. Sign in and try again."
+                                }
+                            }
+                            true
+                        }
+                    },
+                    onDelete = {
+                        resumeProfileStatusState.value = "Deleting profile..."
+                        scope.launch {
+                            val deleted = backend.deleteResumeProfile(appState.authToken.ifBlank { null })
+                            if (deleted) resumeProfileTextState.value = ""
+                            resumeProfileStatusState.value = if (deleted) {
+                                "Resume profile deleted."
+                            } else {
+                                "No profile deleted. Sign in and try again."
+                            }
+                        }
+                    },
+                )
             }
-        ))
-        setScreen(scroll(column))
+        })
         scope.launch {
             val profile = backend.getResumeProfile(appState.authToken.ifBlank { null })
             if (profile != null) {
-                input.setText(profile.summary)
-                status.text = resumeProfileSummary(profile)
+                resumeProfileTextState.value = profile.summary
+                resumeProfileStatusState.value = resumeProfileSummary(profile)
             } else {
-                status.text = "No saved resume profile yet."
+                resumeProfileStatusState.value = "No saved resume profile yet."
             }
+            resumeProfileLoadingState.value = false
         }
     }
-
     private fun showNotifications() {
-        val column = baseColumn()
-        column.addView(backButton { showHome() })
-        column.addView(title("Notifications", 34))
-        column.addView(body("Inbox updates and reminders."))
-        val status = body("Loading notifications...")
-        column.addView(status)
-        setScreen(scroll(column))
-        scope.launch {
-            val items = backend.getNotifications(appState.authToken.ifBlank { null })
-            column.removeView(status)
-            if (items.isEmpty()) {
-                column.addView(body("No notifications yet."))
-            } else {
-                items.forEach { item -> column.addView(notificationRow(item)) }
+        notificationsLoadingState.value = true
+        setScreen(ComposeView(this).apply {
+            setContent {
+                val items by notificationsInboxState
+                val loading by notificationsLoadingState
+                PrezzenceNotificationsInboxScreen(
+                    items = items,
+                    loading = loading,
+                    onBack = { showHome() },
+                    onMarkRead = { item ->
+                        scope.launch {
+                            backend.markNotificationRead(appState.authToken.ifBlank { null }, item.id)
+                            showNotifications()
+                        }
+                    },
+                    onDelete = { item ->
+                        scope.launch {
+                            backend.deleteNotification(appState.authToken.ifBlank { null }, item.id)
+                            showNotifications()
+                        }
+                    },
+                )
             }
+        })
+        scope.launch {
+            notificationsInboxState.value = backend.getNotifications(appState.authToken.ifBlank { null })
+            notificationsLoadingState.value = false
         }
     }
-
     private fun resumeProfileSummary(profile: ResumeProfile): String {
         val skills = profile.skills.take(5).joinToString(", ").ifBlank { "No skills extracted yet" }
         return "Saved: ${profile.fileName}\nSkills: $skills\n${profile.summary.take(220)}"
@@ -3268,65 +2843,23 @@ class MainActivity : ComponentActivity() {
 
     private fun showProgress() = showHome(PrezzenceTab.PROGRESS)
 
-    private fun showAllHistory() = showHome(PrezzenceTab.PROGRESS)
-
-    private fun showCoachingFeedback(question: String, answer: AnswerResult, onContinue: () -> Unit) {
-        val scoreColor = when {
-            answer.score >= 75 -> green
-            answer.score >= 55 -> warning
-            else -> danger
-        }
-        setScreen(scroll(baseColumn().apply {
-            addView(backButton { onContinue() })
-            addView(title("Answer Result", 34))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(0, dp(16), 0, dp(16))
-                addView(TextView(this@MainActivity).apply {
-                    text = "${answer.score}"
-                    textSize = 56f; setTextColor(scoreColor); typeface = interBold
-                    gravity = Gravity.CENTER
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = "out of 100"
-                    textSize = 14f; setTextColor(muted); gravity = Gravity.CENTER
-                })
-            })
-            addView(card("Question", question))
-            addView(spacer(8))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(20), dp(20), dp(20))
-                background = rounded(panel, radius = 26, strokeColor = border)
-                addView(TextView(this@MainActivity).apply {
-                    text = "Feedback"
-                    textSize = 18f; setTextColor(Color.WHITE); typeface = interBold
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = answer.feedback; textSize = 15f; setTextColor(muted); setPadding(0, dp(12), 0, 0)
-                })
-                addView(spacer(16))
-                addView(TextView(this@MainActivity).apply {
-                    text = "Improved answer"
-                    textSize = 16f; setTextColor(Color.WHITE); typeface = interBold
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = answer.improvedAnswer; textSize = 15f; setTextColor(muted); setPadding(0, dp(8), 0, 0)
-                })
-                addView(spacer(16))
-                listOf("What" to answer.what, "How" to answer.how, "Why" to answer.why).forEach { (label, value) ->
-                    addView(TextView(this@MainActivity).apply {
-                        text = "$label: $value"
-                        textSize = 14f; setTextColor(Color.WHITE)
-                        typeface = interBold
-                        setPadding(0, dp(6), 0, 0)
-                    })
-                }
-            })
-            addView(spacer(24))
-            addView(primaryButton("Continue") { onContinue() })
-        }))
+    private fun showAllHistory(returnTab: PrezzenceTab = PrezzenceTab.PROGRESS) {
+        val sessions = historyItemsForUi()
+        setScreen(ComposeView(this).apply {
+            setContent {
+                PrezzenceSessionHistoryScreen(
+                    sessions = sessions,
+                    onBack = { showHome(returnTab) },
+                    onSessionTap = { sessionId -> showSessionReport(sessionId, returnTab) },
+                    onDeleteSession = { sessionId ->
+                        val sessionTitle = sessions.firstOrNull { it.id == sessionId }?.role ?: "this session"
+                        confirmDeleteSession(sessionId, sessionTitle, returnTab) {
+                            showAllHistory(returnTab)
+                        }
+                    },
+                )
+            }
+        })
     }
 
     private fun showRoomSetup() {
@@ -3608,6 +3141,9 @@ class MainActivity : ComponentActivity() {
         processingAnswerState.value = processing
 
         if (!processing && forceRebuild) {
+            interviewPausedState.value = false
+            answerReviewVisibleState.value = false
+            modelAnswerVisibleState.value = false
             coachingMessage = ""
             faceVisibilityState.value = null
             eyeContactState.value = null
@@ -3624,6 +3160,7 @@ class MainActivity : ComponentActivity() {
 
         if (!forceRebuild && isInterviewRoomVisible()) {
             if (answering && !processing && !wasAnswering) {
+                speechError = ""
                 startRecordingTimer()
                 startSpeechCapture()
                 scope.launch { prepareQuestionSpeech(appState.currentQuestionIndex + 1) }
@@ -3637,6 +3174,7 @@ class MainActivity : ComponentActivity() {
         val interviewer = appState.interviewerFor(question)
 
         if (answering && !processing) {
+            speechError = ""
             startRecordingTimer()
         } else if (!answering) {
             stopRecordingTimer()
@@ -3650,59 +3188,123 @@ class MainActivity : ComponentActivity() {
             val stage by processingStageState
             val progress by processingProgressState
             val recordingDuration by recordingDurationState
+            val answerReviewVisible by answerReviewVisibleState
+            val modelAnswerVisible by modelAnswerVisibleState
+            val interviewPaused by interviewPausedState
             val currentQuestion = appState.currentQuestion()
             val currentInterviewer = appState.interviewerFor(currentQuestion)
-            PrezzenceInterviewRoomScreen(
-                currentStep = appState.currentQuestionIndex + 1,
-                totalSteps = appState.questions().size,
-                interviewerName = currentInterviewer.name,
-                interviewerTitle = currentInterviewer.title,
-                isPanel = appState.interviewMode == InterviewMode.PANEL,
-                panelInterviewers = if (appState.interviewMode == InterviewMode.PANEL) {
-                    PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
-                        .map { it.name to it.title }
-                } else {
-                    emptyList()
-                },
-                questionText = currentQuestion.text,
-                answering = answeringNow,
-                processing = processingNow,
-                processingStage = stage,
-                processingProgress = progress,
-                transcript = activeTranscript,
-                error = speechError,
-                cameraCoachEnabled = appState.cameraCoachEnabled,
-                recordingDuration = recordingDuration,
-                isRecording = answeringNow && !processingNow && activeTranscriber != null,
-                createAvatarView = {
-                    if (suppressNativeAvatarForEntry) {
-                        suppressNativeAvatarForEntry = false
-                        interviewerReadyCard(currentInterviewer)
+            val reviewResult = currentAnswerResult
+            val nextStep = appState.currentQuestionIndex + 1
+            val totalQs = appState.questions().size
+            val continueLabel = if (nextStep >= totalQs) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
+
+            Box(Modifier.fillMaxSize()) {
+                PrezzenceInterviewRoomScreen(
+                    currentStep = appState.currentQuestionIndex + 1,
+                    totalSteps = appState.questions().size,
+                    interviewerName = currentInterviewer.name,
+                    interviewerTitle = currentInterviewer.title,
+                    isPanel = appState.interviewMode == InterviewMode.PANEL,
+                    panelInterviewers = if (appState.interviewMode == InterviewMode.PANEL) {
+                        PrezzenceDefaults.panelInterviewersForStyle(appState.interviewerStyle)
+                            .map { it.name to it.title }
                     } else {
-                        try {
-                            duixAvatarCard(currentInterviewer, "speaking", true)
-                        } catch (e: Exception) {
+                        emptyList()
+                    },
+                    questionText = currentQuestion.text,
+                    learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
+                    onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                    answering = answeringNow,
+                    processing = processingNow,
+                    processingStage = stage,
+                    processingProgress = progress,
+                    transcript = activeTranscript,
+                    error = speechError,
+                    cameraCoachEnabled = appState.cameraCoachEnabled,
+                    recordingDuration = recordingDuration,
+                    isRecording = answeringNow && !processingNow && activeTranscriber != null,
+                    createAvatarView = {
+                        if (suppressNativeAvatarForEntry) {
+                            suppressNativeAvatarForEntry = false
                             interviewerReadyCard(currentInterviewer)
+                        } else {
+                            try {
+                                duixAvatarCard(currentInterviewer, "speaking", true)
+                            } catch (e: Exception) {
+                                interviewerReadyCard(currentInterviewer)
+                            }
                         }
-                    }
-                },
-                createCameraView = { cameraCoachCard(currentInterviewer) },
-                onExit = { showHome() },
-                onPause = { pauseInterview() },
-                onRepeat = { replayCurrentQuestion() },
-                onClarify = { clarifyCurrentQuestion() },
-                onAnswerNow = { ensurePermissionsThenAnswer() },
-                onFinish = { finishAnswer(currentQuestion.text) },
-                coachingMessage = coachingMessage,
-                avatarReady = avatarReadyState.value,
-                interviewerSpeaking = interviewerSpeakingState.value,
-                cameraStatus = cameraStatusState.value,
-                faceVisibility = faceVisibilityState.value,
-                eyeContact = eyeContactState.value,
-                headStability = headStabilityState.value,
-                posture = postureState.value,
-                expressionEnergy = expressionEnergyState.value,
-            )
+                    },
+                    createCameraView = { cameraCoachCard(currentInterviewer) },
+                    onExit = { showHome() },
+                    onPause = { pauseInterview() },
+                    onRepeat = { replayCurrentQuestion() },
+                    onClarify = { clarifyCurrentQuestion() },
+                    onAnswerNow = { ensurePermissionsThenAnswer() },
+                    onFinish = { finishAnswer(currentQuestion.text) },
+                    coachingMessage = coachingMessage,
+                    avatarReady = avatarReadyState.value,
+                    interviewerSpeaking = interviewerSpeakingState.value,
+                    cameraStatus = cameraStatusState.value,
+                    faceVisibility = faceVisibilityState.value,
+                    eyeContact = eyeContactState.value,
+                    headStability = headStabilityState.value,
+                    posture = postureState.value,
+                    expressionEnergy = expressionEnergyState.value,
+                )
+
+                if (interviewPaused) {
+                    PrezzenceInterviewPausedOverlay(
+                        onResume = {
+                            interviewPausedState.value = false
+                            showInterview(activeTranscriber != null)
+                        },
+                        onBackHome = {
+                            interviewPausedState.value = false
+                            showHome()
+                        },
+                    )
+                }
+
+                if (answerReviewVisible && reviewResult != null && !modelAnswerVisible) {
+                    PrezzenceAnswerResultOverlay(
+                        score = reviewResult.score,
+                        feedback = reviewResult.feedback,
+                        questionText = currentQuestion.text,
+                        learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
+                        displayTranscript = SessionScoring.formatTranscriptForDisplay(reviewResult.transcript),
+                        presenceMetrics = reviewResult.presenceMetrics,
+                        hasModelAnswer = reviewResult.improvedAnswer.isNotBlank(),
+                        continueLabel = continueLabel,
+                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                        onTryAgain = { handleAnswerTryAgain() },
+                        onContinue = {
+                            resumeInterviewRoomSpeech()
+                            dismissResultOverlay()
+                            advanceAfterAnswerReview()
+                        },
+                        onOpenModelAnswer = { openModelAnswerOverlay(reviewResult) },
+                    )
+                }
+
+                if (modelAnswerVisible && reviewResult != null) {
+                    PrezzenceModelAnswerOverlay(
+                        score = reviewResult.score,
+                        modelAnswer = reviewResult.improvedAnswer.trim(),
+                        learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
+                        continueLabel = continueLabel,
+                        onBack = { dismissTeachingOverlay() },
+                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                        onPlayAgain = { playCoachingAudio(reviewResult.improvedAnswer.trim()) },
+                        onTryAgain = { handleAnswerTryAgain() },
+                        onContinue = {
+                            resumeInterviewRoomSpeech()
+                            dismissResultOverlay()
+                            advanceAfterAnswerReview()
+                        },
+                    )
+                }
+            }
         }
         setScreen(composeView)
         interviewComposeView = composeView
@@ -3721,7 +3323,36 @@ class MainActivity : ComponentActivity() {
                 transcriber.stop(appState.language)
             }
         }
-        showPaused()
+        interviewPausedState.value = true
+        if (!isInterviewRoomVisible()) {
+            showInterview(answering = false)
+        }
+    }
+
+    private fun handleAnswerTryAgain() {
+        val retryIndex = appState.currentQuestionIndex
+        if (retryIndex < sessionAnswers.size) {
+            sessionAnswers.removeAt(retryIndex)
+            val sid = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
+            appState.saveSessionAnswers(sid, sessionAnswers.toList())
+        }
+        currentAnswerResult = null
+        coachingMessage = ""
+        speechError = ""
+        resumeInterviewRoomSpeech()
+        dismissResultOverlay()
+        showInterview(false)
+    }
+
+    private fun openModelAnswerOverlay(result: AnswerResult) {
+        val modelAnswer = result.improvedAnswer.trim()
+        modelAnswerVisibleState.value = true
+        if (modelAnswer.isNotBlank()) {
+            scope.launch {
+                delay(400)
+                playCoachingAudio(modelAnswer)
+            }
+        }
     }
 
     private fun replayCurrentQuestion() {
@@ -4250,26 +3881,29 @@ class MainActivity : ComponentActivity() {
                 },
             )
 
-            if (remoteResult == null) {
+            val scoredAnswer = remoteResult.answer
+            if (scoredAnswer == null) {
                 processingAnswerState.value = false
                 interviewAnsweringState.value = false
                 processingStageState.value = ""
                 processingProgressState.intValue = 0
-                showAnswerRetryRequired("We could not transcribe your answer. Check your connection and try again.")
+                showAnswerRetryRequired(
+                    remoteResult.failureMessage ?: "We could not score your answer. Check your connection and try again.",
+                )
                 return@launch
             }
 
-            val displayTranscript = remoteResult.transcript.trim()
+            val displayTranscript = scoredAnswer.transcript.trim()
             val isBlank = SessionScoring.isBlankTranscript(displayTranscript)
             val feedback = when {
-                remoteResult.retryRequired && isBlank ->
-                    remoteResult.feedback.ifBlank {
+                scoredAnswer.retryRequired && isBlank ->
+                    scoredAnswer.feedback.ifBlank {
                         "We could not turn this recording into a clear answer. Please retry and speak close to the microphone."
                     }
-                else -> remoteResult.feedback
+                else -> scoredAnswer.feedback
             }
 
-            if (remoteResult.retryRequired || isBlank) {
+            if (scoredAnswer.retryRequired || isBlank) {
                 processingAnswerState.value = false
                 interviewAnsweringState.value = false
                 processingStageState.value = ""
@@ -4283,16 +3917,16 @@ class MainActivity : ComponentActivity() {
             }
 
             // Trust the backend score; only sanitize the model answer display
-            val result = remoteResult.copy(
+            val result = scoredAnswer.copy(
                 transcript = displayTranscript,
-                score = remoteResult.score.coerceIn(0, 100),
+                score = scoredAnswer.score.coerceIn(0, 100),
                 feedback = feedback,
                 improvedAnswer = sanitizeModelAnswer(
-                    remoteResult.improvedAnswer.trim(),
+                    scoredAnswer.improvedAnswer.trim(),
                     displayTranscript,
                     true,
                 ),
-                retryRequired = remoteResult.retryRequired,
+                retryRequired = scoredAnswer.retryRequired,
             )
             // Summarize presence samples and attach to result
             val finalPresence = summarizePresenceSamples(presenceSamples)
@@ -4363,243 +3997,23 @@ class MainActivity : ComponentActivity() {
             why = "Specific proof makes the answer easier to trust.",
             coachingMessage = "Let's review how you did and find ways to make your answer even stronger.",
         )
-        
         coachingMessage = result.coachingMessage
-        
-        val overlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(173, 0, 0, 0))
-            setPadding(dp(14), dp(60), dp(14), dp(14))
+        answerReviewVisibleState.value = true
+        modelAnswerVisibleState.value = false
+        if (!isInterviewRoomVisible()) {
+            showInterview(answering = false)
         }
-        
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(18, 18, 29), radius = 28, strokeColor = Color.argb(76, 108, 99, 255))
-            setPadding(0, 0, 0, 0)
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.BOTTOM
-            }
-        }
-        
-        // Drag handle
-        card.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(36), dp(4)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                setMargins(0, dp(10), 0, dp(6))
-            }
-            background = rounded(Color.argb(50, 255, 255, 255), radius = 2, strokeColor = Color.TRANSPARENT)
-        })
-        
-        // Scrollable content
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-            isVerticalScrollBarEnabled = false
-            isNestedScrollingEnabled = true
-            clipToPadding = false
-        }
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(8), dp(14), dp(12))
-        }
-        
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        // TITLE
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        content.addView(TextView(this@MainActivity).apply {
-            text = "Answer result"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(14))
-        })
-        
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        // HERO: Score row
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        val hero = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, dp(14))
-            }
-        }
-        
-        val scoreBadge = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(14), 0, dp(14))
-            background = rounded(Color.argb(199, 10, 10, 15), radius = 20, strokeColor = Color.argb(25, 255, 255, 255))
-            layoutParams = FrameLayout.LayoutParams(dp(96), dp(96)).apply {
-                gravity = Gravity.START
-            }
-        }
-        scoreBadge.addView(TextView(this@MainActivity).apply {
-            text = result.score.toString()
-            textSize = 48f
-            setTextColor(accent)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-        })
-        scoreBadge.addView(TextView(this@MainActivity).apply {
-            text = "SCORE /100"
-            textSize = 9f
-            setTextColor(muted)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            setPadding(dp(4), dp(2), dp(4), 0)
-        })
-        hero.addView(scoreBadge)
-        
-        // Feedback text positioned to the right of the score badge
-        hero.addView(LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(0), dp(10))
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(96 + 16), dp(0), dp(0), dp(0))
-            }
-            addView(TextView(this@MainActivity).apply {
-                text = result.feedback
-                textSize = 12.5f
-                setTextColor(Color.argb(220, 255, 255, 255))
-                setLineSpacing(0f, 1.4f)
-                typeface = interRegular
-            })
-        })
-        content.addView(hero)
-        
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        // TRANSCRIPT BOX
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        val transcriptBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            background = rounded(Color.argb(12, 255, 255, 255), radius = 18, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, dp(14))
-            }
-        }
-        transcriptBox.addView(TextView(this@MainActivity).apply {
-            text = "YOUR ANSWER"
-            textSize = 10f
-            setTextColor(Color.rgb(255, 209, 102))
-            typeface = interBold
-            setPadding(0, 0, 0, dp(6))
-        })
-        transcriptBox.addView(TextView(this@MainActivity).apply {
-            text = SessionScoring.formatTranscriptForDisplay(result.transcript)
-            textSize = 13f
-            setTextColor(Color.argb(220, 255, 255, 255))
-            setLineSpacing(0f, 1.45f)
-            typeface = interRegular
-        })
-        content.addView(transcriptBox)
-        
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        // PRESENCE SUMMARY
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        content.addView(enhancedPresenceSummary(result))
-        
-        scrollView.addView(content)
-        card.addView(scrollView)
-        
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        // ACTION BUTTONS
-        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        val actionsColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(18))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        card.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (dp(1) * 0.5f).toInt())
-            setBackgroundColor(Color.argb(20, 255, 255, 255))
-        })
+    }
 
-        if (result.improvedAnswer.isNotBlank()) {
-            actionsColumn.addView(TextView(this@MainActivity).apply {
-                text = "Listen to model answer"
-                textSize = 14f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                background = rounded(accent, radius = 22, strokeColor = accent)
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply {
-                    setMargins(0, 0, 0, dp(10))
-                }
-                setOnClickListener {
-                    showModelAnswerTeaching(result) {
-                        advanceAfterAnswerReview()
-                    }
-                }
-            })
-        }
-
-        val buttonRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-
-        buttonRow.addView(TextView(this@MainActivity).apply {
-            text = "Try again"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(13), dp(16), dp(13))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                setMargins(0, 0, dp(10), 0)
-            }
-            setOnClickListener {
-                // Remove this question's answer so retry doesn't append a duplicate
-                val retryIndex = appState.currentQuestionIndex
-                if (retryIndex < sessionAnswers.size) {
-                    sessionAnswers.removeAt(retryIndex)
-                    val sid = appState.activeSessionId.ifBlank { "session-${System.currentTimeMillis()}" }
-                    appState.saveSessionAnswers(sid, sessionAnswers.toList())
-                }
-                currentAnswerResult = null
-                resumeInterviewRoomSpeech()
-                dismissResultOverlay()
-                showInterview(false)
-            }
-        })
-
-        val nextStep = appState.currentQuestionIndex + 1
-        val totalQs = appState.questions().size
-        val isLastQuestion = nextStep >= totalQs
-        val continueLabel = if (isLastQuestion) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
-
-        buttonRow.addView(TextView(this@MainActivity).apply {
-            text = continueLabel
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(13), dp(16), dp(13))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
-            setOnClickListener {
-                resumeInterviewRoomSpeech()
-                dismissResultOverlay()
-                advanceAfterAnswerReview()
-            }
-        })
-
-        actionsColumn.addView(buttonRow)
-        card.addView(actionsColumn)
-        overlay.addView(card)
-        dismissResultOverlay()
-        resultOverlay = overlay
-        if (::root.isInitialized) {
-            root.addView(overlay, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ))
-        } else {
-            setScreen(overlay)
+    private fun showModelAnswerTeaching(
+        result: AnswerResult,
+        onContinue: () -> Unit,
+    ) {
+        currentAnswerResult = result
+        answerReviewVisibleState.value = true
+        openModelAnswerOverlay(result)
+        if (!isInterviewRoomVisible()) {
+            showInterview(answering = false)
         }
     }
 
@@ -4624,250 +4038,6 @@ class MainActivity : ComponentActivity() {
             scope.launch { prepareCurrentQuestionSpeech() }
             showInterview(answering = false, forceRebuild = true)
         }
-    }
-
-    private fun showModelAnswerTeaching(
-        result: AnswerResult,
-        onContinue: () -> Unit,
-    ) {
-        dismissTeachingOverlay()
-        val modelAnswer = result.improvedAnswer.trim()
-        val scoredWell = result.score >= 70
-        val overlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(120, 0, 0, 0))
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-        }
-
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(18, 18, 29), radius = 24, strokeColor = Color.argb(76, 108, 99, 255))
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { gravity = Gravity.BOTTOM }
-        }
-
-        panel.addView(TextView(this@MainActivity).apply {
-            text = "← Back to result"
-            textSize = 13f
-            setTextColor(muted)
-            typeface = interBold
-            setPadding(0, 0, 0, dp(10))
-            setOnClickListener { dismissTeachingOverlay() }
-        })
-
-        val titleText = if (scoredWell) "Great answer!" else "Listen to a stronger answer"
-        val subtitleText = if (scoredWell) {
-            "You answered this question well. Here's how a perfect answer sounds."
-        } else {
-            "Your interviewer will speak the model answer now."
-        }
-
-        panel.addView(TextView(this@MainActivity).apply {
-            text = titleText
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(6))
-        })
-        panel.addView(TextView(this@MainActivity).apply {
-            text = subtitleText
-            textSize = 13f
-            setTextColor(muted)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(14))
-        })
-
-        if (modelAnswer.isNotBlank()) {
-            panel.addView(TextView(this@MainActivity).apply {
-                text = "MODEL ANSWER"
-                textSize = 10f
-                setTextColor(Color.rgb(255, 209, 102))
-                typeface = interBold
-                setPadding(0, 0, 0, dp(6))
-            })
-            val scroll = ScrollView(this@MainActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { setMargins(0, 0, 0, dp(12)) }
-                isNestedScrollingEnabled = true
-            }
-            scroll.addView(TextView(this@MainActivity).apply {
-                text = modelAnswer
-                textSize = 14f
-                setTextColor(Color.rgb(126, 231, 196))
-                setLineSpacing(0f, 1.5f)
-                typeface = interRegular
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                background = rounded(Color.argb(18, 0, 214, 143), radius = 14, strokeColor = Color.argb(40, 0, 214, 143))
-            })
-            panel.addView(scroll)
-
-            panel.addView(TextView(this@MainActivity).apply {
-                text = "Play again"
-                textSize = 12f
-                setTextColor(Color.WHITE)
-                typeface = interBold
-                gravity = Gravity.CENTER
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                background = rounded(accent, radius = 18, strokeColor = accent)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    setMargins(0, 0, 0, dp(12))
-                }
-                setOnClickListener { playCoachingAudio(modelAnswer) }
-            })
-        }
-
-        val teachButtonRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-
-        teachButtonRow.addView(TextView(this@MainActivity).apply {
-            text = "Try again"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(13), dp(16), dp(13))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                setMargins(0, 0, dp(10), 0)
-            }
-            setOnClickListener {
-                resumeInterviewRoomSpeech()
-                dismissResultOverlay()
-                showInterview(false)
-            }
-        })
-
-        val nextStep = appState.currentQuestionIndex + 1
-        val totalQs = appState.questions().size
-        val isLastQuestion = nextStep >= totalQs
-        val continueLabel = if (isLastQuestion) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
-
-        teachButtonRow.addView(TextView(this@MainActivity).apply {
-            text = continueLabel
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(13), dp(16), dp(13))
-            background = rounded(Color.argb(25, 255, 255, 255), radius = 22, strokeColor = Color.argb(18, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f)
-            setOnClickListener {
-                resumeInterviewRoomSpeech()
-                dismissResultOverlay()
-                onContinue()
-            }
-        })
-
-        panel.addView(teachButtonRow)
-
-        overlay.addView(panel)
-        teachingOverlay = overlay
-        if (::root.isInitialized) {
-            root.addView(
-                overlay,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            if (modelAnswer.isNotBlank()) {
-                scope.launch {
-                    delay(400)
-                    playCoachingAudio(modelAnswer)
-                }
-            }
-        } else {
-            setScreen(overlay)
-        }
-    }
-
-    private fun enhancedPresenceSummary(result: AnswerResult) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(10), dp(12), dp(10), dp(12))
-        background = rounded(Color.argb(15, 255, 255, 255), radius = 18, strokeColor = Color.argb(25, 255, 255, 255))
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            setMargins(0, 0, 0, dp(12))
-        }
-        
-        val pm = result.presenceMetrics
-        addView(TextView(this@MainActivity).apply {
-            text = "CAMERA PRESENCE"
-            textSize = 11f
-            setTextColor(accent)
-            typeface = interBold
-            letterSpacing = 0.09f
-            setPadding(0, 0, 0, if (pm == null || pm.faceVisibility == 0) dp(7) else dp(10))
-        })
-        
-        if (pm == null || pm.faceVisibility == 0) {
-            addView(TextView(this@MainActivity).apply {
-                text = "Not enough camera signal was captured for this answer. Keep your face in frame after tapping Answer Now."
-                textSize = 12f
-                setTextColor(Color.rgb(255, 71, 87))
-                setLineSpacing(0f, 1.35f)
-            })
-        } else {
-            val grid = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                weightSum = 5f
-                setPadding(0, 0, 0, dp(8))
-            }
-            grid.addView(enhancedMetricPill("Face", pm.faceVisibility))
-            grid.addView(enhancedMetricPill("Eyes", pm.eyeContact))
-            grid.addView(enhancedMetricPill("Head", pm.headStability))
-            grid.addView(enhancedMetricPill("Posture", pm.posture))
-            grid.addView(enhancedMetricPill("Energy", pm.expressionEnergy))
-            addView(grid)
-            
-            addView(TextView(this@MainActivity).apply {
-                text = "Reviewed during your response on this device."
-                textSize = 10f
-                setTextColor(muted)
-            })
-        }
-    }
-    
-    private fun enhancedMetricPill(label: String, value: Int) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        setPadding(dp(3), dp(5), dp(3), dp(5))
-        background = rounded(Color.argb(15, 255, 255, 255), radius = 10, strokeColor = Color.argb(15, 255, 255, 255))
-        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(dp(1), 0, dp(1), 0)
-        }
-        
-        val scoreColor = when {
-            value >= 75 -> Color.rgb(0, 214, 143)
-            value >= 50 -> Color.rgb(255, 179, 71)
-            else -> Color.rgb(255, 71, 87)
-        }
-        
-        addView(TextView(this@MainActivity).apply {
-            this.text = label.uppercase(Locale.US)
-            textSize = 9f
-            setTextColor(muted)
-            typeface = interBold
-            gravity = Gravity.CENTER
-        })
-        addView(TextView(this@MainActivity).apply {
-            text = if (value > 0) value.toString() else "--"
-            textSize = 14f
-            setTextColor(scoreColor)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(0, dp(2), 0, 0)
-        })
     }
 
     private fun summarizePresenceSamples(samples: List<NativePresenceCameraView.Metrics>): PresenceMetrics? {
@@ -4987,10 +4157,30 @@ class MainActivity : ComponentActivity() {
         setPadding(dp(22), dp(20), dp(22), dp(20))
         background = rounded(Color.rgb(8, 47, 45))
         layoutParams = blockParams()
-        addView(label("ANSWER COACHING"))
-        addView(metricText("WHAT", result.what))
-        addView(metricText("HOW", result.how))
-        addView(metricText("WHY", result.why))
+        addView(label("STAR COACHING"))
+        addView(metricText("SITUATION & TASK", result.what))
+        addView(metricText("ACTION", result.how))
+        addView(metricText("RESULT & WHY", result.why))
+    }
+
+    private fun openLearnMoreUrl(url: String) {
+        if (url.isBlank()) return
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            showAppToast("Could not open link.", ToastKind.WARNING)
+        }
+    }
+
+    private fun learnMoreLinkView(question: com.pollecode.prezzencekotlin.data.InterviewQuestion): TextView {
+        return TextView(this).apply {
+            text = "Learn more: ${question.resolvedLearnMoreTopic()}"
+            textSize = 13f
+            setTextColor(accent)
+            typeface = interBold
+            setPadding(0, dp(8), 0, 0)
+            setOnClickListener { openLearnMoreUrl(question.resolvedLearnMoreUrl()) }
+        }
     }
 
     private fun roleScroller() = HorizontalScrollView(this).apply {
@@ -4999,7 +4189,7 @@ class MainActivity : ComponentActivity() {
         PrezzenceDefaults.roles.forEach { role ->
             row.addView(secondaryButton(role) {
                 appState.selectedRole = role
-                showQuestions()
+                showOnboardingType()
             }.apply {
                 minWidth = dp(190)
                 if (role == appState.selectedRole) setBackgroundColor(accent)

@@ -8,6 +8,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+STAR_ANSWER_STRUCTURE = "Situation -> Task -> Action -> Result"
+
+STAR_MODEL_ANSWER_RULES = """
+STAR MODEL ANSWER RULES (mandatory):
+- Structure improved_answer using labeled lines exactly like this:
+  Situation: ...
+  Task: ...
+  Action: ...
+  Result: ...
+  Why this worked: ...
+- Write in first person as the candidate speaking naturally (45-90 seconds aloud).
+- Explain the decision context: stakes, tradeoffs, and why you chose that approach.
+- Sound like thoughtful storytelling, NOT memorized textbook bullets or keyword cramming.
+- Use one believable example with specific actions and a measurable outcome.
+- Do NOT use bracketed placeholders like [company] or [metric].
+- Do NOT start with coaching phrases like "Here is a stronger answer".
+- Keep each STAR label on its own line so the candidate can follow the reasoning.
+"""
+
+STAR_COACHING_RULES = """
+Coaching must teach STAR thinking:
+- answer_structure must be "Situation -> Task -> Action -> Result".
+- coaching_breakdown.what_to_include = what context and goal to establish (Situation + Task).
+- coaching_breakdown.how_to_structure = how to walk through Action with ownership and decision logic.
+- coaching_breakdown.why_it_works = why the Result and decision insight convince the interviewer.
+"""
+
+from services.question_resources import enrich_question
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -98,7 +127,9 @@ class GeminiService:
               "text": "question text here",
               "interviewer_name": "panel member name",
               "type": "behavioural",
-              "difficulty": "{difficulty}"
+              "difficulty": "{difficulty}",
+              "learn_more_topic": "short readable topic label",
+              "learn_more_url": "https://authoritative article or guide URL for this question topic"
             }}
           ]
         }}
@@ -109,7 +140,7 @@ class GeminiService:
         if self.groq_api_key:
             groq_questions = await self._generate_questions_with_groq(prompt)
             if groq_questions:
-                return self._sanitize_question_payload(groq_questions)
+                return self._sanitize_question_payload(groq_questions, role_title=role_title)
 
         if self.scoring_provider == "groq":
             print("[AI] Groq question generation failed; Gemini fallback is disabled while provider=groq.")
@@ -141,7 +172,7 @@ class GeminiService:
                 result = response.json()
                 import json
                 content = result["candidates"][0]["content"]["parts"][0]["text"]
-                return self._sanitize_question_payload(json.loads(content))
+                return self._sanitize_question_payload(json.loads(content), role_title=role_title)
             except Exception as e:
                 print(f"Error calling Gemini: {e}")
                 return self._fallback_questions(
@@ -177,12 +208,12 @@ class GeminiService:
                 content = response.json()["choices"][0]["message"]["content"]
                 parsed = self._parse_json_object(content)
                 if isinstance(parsed.get("questions"), list) and parsed["questions"]:
-                    return self._sanitize_question_payload(parsed)
+                    return self._sanitize_question_payload(parsed, role_title="")
         except Exception as e:
             print(f"Error calling Groq for questions: {e}")
         return None
 
-    def _sanitize_question_payload(self, payload: dict) -> dict:
+    def _sanitize_question_payload(self, payload: dict, role_title: str = "") -> dict:
         questions = payload.get("questions")
         if not isinstance(questions, list):
             return payload
@@ -199,6 +230,7 @@ class GeminiService:
                 continue
             text = str(question.get("text") or "").strip()
             question["text"] = self._strip_trailing_person_name(text, interviewer_names)
+            enrich_question(question, role_title=role_title)
         return payload
 
     def _strip_trailing_person_name(self, text: str, names: list[str]) -> str:
@@ -346,6 +378,8 @@ class GeminiService:
                 "type": question_type,
                 "difficulty": difficulty
             })
+        for question in questions:
+            enrich_question(question, role_title=role_title)
         return {"questions": questions, "source": "fallback"}
 
     def _question_mode_instruction(self, interview_type: str) -> str:
@@ -446,17 +480,10 @@ class GeminiService:
             First, precisely transcribe the audio into text.
             Then provide scores, feedback, and one sharp follow-up question that a real interviewer would ask next.
             Feedback must cite the strongest evidence and the highest-leverage improvement.
-            CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
-            Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
-            candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
-            seconds spoken aloud). Think about what a strong candidate WOULD say — use realistic, plausible
-            details: concrete metrics, specific actions, clear personal ownership, and measurable outcomes
-            that are credible for this role and industry. Do NOT reference the candidate's transcript. Do NOT
-            use bracketed placeholders like [specific project] — invent plausible, realistic specifics instead.
-            The improved_answer must directly answer the question in full as a complete spoken response.
-            Do not write "A stronger answer would..." or any coaching language inside improved_answer.
-            Also teach the candidate how to improve: explain what information to include, how to structure it,
-            and why that structure makes the answer stronger.
+            CRITICAL — improved_answer must be a STAR model answer, not a rewrite of what the candidate said:
+            {STAR_MODEL_ANSWER_RULES}
+            {STAR_COACHING_RULES}
+            Also teach the candidate how to improve using STAR framing in coaching_breakdown.
 
             Return ONLY a JSON object exactly matching this schema:
             {{
@@ -471,7 +498,7 @@ class GeminiService:
               "follow_up": "One sharp follow-up question the interviewer would ask next.",
               "tips": ["Use more specific numbers", "Slow down your delivery"],
               "improved_answer": "A complete first-person 45-75 second answer that directly answers the question.",
-              "answer_structure": "Situation -> Action -> Result",
+              "answer_structure": "Situation -> Task -> Action -> Result",
               "missing_evidence": ["Metric or outcome", "Specific personal action"],
               "stronger_phrasing": ["Replace vague phrase with stronger wording"],
               "coaching_breakdown": {{
@@ -511,17 +538,10 @@ class GeminiService:
             DEFAULT assumption: start at 55 and move up ONLY when the answer proves it
             deserves a higher score with specific evidence. Be skeptical, not generous.
 
-            CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
-            Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
-            candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
-            seconds spoken aloud). Think about what a strong candidate WOULD say — use realistic, plausible
-            details: concrete metrics, specific actions, clear personal ownership, and measurable outcomes
-            that are credible for this role and industry. Do NOT reference or reuse the candidate's transcript.
-            Do NOT use bracketed placeholders like [specific project] — invent plausible, realistic specifics
-            instead. The improved_answer must directly answer the question in full as a complete spoken response.
-            Do not write "A stronger answer would..." or any coaching language inside improved_answer.
-            Also teach the candidate how to improve: explain what information to include, how to structure it,
-            and why that structure makes the answer stronger.
+            CRITICAL — improved_answer must be a STAR model answer, not a rewrite of what the candidate said:
+            {STAR_MODEL_ANSWER_RULES}
+            {STAR_COACHING_RULES}
+            Also teach the candidate how to improve using STAR framing in coaching_breakdown.
 
             Return ONLY a JSON object exactly matching this schema:
             {{
@@ -536,7 +556,7 @@ class GeminiService:
               "follow_up": "One sharp follow-up question the interviewer would ask next.",
               "tips": ["Use more specific numbers", "Slow down your delivery"],
               "improved_answer": "A complete first-person 45-75 second answer that directly answers the question.",
-              "answer_structure": "Situation -> Action -> Result",
+              "answer_structure": "Situation -> Task -> Action -> Result",
               "missing_evidence": ["Metric or outcome", "Specific personal action"],
               "stronger_phrasing": ["Replace vague phrase with stronger wording"],
               "coaching_breakdown": {{
@@ -681,17 +701,10 @@ class GeminiService:
             - If the candidate says they do not know, cannot answer, or gives up, score 0-14.
             - Do not give 40+ merely because the audio was clear. Score content quality, not just delivery.
 
-            CRITICAL — improved_answer must be a MODEL ANSWER, not a rewrite of what the candidate said:
-            Put yourself in the candidate's shoes. Answer this interview question as if YOU are a top-tier
-            candidate being interviewed for this role. Craft a robust, specific, first-person answer (45-75
-            seconds spoken aloud). Think about what a strong candidate WOULD say — use realistic, plausible
-            details: concrete metrics, specific actions, clear personal ownership, and measurable outcomes
-            that are credible for this role and industry. Do NOT reference or reuse the candidate's transcript.
-            Do NOT use bracketed placeholders like [specific project] — invent plausible, realistic specifics
-            instead. The improved_answer must directly answer the question in full as a complete spoken response.
-            Do not write "A stronger answer would..." or any coaching language inside improved_answer.
-            Also teach the candidate how to improve: explain what information to include, how to structure it,
-            and why that structure makes the answer stronger.
+            CRITICAL — improved_answer must be a STAR model answer, not a rewrite of what the candidate said:
+            {STAR_MODEL_ANSWER_RULES}
+            {STAR_COACHING_RULES}
+            Also teach the candidate how to improve using STAR framing in coaching_breakdown.
 
             Return ONLY JSON with this exact shape:
             {{
@@ -706,7 +719,7 @@ class GeminiService:
               "follow_up": "One sharp follow-up question the interviewer would ask next.",
               "tips": ["Use more specific numbers", "Slow down your delivery"],
               "improved_answer": "A complete first-person 45-75 second answer that directly answers the question.",
-              "answer_structure": "Situation -> Action -> Result",
+              "answer_structure": "Situation -> Task -> Action -> Result",
               "missing_evidence": ["Metric or outcome", "Specific personal action"],
               "stronger_phrasing": ["Replace vague phrase with stronger wording"],
               "coaching_breakdown": {{
@@ -849,7 +862,7 @@ class GeminiService:
     def _ensure_answer_coaching(self, analysis: dict, question_text: str, role_title: str = ""):
         transcript = (analysis.get("transcript") or "").strip()
         if not analysis.get("answer_structure"):
-            analysis["answer_structure"] = "Situation -> Action -> Result"
+            analysis["answer_structure"] = STAR_ANSWER_STRUCTURE
         if not analysis.get("missing_evidence"):
             analysis["missing_evidence"] = [
                 "Specific situation or context",
@@ -977,12 +990,7 @@ class GeminiService:
 
         prompt += (
             "\nRULES:\n"
-            "- Write in first person as if YOU are the candidate.\n"
-            "- Keep it under 120 words.\n"
-            "- Use one concrete, believable example with a specific situation, action, and result.\n"
-            "- Do NOT use bracketed placeholders like [company] or [metric].\n"
-            "- Do NOT start with 'Here is a stronger answer' or any instructional text.\n"
-            "- Just output the model answer directly, nothing else.\n"
+            f"{STAR_MODEL_ANSWER_RULES}\n"
             "- Vary the example between questions — don't repeat the same story.\n"
         )
 
@@ -1013,7 +1021,7 @@ class GeminiService:
                 json={
                     "model": self.groq_model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
+                    "max_tokens": 420,
                     "temperature": 0.8,
                 },
                 timeout=15,
@@ -1104,9 +1112,18 @@ class GeminiService:
         missing_text = ", ".join(missing[:3]) if missing else "a concrete example, your action, and the measurable result"
         question = (question_text or "the question").strip()
         return {
-            "what_to_include": f"Include {missing_text}. Tie every point back to the exact question instead of giving a general explanation.",
-            "how_to_structure": "Use a simple flow: direct answer first, then situation, your action, tradeoff or decision, and measurable result.",
-            "why_it_works": f"This helps the interviewer see proof, ownership, and judgment for: {question}",
+            "what_to_include": (
+                f"Set the Situation and Task clearly: what was happening, what success looked like, "
+                f"and what decision you owned for: {question}"
+            ),
+            "how_to_structure": (
+                "Use STAR in order — Situation, Task, Action, Result. In Action, explain what you did "
+                "and why you chose that approach over alternatives."
+            ),
+            "why_it_works": (
+                "Interviewers trust answers that show judgment and context, not memorized buzzwords. "
+                "Ending with a measurable Result plus why the approach made sense proves readiness."
+            ),
         }
 
     def _classify_answer_quality(self, question_text: str, transcript: str, audio_duration_seconds: int | None = None, role_title: str = ""):
@@ -1216,7 +1233,7 @@ class GeminiService:
             "follow_up": "Can you give a specific example that directly answers the question?",
             "tips": ["Answer the exact question", "Use a real example", "Include a measurable result"],
             "improved_answer": self._build_model_answer(question_text, "", role_title=role_title),
-            "answer_structure": "Situation -> Action -> Result",
+            "answer_structure": STAR_ANSWER_STRUCTURE,
             "missing_evidence": ["Specific example", "Personal action", "Measurable result"],
             "stronger_phrasing": ["I owned...", "The measurable result was..."],
             "coaching_breakdown": self._build_coaching_breakdown(question_text, "", ["Specific example", "Personal action", "Measurable result"]),
@@ -1302,7 +1319,7 @@ class GeminiService:
             "follow_up": "Can you share a specific example from your experience?",
             "tips": ["Include a concrete example", "Mention a measurable result", "Structure as situation, action, result"],
             "improved_answer": model_answer,
-            "answer_structure": "Situation -> Action -> Result",
+            "answer_structure": STAR_ANSWER_STRUCTURE,
             "missing_evidence": [],
             "stronger_phrasing": [],
             "coaching_breakdown": {
@@ -1340,7 +1357,7 @@ class GeminiService:
             "follow_up": "Please answer again with the phone close to your mouth.",
             "tips": ["Move closer to the microphone", "Speak clearly", "Retry when the connection is stable"],
             "improved_answer": "",
-            "answer_structure": "Situation -> Action -> Result",
+            "answer_structure": STAR_ANSWER_STRUCTURE,
             "missing_evidence": ["Usable transcript and scoring response"],
             "stronger_phrasing": [],
             "coaching_breakdown": [],

@@ -32,6 +32,14 @@ class EntitlementSyncRequest(BaseModel):
     order_id: str | None = None
 
 
+class NotificationPreferencesRequest(BaseModel):
+    push_notifications_enabled: bool = True
+    email_summaries_enabled: bool = False
+    practice_reminders_enabled: bool = True
+    achievement_alerts_enabled: bool = True
+    product_updates_enabled: bool = True
+
+
 def _localized_coaching_tip(language: str, strongest: str, strongest_score: int, weakest: str, weakest_score: int) -> str:
     weakest_l = weakest.lower()
     strongest_l = strongest.lower()
@@ -360,6 +368,32 @@ async def save_resume_text(request: ResumeTextRequest, user: dict = Depends(get_
 async def delete_resume_profile(user: dict = Depends(get_current_user)):
     await neon_db.delete_resume_profile(str(user["id"]))
     return {"status": "deleted"}
+
+
+@router.get("/me/notification-preferences")
+async def get_notification_preferences(user: dict = Depends(get_current_user)):
+    try:
+        prefs = await neon_db.get_notification_preferences(str(user["id"]))
+        return {"preferences": prefs}
+    except Exception as exc:
+        print(f"[Notifications] Preference fetch failed: {exc}")
+        raise HTTPException(status_code=500, detail="Unable to load notification preferences")
+
+
+@router.put("/me/notification-preferences")
+async def update_notification_preferences(
+    payload: NotificationPreferencesRequest,
+    user: dict = Depends(get_current_user),
+):
+    try:
+        saved = await neon_db.upsert_notification_preferences(
+            str(user["id"]),
+            payload.model_dump(),
+        )
+        return {"preferences": saved}
+    except Exception as exc:
+        print(f"[Notifications] Preference update failed: {exc}")
+        raise HTTPException(status_code=500, detail="Unable to save notification preferences")
 
 
 @router.get("/me/notifications")

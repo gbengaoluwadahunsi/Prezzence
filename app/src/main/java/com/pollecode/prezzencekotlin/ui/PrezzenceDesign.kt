@@ -102,6 +102,7 @@ fun PrezzenceNavButton(
             .size(44.dp)
             .clip(CircleShape)
             .background(PrezzenceColors.Card.copy(alpha = 0.72f))
+            .a11yIconButton(if (icon == PrezzenceNavIcon.Close) "Close" else "Back")
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

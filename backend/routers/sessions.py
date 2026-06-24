@@ -347,7 +347,7 @@ async def coaching_model_answer(
     return {
         "improved_answer": improved_answer,
         "coaching_breakdown": breakdown,
-        "coaching_message": "Here is a stronger first-person answer you can adapt to your own experience.",
+        "coaching_message": "Here is a STAR model answer you can adapt — focus on context, your decision, and the result.",
     }
 
 
