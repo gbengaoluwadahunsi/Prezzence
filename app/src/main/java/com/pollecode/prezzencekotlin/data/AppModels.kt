@@ -31,7 +31,9 @@ data class InterviewQuestion(
     val learnMoreUrl: String = "",
 ) {
     fun resolvedLearnMoreTopic(): String =
-        learnMoreTopic.ifBlank { text.take(72).trim().ifBlank { "Interview question prep" } }
+        learnMoreTopic.ifBlank {
+            role.trim().ifBlank { type.trim() }.ifBlank { "Interview question prep" }
+        }
 
     fun resolvedLearnMoreUrl(): String {
         if (learnMoreUrl.isNotBlank()) return learnMoreUrl

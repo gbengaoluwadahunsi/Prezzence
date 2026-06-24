@@ -3214,6 +3214,8 @@ class MainActivity : ComponentActivity() {
             val answerReviewVisible by answerReviewVisibleState
             val modelAnswerVisible by modelAnswerVisibleState
             val interviewPaused by interviewPausedState
+            val avatarReady by avatarReadyState
+            val interviewerSpeaking by interviewerSpeakingState
             val currentQuestion = appState.currentQuestion()
             val currentInterviewer = appState.interviewerFor(currentQuestion)
             val reviewResult = currentAnswerResult
@@ -3266,8 +3268,8 @@ class MainActivity : ComponentActivity() {
                     onAnswerNow = { ensurePermissionsThenAnswer() },
                     onFinish = { finishAnswer(currentQuestion.text) },
                     coachingMessage = coachingMessage,
-                    avatarReady = avatarReadyState.value,
-                    interviewerSpeaking = interviewerSpeakingState.value,
+                    avatarReady = avatarReady,
+                    interviewerSpeaking = interviewerSpeaking,
                     cameraStatus = cameraStatusState.value,
                     faceVisibility = faceVisibilityState.value,
                     eyeContact = eyeContactState.value,

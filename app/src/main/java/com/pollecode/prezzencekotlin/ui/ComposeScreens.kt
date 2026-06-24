@@ -3052,8 +3052,6 @@ fun PrezzenceInterviewRoomScreen(
             val panelMode = isPanel && panelInterviewers.size > 1
             val stageMinHeight = if (compactHeight) 270.dp else 320.dp
             val stageMaxHeight = if (compactHeight) 392.dp else 520.dp
-            // Use aspect ratio instead of fixed height for consistency with entering room
-            val avatarTopCrop = if (compactHeight) 48.dp else 56.dp
             val interviewerChipBottom = if (compactHeight) 10.dp else 14.dp
 
             Box(
@@ -3063,33 +3061,38 @@ fun PrezzenceInterviewRoomScreen(
             )
             Column(Modifier.fillMaxSize()) {
                 InterviewHeader(currentStep, totalSteps, onExit)
-                Column(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                         .padding(horizontal = pageHorizontalPadding, vertical = if (compactHeight) 6.dp else 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(contentGap),
                 ) {
-                    BoxWithConstraints(
-                        Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (answering && !processing) {
-                                    Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
-                                } else {
-                                    // Processing or listening: 5:4 aspect ratio
-                                    Modifier.aspectRatio(4f / 5f)
-                                }
-                            )
-                            .clip(RoundedCornerShape(stageRadius))
-                            .background(Color(0xFF050509))
-                            .border(1.dp, Accent.copy(alpha = when {
-                                processing -> 0.55f
-                                answering && cameraCoachEnabled -> 0.72f
-                                else -> 0.28f
-                            }), RoundedCornerShape(stageRadius)),
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(contentGap),
                     ) {
+                        BoxWithConstraints(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (answering && !processing) {
+                                        Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
+                                    } else {
+                                        Modifier
+                                            .weight(1f, fill = true)
+                                            .fillMaxWidth()
+                                            .heightIn(min = stageMinHeight, max = stageMaxHeight)
+                                    },
+                                )
+                                .clip(RoundedCornerShape(stageRadius))
+                                .background(Color(0xFF050509))
+                                .border(1.dp, Accent.copy(alpha = when {
+                                    processing -> 0.55f
+                                    answering && cameraCoachEnabled -> 0.72f
+                                    else -> 0.28f
+                                }), RoundedCornerShape(stageRadius)),
+                        ) {
                         if (processing) {
                             // Processing/transcribing state - waveform + progress bar
                             Box(
@@ -3212,62 +3215,48 @@ fun PrezzenceInterviewRoomScreen(
                             // Show avatar (whether answering or listening)
                             AndroidView(
                                 factory = { createAvatarView() },
-                                modifier = if (answering) {
-                                    Modifier.fillMaxSize()
-                                } else {
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(maxHeight + avatarTopCrop)
-                                        .offset(y = -avatarTopCrop)
-                                },
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                     }
 
-                    if (panelMode && !answering) {
-                        InterviewSupportingPanelRow(panelInterviewers, interviewerName, compact = compactWidth || compactHeight)
+                        if (panelMode && !answering) {
+                            InterviewSupportingPanelRow(panelInterviewers, interviewerName, compact = compactWidth || compactHeight)
+                        }
+
+                        StatusStrip(
+                            when {
+                                processing -> "PROCESSING"
+                                answering -> "YOU ARE SPEAKING"
+                                !avatarReady -> "SETTING UP INTERVIEWER"
+                                interviewerSpeaking -> "INTERVIEWER SPEAKING"
+                                else -> "READY FOR YOUR ANSWER"
+                            },
+                        )
                     }
+                }
 
-                    StatusStrip(
-                        when {
-                            processing -> "PROCESSING"
-                            answering -> "YOU ARE SPEAKING"
-                            else -> "INTERVIEWER SPEAKING"
+                if (!answering && !processing && avatarReady) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = pageHorizontalPadding)
+                            .padding(bottom = if (compactHeight) 12.dp else 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 9.dp else 12.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InterviewSmallButton("Pause", "pause", Modifier.weight(1f), onPause, compact = compactWidth, enabled = avatarReady)
+                            InterviewSmallButton("Repeat", "repeat", Modifier.weight(1f), onRepeat, compact = compactWidth, enabled = avatarReady)
+                            InterviewSmallButton("Clarify", "clarify", Modifier.weight(1f), onClarify, compact = compactWidth, enabled = avatarReady)
                         }
-                    )
-
-                    if (!answering) {
-                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactHeight) 9.dp else 12.dp)) {
-                            if (questionText.isNotBlank()) {
-                                Column(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(Color.White.copy(alpha = 0.05f))
-                                        .border(1.dp, Accent.copy(alpha = 0.22f), RoundedCornerShape(18.dp))
-                                        .padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Text("CURRENT QUESTION", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                                    Text(questionText, color = TextPrimary, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        "Learn more: ${learnMoreTopic.ifBlank { "this topic" }}",
-                                        color = Accent,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.clickable(onClick = onLearnMore),
-                                    )
-                                }
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                InterviewSmallButton("Pause", "pause", Modifier.weight(1f), onPause, compact = compactWidth)
-                                InterviewSmallButton("Repeat", "repeat", Modifier.weight(1f), onRepeat, compact = compactWidth)
-                                InterviewSmallButton("Clarify", "clarify", Modifier.weight(1f), onClarify, compact = compactWidth)
-                            }
-                            InterviewPrimaryButton("Answer Now", "mic", onAnswerNow, Modifier.fillMaxWidth(), compact = compactWidth || compactHeight, enabled = avatarReady && !interviewerSpeaking)
-
-                            Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
-                        }
+                        InterviewPrimaryButton(
+                            "Answer Now",
+                            "mic",
+                            onAnswerNow,
+                            Modifier.fillMaxWidth(),
+                            compact = compactWidth || compactHeight,
+                            enabled = avatarReady && !interviewerSpeaking,
+                        )
                     }
                 }
 
@@ -3821,15 +3810,16 @@ private fun InterviewSupportingPanelRow(interviewers: List<Pair<String, String>>
 }
 
 @Composable
-private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier = Modifier, onClick: () -> Unit, height: Int = 42, compact: Boolean = false) {
+private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier = Modifier, onClick: () -> Unit, height: Int = 42, compact: Boolean = false, enabled: Boolean = true) {
+    val alpha = if (enabled) 1f else 0.45f
     Row(
         modifier
             .height(height.dp)
             .clip(RoundedCornerShape((height / 2).dp))
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape((height / 2).dp))
+            .background(Color.White.copy(alpha = 0.08f * alpha))
+            .border(1.dp, Color.White.copy(alpha = 0.12f * alpha), RoundedCornerShape((height / 2).dp))
             .a11yIconButton(label)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = if (compact) 10.dp else 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -3862,7 +3852,7 @@ private fun InterviewSmallButton(label: String, icon: String, modifier: Modifier
         Spacer(Modifier.width(if (compact) 5.dp else 7.dp))
         Text(
             label,
-            color = TextPrimary,
+            color = TextPrimary.copy(alpha = alpha),
             fontSize = if (compact) 11.sp else 12.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
