@@ -298,7 +298,6 @@ fun PrezzencePaywallScreen(
         "All 3 AI interviewers" to "Maya, Jonas & Sophia",
         "AI-powered scoring" to "Deep coaching with improved answers",
         "Panel mode" to "Multiple interviewers at once",
-        "Camera presence coach" to "Real-time face, eyes & posture scoring",
         "Full session reports" to "Radar charts & PDF export",
         "Company web research" to "Tailored questions for your target role",
     )
@@ -426,8 +425,10 @@ fun PrezzenceCoachingFeedbackScreen(
                 Text("Feedback", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
                 Text(answer.feedback, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp))
                 Spacer(Modifier.height(12.dp))
-                Text("Improved answer", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
-                Text(answer.improvedAnswer, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
+                if (answer.improvedAnswer.isNotBlank()) {
+                    Text("Model answer", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
+                    Text(answer.improvedAnswer, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
+                }
                 listOf("What" to answer.what, "How" to answer.how, "Why" to answer.why).forEach { (label, value) ->
                     Text("$label: $value", color = PrezzenceColors.TextPrimary, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
                 }

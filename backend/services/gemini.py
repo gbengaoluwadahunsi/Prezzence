@@ -992,6 +992,9 @@ class GeminiService:
             "\nRULES:\n"
             f"{STAR_MODEL_ANSWER_RULES}\n"
             "- Vary the example between questions — don't repeat the same story.\n"
+            "- Write 150-250 words. Be detailed: include names, numbers, timelines, and specific actions.\n"
+            "- Each STAR section should be 2-3 sentences minimum.\n"
+            "- Start directly with 'Situation:' — no preamble.\n"
         )
 
         try:
@@ -1002,8 +1005,16 @@ class GeminiService:
             else:
                 return ""
 
-            if result and len(result.strip()) >= 30 and not result.strip().startswith("Here is"):
-                return result.strip()
+            if result:
+                cleaned = result.strip()
+                for prefix in ("Here is", "Here's", "Sure,", "Absolutely.", "Of course."):
+                    if cleaned.startswith(prefix):
+                        idx = cleaned.find("\n")
+                        if idx != -1:
+                            cleaned = cleaned[idx:].strip()
+                        break
+                if len(cleaned) >= 30:
+                    return cleaned
 
         except Exception as e:
             print(f"[AI ModelAnswer] Generation failed: {e}")
@@ -1021,10 +1032,10 @@ class GeminiService:
                 json={
                     "model": self.groq_model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 420,
+                    "max_tokens": 800,
                     "temperature": 0.8,
                 },
-                timeout=15,
+                timeout=20,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -1041,7 +1052,7 @@ class GeminiService:
                 headers={"Content-Type": "application/json"},
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"maxOutputTokens": 300, "temperature": 0.8},
+                    "generationConfig": {"maxOutputTokens": 800, "temperature": 0.8},
                 },
                 timeout=15,
             )

@@ -34,12 +34,22 @@ _TOPIC_LINKS: list[tuple[tuple[str, ...], str, str]] = [
         "https://www.indeed.com/career-advice/interviewing/interview-question-tell-me-about-a-time-you-made-a-mistake",
     ),
     (
-        ("customer", "client", "frustrated", "complaint"),
-        "Customer handling",
+        ("customer", "client", "frustrated", "complaint", "stakeholder"),
+        "Customer & stakeholder handling",
         "https://www.indeed.com/career-advice/interviewing/customer-service-interview-questions",
     ),
     (
-        ("technical", "debug", "system design", "architecture", "tradeoff"),
+        ("confiden", "uncertain", "unclear", "ambig", "motivat", "reassur", "morale", "calm"),
+        "Leading through uncertainty",
+        "https://www.indeed.com/career-advice/interviewing/how-to-deal-with-ambiguity",
+    ),
+    (
+        ("communicat", "explain", "present", "audience"),
+        "Communicating clearly",
+        "https://www.indeed.com/career-advice/interviewing/communication-interview-questions",
+    ),
+    (
+        ("technical", "debug", "system design", "architecture", "tradeoff", "trade-off"),
         "Technical decision-making",
         "https://www.indeed.com/career-advice/interviewing/technical-interview-questions",
     ),
@@ -47,6 +57,11 @@ _TOPIC_LINKS: list[tuple[tuple[str, ...], str, str]] = [
         ("feedback", "criticism", "coaching"),
         "Receiving feedback",
         "https://www.indeed.com/career-advice/interviewing/interview-question-tell-me-about-a-time-you-received-feedback",
+    ),
+    (
+        ("change", "adapt", "pivot", "unexpected"),
+        "Adapting to change",
+        "https://www.indeed.com/career-advice/interviewing/adaptability-interview-questions",
     ),
 ]
 

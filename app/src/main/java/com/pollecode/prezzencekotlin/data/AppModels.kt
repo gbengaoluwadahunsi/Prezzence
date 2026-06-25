@@ -31,25 +31,95 @@ data class InterviewQuestion(
     val learnMoreUrl: String = "",
 ) {
     fun resolvedLearnMoreTopic(): String =
-        learnMoreTopic.ifBlank {
-            role.trim().ifBlank { type.trim() }.ifBlank { "Interview question prep" }
-        }
+        learnMoreTopic.ifBlank { matchedResource()?.topic ?: shortQuestionTopic() }
 
     fun resolvedLearnMoreUrl(): String {
         if (learnMoreUrl.isNotBlank()) return learnMoreUrl
-        val query = java.net.URLEncoder.encode("${text.take(90)} STAR behavioral interview", Charsets.UTF_8.name())
+        matchedResource()?.let { return it.url }
+        val subject = text.trim().ifBlank { role.trim() }.ifBlank { "behavioral interview questions" }
+        val query = java.net.URLEncoder.encode(subject.take(140), Charsets.UTF_8.name())
         return "https://www.google.com/search?q=$query"
     }
-}
 
-data class PresenceMetrics(
-    val faceVisible: Boolean = false,
-    val faceVisibility: Int = 0,
-    val eyeContact: Int = 0,
-    val headStability: Int = 0,
-    val posture: Int = 0,
-    val expressionEnergy: Int = 0,
-)
+    private fun matchedResource(): LearnMoreResource? {
+        val haystack = text.lowercase(Locale.US)
+        return LEARN_MORE_RESOURCES.firstOrNull { resource ->
+            resource.keywords.any { haystack.contains(it) }
+        }
+    }
+
+    private fun shortQuestionTopic(): String {
+        val cleaned = text.trim()
+            .replace(Regex("\\s+"), " ")
+            .trim(' ', '?', '.', '!')
+        if (cleaned.isBlank()) {
+            return type.trim().replaceFirstChar { it.uppercase(Locale.US) }.ifBlank { "Interview question prep" }
+        }
+        return if (cleaned.length <= 72) cleaned else cleaned.take(69).trimEnd() + "..."
+    }
+
+    data class LearnMoreResource(val keywords: List<String>, val topic: String, val url: String)
+
+    companion object {
+        private val LEARN_MORE_RESOURCES = listOf(
+            LearnMoreResource(
+                listOf("introduce yourself", "overview of your background", "tell me about yourself"),
+                "Tell me about yourself",
+                "https://www.indeed.com/career-advice/interviewing/how-to-answer-tell-me-about-yourself",
+            ),
+            LearnMoreResource(
+                listOf("conflict", "disagreement", "difficult colleague", "pushback", "disagree"),
+                "Handling workplace conflict",
+                "https://www.indeed.com/career-advice/interviewing/interview-question-tell-me-about-a-time-you-handled-a-conflict",
+            ),
+            LearnMoreResource(
+                listOf("priorit", "urgent", "deadline", "multiple requests", "juggle", "competing"),
+                "Prioritization under pressure",
+                "https://www.indeed.com/career-advice/interviewing/interview-question-how-do-you-prioritize-your-work",
+            ),
+            LearnMoreResource(
+                listOf("lead", "managed a team", "led a team", "leadership", "delegate", "manage a team"),
+                "Leadership examples",
+                "https://www.indeed.com/career-advice/interviewing/leadership-interview-questions",
+            ),
+            LearnMoreResource(
+                listOf("mistake", "failure", "went wrong", "setback", "failed"),
+                "Learning from failure",
+                "https://www.indeed.com/career-advice/interviewing/interview-question-tell-me-about-a-time-you-made-a-mistake",
+            ),
+            LearnMoreResource(
+                listOf("customer", "client", "frustrated", "complaint", "stakeholder"),
+                "Customer & stakeholder handling",
+                "https://www.indeed.com/career-advice/interviewing/customer-service-interview-questions",
+            ),
+            LearnMoreResource(
+                listOf("confiden", "uncertain", "unclear", "ambig", "motivat", "reassur", "morale", "calm"),
+                "Leading through uncertainty",
+                "https://www.indeed.com/career-advice/interviewing/how-to-deal-with-ambiguity",
+            ),
+            LearnMoreResource(
+                listOf("communicat", "explain", "present", "audience"),
+                "Communicating clearly",
+                "https://www.indeed.com/career-advice/interviewing/communication-interview-questions",
+            ),
+            LearnMoreResource(
+                listOf("technical", "debug", "system design", "architecture", "tradeoff", "trade-off"),
+                "Technical decision-making",
+                "https://www.indeed.com/career-advice/interviewing/technical-interview-questions",
+            ),
+            LearnMoreResource(
+                listOf("feedback", "criticism", "coaching"),
+                "Receiving feedback",
+                "https://www.indeed.com/career-advice/interviewing/interview-question-tell-me-about-a-time-you-received-feedback",
+            ),
+            LearnMoreResource(
+                listOf("change", "adapt", "pivot", "unexpected"),
+                "Adapting to change",
+                "https://www.indeed.com/career-advice/interviewing/adaptability-interview-questions",
+            ),
+        )
+    }
+}
 
 data class AnswerResult(
     val transcript: String,
@@ -61,7 +131,6 @@ data class AnswerResult(
     val why: String,
     val coachingFeedback: String = "",
     val coachingMessage: String = "",
-    val presenceMetrics: PresenceMetrics? = null,
     val retryRequired: Boolean = false,
 )
 

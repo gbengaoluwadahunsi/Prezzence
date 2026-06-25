@@ -238,13 +238,11 @@ data class SettingsNavItem(
 
 @Composable
 fun PrezzenceSettingsScreen(
-    cameraCoachEnabled: Boolean,
     language: String,
     subscriptionActive: Boolean,
     userEmail: String,
     showDeviceQa: Boolean = false,
     onBack: () -> Unit,
-    onToggleCameraCoach: () -> Unit,
     onInterviewerSetup: () -> Unit,
     onLanguage: () -> Unit,
     onAccount: () -> Unit,
@@ -268,12 +266,6 @@ fun PrezzenceSettingsScreen(
         ) {
             SettingsSectionLabel("INTERVIEW SETUP")
             SettingsGroupCard {
-                SettingsNavRow(
-                    "Camera presence coach",
-                    if (cameraCoachEnabled) "On · Uses your camera during answers only" else "Off. Turn on for face, eyes, posture feedback",
-                    onToggleCameraCoach,
-                )
-                SettingsDivider()
                 SettingsNavRow("Start new practice", "Choose a track, role, and interviewer style", onInterviewerSetup)
                 SettingsDivider()
                 SettingsNavRow("App language", "Current: ${language.uppercase()}", onLanguage)
@@ -481,7 +473,7 @@ fun PrezzenceHelpScreen(
         "How do I start practicing?" to "Tap Practice tracks on Home or open the Practice tab, pick a track, then follow role and interviewer setup.",
         "Which interviewers are included?" to "Prezzence includes Maya (peer reviewer), Jonas (hiring manager), and Sophia (domain expert). Pro unlocks all three plus panel mode.",
         "Why is my score low or missing?" to "Scores need a clear spoken answer. Silence, mic checks, and very short replies are not scored.",
-        "How do subscriptions work?" to "Free includes limited sessions with Sophia. Pro unlocks unlimited practice, all interviewers, panel mode, PDF export, and presence coaching.",
+        "How do subscriptions work?" to "Free includes limited sessions with Sophia. Pro unlocks unlimited practice, all interviewers, panel mode, and PDF export.",
         "How do I delete my data?" to "Open Settings → Privacy and deletion to export your history or delete your account.",
     )
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(background = PrezzenceColors.Background)) {

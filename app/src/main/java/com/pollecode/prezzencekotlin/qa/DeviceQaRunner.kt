@@ -6,16 +6,13 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.pollecode.prezzencekotlin.BuildConfig
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
 import kotlin.math.max
 
 class DeviceQaRunner(
@@ -31,7 +28,6 @@ class DeviceQaRunner(
         val results = mutableListOf<DeviceQaResult>()
         results += microphoneCheck(onStatus)
         results += backendTranscriptionCheck(onStatus)
-        results += cameraProviderCheck(onStatus)
         results += duixEndpointCheck(onStatus)
         return results
     }
@@ -78,25 +74,6 @@ class DeviceQaRunner(
         }
     }
 
-    private suspend fun cameraProviderCheck(onStatus: suspend (String) -> Unit): DeviceQaResult {
-        onStatus("Checking camera coach")
-        if (!hasPermission(Manifest.permission.CAMERA)) {
-            return DeviceQaResult("Camera coach", false, "Camera permission is not granted.")
-        }
-        return suspendCancellableCoroutine { cont ->
-            val future = ProcessCameraProvider.getInstance(context)
-            future.addListener({
-                val result = runCatching {
-                    val provider = future.get()
-                    provider.unbindAll()
-                    DeviceQaResult("Camera coach", true, "CameraX provider opened successfully.")
-                }.getOrElse { error ->
-                    DeviceQaResult("Camera coach", false, error.message ?: "CameraX provider failed.")
-                }
-                cont.resume(result)
-            }, ContextCompat.getMainExecutor(context))
-        }
-    }
 
     private suspend fun duixEndpointCheck(onStatus: suspend (String) -> Unit): DeviceQaResult = withContext(Dispatchers.IO) {
         onStatus("Checking Duix model endpoint")

@@ -87,8 +87,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import com.pollecode.prezzencekotlin.R
-import com.pollecode.prezzencekotlin.data.PresenceMetrics
-
 private val Bg = Color(0xFF0A0A0F)
 private val Surface = Color(0xFF12121A)
 private val Card = Color(0xFF1C1C2E)
@@ -3021,11 +3019,9 @@ fun PrezzenceInterviewRoomScreen(
     processingProgress: Int = 0,
     transcript: String,
     error: String,
-    cameraCoachEnabled: Boolean,
     recordingDuration: Int = 0,
     isRecording: Boolean = false,
     createAvatarView: () -> View,
-    createCameraView: () -> View,
     onExit: () -> Unit,
     onPause: () -> Unit,
     onRepeat: () -> Unit,
@@ -3035,12 +3031,6 @@ fun PrezzenceInterviewRoomScreen(
     coachingMessage: String = "",
     avatarReady: Boolean = false,
     interviewerSpeaking: Boolean = false,
-    cameraStatus: String = "Starting camera. Position your face in frame",
-    faceVisibility: Int? = null,
-    eyeContact: Int? = null,
-    headStability: Int? = null,
-    posture: Int? = null,
-    expressionEnergy: Int? = null,
 ) {
     PrezzenceTheme {
         BoxWithConstraints(Modifier.fillMaxSize().background(Bg)) {
@@ -3076,10 +3066,10 @@ fun PrezzenceInterviewRoomScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .then(
-                                    if (answering && !processing) {
-                                        Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
-                                    } else {
-                                        Modifier
+                                    when {
+                                        processing -> Modifier.height(if (compactHeight) 240.dp else 280.dp)
+                                        answering -> Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
+                                        else -> Modifier
                                             .weight(1f, fill = true)
                                             .fillMaxWidth()
                                             .heightIn(min = stageMinHeight, max = stageMaxHeight)
@@ -3089,7 +3079,7 @@ fun PrezzenceInterviewRoomScreen(
                                 .background(Color(0xFF050509))
                                 .border(1.dp, Accent.copy(alpha = when {
                                     processing -> 0.55f
-                                    answering && cameraCoachEnabled -> 0.72f
+                                    answering -> 0.72f
                                     else -> 0.28f
                                 }), RoundedCornerShape(stageRadius)),
                         ) {
@@ -3161,62 +3151,15 @@ fun PrezzenceInterviewRoomScreen(
                                     )
                                 }
                             }
-                        } else if (answering && cameraCoachEnabled) {
-                            // Show camera coach for presence feedback
-                            AndroidView(
-                                factory = { createCameraView() },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            // Subtle gradient overlay for depth
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color.Black.copy(alpha = 0.60f),
-                                                Color.Transparent,
-                                                Color.Transparent,
-                                                Color.Black.copy(alpha = 0.75f),
-                                            ),
-                                        ),
-                                    ),
-                            )
-                            InterviewTopGlassLabel("Camera Presence Coach", cameraStatus)
-                            // Presence metrics row and interviewer chip in a single bottom container
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(start = 2.dp, end = 2.dp, bottom = 6.dp),
-                            ) {
-                                // Presence metrics bar
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    PresenceMetricPill("Face", faceVisibility, Modifier.weight(1f))
-                                    PresenceMetricPill("Eyes", eyeContact, Modifier.weight(1f))
-                                    PresenceMetricPill("Head", headStability, Modifier.weight(1f))
-                                    PresenceMetricPill("Posture", posture, Modifier.weight(1f))
-                                    PresenceMetricPill("Energy", expressionEnergy, Modifier.weight(1f))
-                                }
-                                Spacer(Modifier.height(6.dp))
-                                // Interviewer chip - centered below metrics
-                                InterviewerChip(
-                                    interviewerName,
-                                    interviewerTitle,
-                                    Modifier.align(Alignment.Start),
-                                )
-                            }
                         } else {
                             // Show avatar (whether answering or listening)
                             AndroidView(
                                 factory = { createAvatarView() },
                                 modifier = Modifier.fillMaxSize(),
                             )
+                            if (!avatarReady && !answering) {
+                                InterviewSetupOverlay(interviewerName, interviewerTitle)
+                            }
                         }
                     }
 
@@ -3267,7 +3210,7 @@ fun PrezzenceInterviewRoomScreen(
                             .padding(start = if (compactWidth) 16.dp else 22.dp, end = if (compactWidth) 16.dp else 22.dp, top = 2.dp, bottom = if (compactHeight) 12.dp else 18.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (error.isNotBlank()) {
+                        if (error.isNotBlank() && !isRecording) {
                             Text(
                                 error,
                                 color = Color(0xFFFF5C7A),
@@ -3377,7 +3320,6 @@ fun PrezzenceAnswerResultOverlay(
     questionText: String,
     learnMoreTopic: String,
     displayTranscript: String,
-    presenceMetrics: PresenceMetrics?,
     hasModelAnswer: Boolean,
     continueLabel: String,
     onLearnMore: () -> Unit,
@@ -3466,8 +3408,6 @@ fun PrezzenceAnswerResultOverlay(
                     Spacer(Modifier.height(6.dp))
                     Text(displayTranscript, color = TextPrimary.copy(alpha = 0.88f), fontSize = 13.sp, lineHeight = 19.sp)
                 }
-                Spacer(Modifier.height(12.dp))
-                PresenceSummaryCard(presenceMetrics)
             }
             Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (hasModelAnswer) {
@@ -3537,88 +3477,84 @@ fun PrezzenceModelAnswerOverlay(
         Column(
             Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.92f)
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color(0xFF12121D))
-                .border(1.dp, Accent.copy(alpha = 0.30f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .padding(18.dp),
+                .border(1.dp, Accent.copy(alpha = 0.30f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
         ) {
-            Text(
-                "Back to result",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.a11yIconButton("Back to result").clickable(onClick = onBack),
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (scoredWell) "Great answer!" else "Listen to a stronger answer",
-                color = TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                if (scoredWell) "You answered this question well. Here's how a perfect answer sounds."
-                else "Your interviewer will speak the model answer now.",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "STAR format: Situation → Task → Action → Result. Read the decision context, not just facts to memorize.",
-                color = TextPrimary.copy(alpha = 0.78f),
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Learn more: ${learnMoreTopic.ifBlank { "this topic" }}",
-                color = Accent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .a11yIconButton("Learn more about this question")
-                    .clickable(onClick = onLearnMore),
-                textAlign = TextAlign.Center,
-            )
-            if (modelAnswer.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                Text("MODEL ANSWER (STAR)", color = Color(0xFFFFD166), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                Spacer(Modifier.height(6.dp))
-                Column(
-                    Modifier
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+            ) {
+                Text(
+                    "Back to result",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.a11yIconButton("Back to result").clickable(onClick = onBack),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (scoredWell) "Great answer!" else "Listen to a stronger answer",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    if (scoredWell) "You answered this question well. Here's how a perfect answer sounds."
+                    else "Your interviewer will speak the model answer now.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Learn more: ${learnMoreTopic.ifBlank { "this topic" }}",
+                    color = Accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 220.dp)
-                        .verticalScroll(rememberScrollState())
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF00D68F).copy(alpha = 0.12f))
-                        .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.28f), RoundedCornerShape(14.dp))
-                        .padding(14.dp),
-                ) {
-                    Text(modelAnswer, color = Color(0xFF7EE7C4), fontSize = 14.sp, lineHeight = 21.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Accent)
-                        .a11yIconButton("Play model answer again")
-                        .clickable(onClick = onPlayAgain)
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                ) {
-                    Text("Play again", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        .a11yIconButton("Learn more about this question")
+                        .clickable(onClick = onLearnMore),
+                    textAlign = TextAlign.Center,
+                )
+                if (modelAnswer.isNotBlank()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("MODEL ANSWER (STAR)", color = Color(0xFFFFD166), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF00D68F).copy(alpha = 0.12f))
+                            .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                    ) {
+                        Text(modelAnswer, color = Color(0xFF7EE7C4), fontSize = 14.sp, lineHeight = 21.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Accent)
+                            .a11yIconButton("Play model answer again")
+                            .clickable(onClick = onPlayAgain)
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                    ) {
+                        Text("Play again", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     Modifier
                         .weight(1f)
@@ -3645,59 +3581,6 @@ fun PrezzenceModelAnswerOverlay(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun PresenceSummaryCard(presenceMetrics: PresenceMetrics?) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
-            .padding(12.dp),
-    ) {
-        Text("CAMERA PRESENCE", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-        Spacer(Modifier.height(8.dp))
-        val metrics = presenceMetrics
-        if (metrics == null || metrics.faceVisibility == 0) {
-            Text(
-                "Not enough camera signal was captured for this answer. Keep your face in frame after tapping Answer Now.",
-                color = Color(0xFFFF5C7A),
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-            )
-        } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                PresenceMetricSummaryPill("Face", metrics.faceVisibility, Modifier.weight(1f))
-                PresenceMetricSummaryPill("Eyes", metrics.eyeContact, Modifier.weight(1f))
-                PresenceMetricSummaryPill("Head", metrics.headStability, Modifier.weight(1f))
-                PresenceMetricSummaryPill("Posture", metrics.posture, Modifier.weight(1f))
-                PresenceMetricSummaryPill("Energy", metrics.expressionEnergy, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Reviewed during your response on this device.", color = TextSecondary, fontSize = 10.sp)
-        }
-    }
-}
-
-@Composable
-private fun PresenceMetricSummaryPill(label: String, value: Int, modifier: Modifier = Modifier) {
-    val scoreColor = when {
-        value >= 75 -> Color(0xFF00D68F)
-        value >= 50 -> Color(0xFFFFB347)
-        else -> Color(0xFFFF5C7A)
-    }
-    Column(
-        modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(label.uppercase(), color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
-        Text(if (value > 0) "$value" else "--", color = scoreColor, fontSize = 14.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -3933,6 +3816,79 @@ private fun RecorderBar(recordingDuration: Int = 0, isRecording: Boolean = false
 }
 
 @Composable
+private fun InterviewSetupOverlay(name: String, title: String) {
+    val imageRes = when (name.lowercase()) {
+        "maya" -> R.drawable.interviewer_maya
+        "jonas" -> R.drawable.interviewer_jonas
+        "sophia", "amina" -> R.drawable.interviewer_sophia
+        else -> R.drawable.interviewer_sophia
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF0A0A12), Color(0xFF101019), Color(0xFF0A0A12)),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(108.dp),
+                    color = Accent,
+                    strokeWidth = 3.dp,
+                )
+                Box(
+                    Modifier
+                        .size(84.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, Accent.copy(alpha = 0.45f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(imageRes),
+                        contentDescription = name,
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "Setting up your interviewer",
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (title.isNotBlank()) "$name · $title" else name,
+                color = Accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Preparing the video stage. This only takes a moment.",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun InterviewerChip(name: String, title: String, modifier: Modifier = Modifier) {
     val imageRes = when (name.lowercase()) {
         "maya" -> R.drawable.interviewer_maya
@@ -3969,97 +3925,6 @@ private fun InterviewerChip(name: String, title: String, modifier: Modifier = Mo
             Text(name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(title, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-    }
-}
-
-@Composable
-private fun InterviewTopGlassLabel(label: String, status: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(10.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color.Black.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.70f)),
-                ),
-            )
-            .border(0.5.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label.uppercase(), color = Color(0xFF00D68F), fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
-            Text(status, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-        }
-        Box(
-            Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF00D68F).copy(alpha = 0.70f))
-                .border(2.dp, Color(0xFF00D68F).copy(alpha = 0.30f), CircleShape),
-        )
-    }
-}
-
-@Composable
-private fun PresenceMetricPill(label: String, value: Int?, modifier: Modifier = Modifier) {
-    val interpretation = when {
-        value == null -> "..."
-        value >= 80 -> "Excellent"
-        value >= 60 -> "Good"
-        value >= 40 -> "Fair"
-        else -> "Low"
-    }
-    val scoreColor = when {
-        value == null -> TextSecondary
-        value >= 80 -> Color(0xFF00D68F)
-        value >= 60 -> Color(0xFF8BC34A)
-        value >= 40 -> Color(0xFFFFB347)
-        else -> Color(0xFFFF3B6B)
-    }
-    val cardBackground = Color(0xFF12121C).copy(alpha = 0.92f)
-    Column(
-        modifier
-            .defaultMinSize(minHeight = 58.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(cardBackground)
-            .border(1.dp, scoreColor.copy(alpha = if (value == null) 0.18f else 0.42f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 5.dp, vertical = 7.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            label.uppercase(java.util.Locale.US),
-            color = Color.White.copy(alpha = 0.72f),
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.35.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = value?.toString() ?: "--",
-            color = TextPrimary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            lineHeight = 16.sp,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            interpretation,
-            color = scoreColor,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 
@@ -5450,11 +5315,9 @@ fun PrezzenceProfileScreen(
     bestSkillLabel: String? = null,
     bestSkillValue: Int? = null,
     focusSkillLabel: String? = null,
-    cameraCoachEnabled: Boolean,
     resumeFileName: String?,
     language: String,
     goalValue: String = "",
-    onToggleCameraCoach: () -> Unit,
     onUploadResume: () -> Unit,
     onDeleteResume: () -> Unit,
     onAccount: () -> Unit,
@@ -5626,57 +5489,6 @@ fun PrezzenceProfileScreen(
                         Text("Focus next", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                         Text(focusSkillLabel, color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     }
-                }
-            }
-
-            // Camera coach toggle
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 18.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF00D68F).copy(alpha = 0.08f))
-                    .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.20f), RoundedCornerShape(24.dp))
-                    .clickable(onClick = onToggleCameraCoach)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    Modifier.size(46.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF00D68F).copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Canvas(Modifier.size(20.dp)) {
-                        val c = Color(0xFF00D68F)
-                        drawRoundRect(c, Offset(size.width * 0.10f, size.height * 0.25f), Size(size.width * 0.56f, size.height * 0.50f), CornerRadius(3f), style = Stroke(2.2f))
-                        val p = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(size.width * 0.68f, size.height * 0.40f)
-                            lineTo(size.width * 0.92f, size.height * 0.25f)
-                            lineTo(size.width * 0.92f, size.height * 0.75f)
-                            lineTo(size.width * 0.68f, size.height * 0.60f)
-                            close()
-                        }
-                        drawPath(p, c, style = Stroke(2.0f))
-                    }
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Camera coach", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (cameraCoachEnabled) "Eye contact, head, posture, and expression feedback is enabled."
-                        else "Turn on camera presence feedback before starting an interview.",
-                        color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
-                    )
-                }
-                // Toggle track
-                Box(
-                    Modifier.width(48.dp).height(28.dp).clip(RoundedCornerShape(14.dp))
-                        .background(if (cameraCoachEnabled) Color(0xFF00D68F) else Color.White.copy(alpha = 0.12f))
-                        .padding(3.dp),
-                ) {
-                    Box(
-                        Modifier.size(22.dp).clip(CircleShape)
-                            .background(Color.White.copy(alpha = if (cameraCoachEnabled) 1f else 0.62f))
-                            .then(if (cameraCoachEnabled) Modifier.align(Alignment.CenterEnd) else Modifier.align(Alignment.CenterStart))
-                    )
                 }
             }
 

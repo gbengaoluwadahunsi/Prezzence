@@ -51,7 +51,6 @@ import com.pollecode.prezzencekotlin.billing.BillingUiState
 import com.pollecode.prezzencekotlin.billing.PrezzenceBillingManager
 import com.pollecode.prezzencekotlin.data.AnswerResult
 import com.pollecode.prezzencekotlin.data.AuthSession
-import com.pollecode.prezzencekotlin.data.PresenceMetrics
 import com.pollecode.prezzencekotlin.data.AppState
 import com.pollecode.prezzencekotlin.data.InterviewMode
 import com.pollecode.prezzencekotlin.data.Interviewer
@@ -66,7 +65,6 @@ import com.pollecode.prezzencekotlin.data.SessionSummary
 import com.pollecode.prezzencekotlin.data.SessionScoring
 import com.pollecode.prezzencekotlin.data.resolvedPracticeStatus
 import com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView
-import com.pollecode.prezzencekotlin.nativebridge.NativePresenceCameraView
 import com.pollecode.prezzencekotlin.nativebridge.NativeSpeechTranscriber
 import com.pollecode.prezzencekotlin.nativebridge.SpeechCaptureResult
 import com.pollecode.prezzencekotlin.qa.DeviceQaResult
@@ -166,7 +164,6 @@ class MainActivity : ComponentActivity() {
     private val modelAnswerVisibleState = androidx.compose.runtime.mutableStateOf(false)
     private val interviewPausedState = androidx.compose.runtime.mutableStateOf(false)
     private var confirmOverlay: FrameLayout? = null
-    private var activeCamera: NativePresenceCameraView? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
     private var speechGenerationToken = 0
     private var cachedQuestionSpeechIndex = -1
@@ -174,18 +171,13 @@ class MainActivity : ComponentActivity() {
     private val questionSpeechCache = mutableMapOf<Int, String>()
     private var openingIntroductionSpoken = false
     private var activeTranscript: String = ""
-    private var speechError: String = ""
+    private val speechErrorState = androidx.compose.runtime.mutableStateOf("")
+    private var speechError: String
+        get() = speechErrorState.value
+        set(value) { speechErrorState.value = value }
     private var recordingStartTime: Long = 0L
     private val recordingDurationState = androidx.compose.runtime.mutableIntStateOf(0)
     private var recordingTimer: android.os.CountDownTimer? = null
-    private val faceVisibilityState = androidx.compose.runtime.mutableStateOf<Int?>(null)
-    private val eyeContactState = androidx.compose.runtime.mutableStateOf<Int?>(null)
-    private val headStabilityState = androidx.compose.runtime.mutableStateOf<Int?>(null)
-    private val postureState = androidx.compose.runtime.mutableStateOf<Int?>(null)
-    private val expressionEnergyState = androidx.compose.runtime.mutableStateOf<Int?>(null)
-    private val faceVisibleState = androidx.compose.runtime.mutableStateOf(false)
-    private val cameraStatusState = androidx.compose.runtime.mutableStateOf("Starting camera. Position your face in frame")
-    private val cameraErrorState = androidx.compose.runtime.mutableStateOf<String?>(null)
     private val processingAnswerState = androidx.compose.runtime.mutableStateOf(false)
     private val interviewAnsweringState = androidx.compose.runtime.mutableStateOf(false)
     private val processingStageState = androidx.compose.runtime.mutableStateOf("")
@@ -193,7 +185,6 @@ class MainActivity : ComponentActivity() {
     private val avatarReadyState = androidx.compose.runtime.mutableStateOf(false)
     private val interviewerSpeakingState = androidx.compose.runtime.mutableStateOf(false)
     private var interviewComposeView: ComposeView? = null
-    private val presenceSamples = mutableListOf<NativePresenceCameraView.Metrics>()
     private var currentAnswerResult: AnswerResult? = null
     private val sessionAnswers = mutableListOf<AnswerResult>()
     private var startAnswerAfterPermission = false
@@ -1177,14 +1168,9 @@ class MainActivity : ComponentActivity() {
                                     bestSkillLabel = metrics.bestSkillLabel,
                                     bestSkillValue = metrics.bestSkillValue,
                                     focusSkillLabel = metrics.weakestSkillLabel,
-                                    cameraCoachEnabled = appState.cameraCoachEnabled,
                                     resumeFileName = resumeFileNameState.value,
                                     language = appState.language,
                                     goalValue = appState.weeklyGoal,
-                                    onToggleCameraCoach = {
-                                        appState.cameraCoachEnabled = !appState.cameraCoachEnabled
-                                        homeUiRefreshState.intValue++
-                                    },
                                     onUploadResume = { pickResumeDocument() },
                                     onDeleteResume = {
                                         scope.launch {
@@ -1388,15 +1374,11 @@ class MainActivity : ComponentActivity() {
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceSettingsScreen(
-                    cameraCoachEnabled = appState.cameraCoachEnabled,
                     language = appState.language,
                     subscriptionActive = appState.hasPremiumAccess(),
                     userEmail = appState.userEmail,
                     showDeviceQa = BuildConfig.DEBUG,
                     onBack = { showHome() },
-                    onToggleCameraCoach = {
-                        appState.cameraCoachEnabled = !appState.cameraCoachEnabled
-                    },
                     onInterviewerSetup = { showOnboardingType() },
                     onLanguage = { showLanguage() },
                     onAccount = { showAccount() },
@@ -3018,15 +3000,17 @@ class MainActivity : ComponentActivity() {
         val interviewer = appState.interviewerFor()
         val coachingTranscript = if (substantive) result.transcript else ""
         if (appState.authToken.isNotBlank()) {
-            ensureActiveBackendSession()
-            val fetched = backend.fetchModelAnswer(
-                bearerToken = appState.authToken,
-                questionText = questionText,
-                transcript = coachingTranscript,
-                roleTitle = appState.selectedRole,
-                interviewerName = interviewer.name,
-                interviewerTitle = interviewer.title,
-            )
+            runCatching { ensureActiveBackendSession() }
+            val fetched = runCatching {
+                backend.fetchModelAnswer(
+                    bearerToken = appState.authToken,
+                    questionText = questionText,
+                    transcript = coachingTranscript,
+                    roleTitle = appState.selectedRole,
+                    interviewerName = interviewer.name,
+                    interviewerTitle = interviewer.title,
+                )
+            }.getOrNull()
             val fetchedAnswer = fetched?.improvedAnswer?.let {
                 sanitizeModelAnswer(it, result.transcript, substantive)
             }.orEmpty()
@@ -3041,7 +3025,39 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        return result
+        val fallback = buildLocalModelAnswer(questionText, appState.selectedRole)
+        return result.copy(improvedAnswer = fallback)
+    }
+
+    private fun buildLocalModelAnswer(questionText: String, role: String): String {
+        val q = questionText.trim().lowercase(Locale.US)
+        val r = role.ifBlank { "professional" }
+        if (q.contains("introduce yourself") || q.contains("tell me about yourself") || q.contains("overview of your background")) {
+            return "Situation: I've spent the last several years building my expertise as a $r, " +
+                "working across teams of varying sizes and tackling increasingly complex challenges.\n\n" +
+                "Task: In my most recent role, I was brought on specifically to improve how our team delivered results " +
+                "and to close gaps that were impacting our outcomes.\n\n" +
+                "Action: I took ownership of our core workflow, introduced structured planning sessions, " +
+                "and built relationships with stakeholders to align priorities. " +
+                "I also mentored two junior team members who later took on leadership responsibilities.\n\n" +
+                "Result: Within the first year, our team's output improved by 35% and client satisfaction scores " +
+                "rose from 72% to 91%. I'm now looking for a role where I can bring that same impact at a larger scale.\n\n" +
+                "Why this worked: Leading with concrete results and showing personal ownership demonstrates readiness for the next challenge."
+        }
+        return "Situation: In my role as a $r, I encountered a significant challenge " +
+            "that required both strategic thinking and hands-on execution. The team was facing pressure to deliver " +
+            "and existing approaches were falling short.\n\n" +
+            "Task: I was responsible for diagnosing the root cause, proposing a solution, " +
+            "and driving execution within a tight timeline. Leadership expected measurable improvement.\n\n" +
+            "Action: I started by gathering data from all stakeholders to understand the full picture. " +
+            "Then I designed a new approach, breaking it into phases so we could show early wins. " +
+            "I personally led the first phase, set up weekly check-ins to maintain momentum, " +
+            "and adjusted the plan twice based on feedback from the team.\n\n" +
+            "Result: We completed the initiative two weeks ahead of schedule. " +
+            "The measurable outcome was a 40% improvement in our key metric, and the approach " +
+            "was adopted as the standard process going forward.\n\n" +
+            "Why this worked: Showing that you can diagnose, plan, execute, and adapt under pressure " +
+            "gives the interviewer confidence in your problem-solving ability and leadership."
     }
 
     private fun sanitizeModelAnswer(
@@ -3059,24 +3075,21 @@ class MainActivity : ComponentActivity() {
     private fun quotesUserTranscript(modelAnswer: String, userTranscript: String): Boolean {
         val transcript = userTranscript.trim()
         if (transcript.isBlank()) return false
+        if (modelAnswer.length > 200) return false
         val modelLower = modelAnswer.lowercase(Locale.US)
         val words = transcript.lowercase(Locale.US)
             .split(Regex("[^a-z0-9']+"))
-            .filter { it.length > 3 }
-        if (words.size < 4) return false
+            .filter { it.length > 5 }
+        if (words.size < 6) return false
         val hits = words.count { modelLower.contains(it) }
-        return hits >= minOf(4, (words.size * 0.45f).toInt().coerceAtLeast(3))
+        return hits >= (words.size * 0.7f).toInt().coerceAtLeast(5)
     }
 
     private fun isGenericModelAnswer(text: String): Boolean {
         val lower = text.trim().lowercase(Locale.US)
         if (lower.isBlank()) return true
-        return lower.contains("i would answer with one real example") ||
-            lower.contains("that structure helps the interviewer hear ownership") ||
-            lower.contains("framed more clearly, i would explain what i personally owned") ||
-            lower.contains("in my strongest version of this answer") ||
-            lower.contains("i would keep the real detail from my experience") ||
-            (lower.startsWith("absolutely. for '") && lower.contains("keep it structured"))
+        if (lower.length < 60) return true
+        return (lower.startsWith("absolutely. for '") && lower.contains("keep it structured"))
     }
 
     private suspend fun tryCreateSession(): com.pollecode.prezzencekotlin.data.BackendSession {
@@ -3168,15 +3181,6 @@ class MainActivity : ComponentActivity() {
             answerReviewVisibleState.value = false
             modelAnswerVisibleState.value = false
             coachingMessage = ""
-            faceVisibilityState.value = null
-            eyeContactState.value = null
-            headStabilityState.value = null
-            postureState.value = null
-            expressionEnergyState.value = null
-            faceVisibleState.value = false
-            cameraStatusState.value = "Starting camera. Position your face in frame"
-            cameraErrorState.value = null
-            presenceSamples.clear()
             avatarReadyState.value = false
             interviewerSpeakingState.value = false
         }
@@ -3245,7 +3249,6 @@ class MainActivity : ComponentActivity() {
                     processingProgress = progress,
                     transcript = activeTranscript,
                     error = speechError,
-                    cameraCoachEnabled = appState.cameraCoachEnabled,
                     recordingDuration = recordingDuration,
                     isRecording = answeringNow && !processingNow && activeTranscriber != null,
                     createAvatarView = {
@@ -3260,7 +3263,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    createCameraView = { cameraCoachCard(currentInterviewer) },
                     onExit = { showHome() },
                     onPause = { pauseInterview() },
                     onRepeat = { replayCurrentQuestion() },
@@ -3270,12 +3272,6 @@ class MainActivity : ComponentActivity() {
                     coachingMessage = coachingMessage,
                     avatarReady = avatarReady,
                     interviewerSpeaking = interviewerSpeaking,
-                    cameraStatus = cameraStatusState.value,
-                    faceVisibility = faceVisibilityState.value,
-                    eyeContact = eyeContactState.value,
-                    headStability = headStabilityState.value,
-                    posture = postureState.value,
-                    expressionEnergy = expressionEnergyState.value,
                 )
 
                 if (interviewPaused) {
@@ -3298,7 +3294,6 @@ class MainActivity : ComponentActivity() {
                         questionText = currentQuestion.text,
                         learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
                         displayTranscript = SessionScoring.formatTranscriptForDisplay(reviewResult.transcript),
-                        presenceMetrics = reviewResult.presenceMetrics,
                         hasModelAnswer = reviewResult.improvedAnswer.isNotBlank(),
                         continueLabel = continueLabel,
                         onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
@@ -3762,7 +3757,6 @@ class MainActivity : ComponentActivity() {
 
     private fun ensurePermissionsThenAnswer() {
         val required = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (appState.cameraCoachEnabled) required.add(Manifest.permission.CAMERA)
         val needed = required.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -3803,17 +3797,10 @@ class MainActivity : ComponentActivity() {
             this,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
-        val cameraGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
 
         if (!micGranted) {
             showMicDenied()
             return
-        }
-        if (appState.cameraCoachEnabled && !cameraGranted) {
-            showAppToast("Answering without camera coach until camera access is allowed.", ToastKind.WARNING)
         }
         showInterview(true)
     }
@@ -3953,9 +3940,7 @@ class MainActivity : ComponentActivity() {
                 ),
                 retryRequired = scoredAnswer.retryRequired,
             )
-            // Summarize presence samples and attach to result
-            val finalPresence = summarizePresenceSamples(presenceSamples)
-            var finalResult = enrichWithModelAnswer(questionText, result.copy(presenceMetrics = finalPresence))
+            var finalResult = enrichWithModelAnswer(questionText, result)
                 .let { answer ->
                     val normalizedTranscript = answer.transcript.trim().ifBlank { displayTranscript }
                     answer.copy(
@@ -3996,6 +3981,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (activeTranscriber != null) return
+        speechError = ""
         activeTranscriber = NativeSpeechTranscriber(
             context = this,
             onPartial = { text ->
@@ -4063,87 +4049,6 @@ class MainActivity : ComponentActivity() {
             scope.launch { prepareCurrentQuestionSpeech() }
             showInterview(answering = false, forceRebuild = true)
         }
-    }
-
-    private fun summarizePresenceSamples(samples: List<NativePresenceCameraView.Metrics>): PresenceMetrics? {
-        val usable = samples.filter { it.faceVisible }
-        if (usable.isEmpty()) return null
-        val faceVisibilityAvg = usable.map { it.faceVisibility }.average().toInt()
-        val eyeContactAvg = usable.map { it.eyeContact }.average().toInt()
-        val headStabilityAvg = usable.map { it.headStability }.average().toInt()
-        val postureAvg = usable.map { it.posture }.average().toInt()
-        val expressionEnergyAvg = usable.map { it.expressionEnergy }.sorted().let { values ->
-            values[values.size / 2]
-        }
-        return PresenceMetrics(
-            faceVisible = true,
-            faceVisibility = faceVisibilityAvg,
-            eyeContact = eyeContactAvg,
-            headStability = headStabilityAvg,
-            posture = postureAvg,
-            expressionEnergy = expressionEnergyAvg,
-        )
-    }
-
-    private fun presenceSummaryCard(result: AnswerResult) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(20), dp(20), dp(20))
-        background = rounded(panel)
-        layoutParams = blockParams()
-        
-        addView(label("CAMERA PRESENCE"))
-        val pm = result.presenceMetrics
-        if (pm == null || pm.faceVisibility == 0) {
-            addView(TextView(this@MainActivity).apply {
-                text = "Not enough camera signal was captured for this answer. Keep your face in frame after tapping Answer Now."
-                textSize = 13f
-                setTextColor(Color.parseColor("#FF4757"))
-                setPadding(0, dp(8), 0, 0)
-            })
-        } else {
-            val grid = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, dp(12), 0, dp(12))
-                weightSum = 5f
-            }
-            grid.addView(metricPill("Face", pm.faceVisibility))
-            grid.addView(metricPill("Eyes", pm.eyeContact))
-            grid.addView(metricPill("Head", pm.headStability))
-            grid.addView(metricPill("Posture", pm.posture))
-            grid.addView(metricPill("Energy", pm.expressionEnergy))
-            addView(grid)
-            
-            addView(TextView(this@MainActivity).apply {
-                text = "Reviewed during your response on this device."
-                textSize = 11f
-                setTextColor(muted)
-            })
-        }
-    }
-    
-    private fun metricPill(label: String, value: Int) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        setPadding(dp(3), dp(6), dp(3), dp(6))
-        background = rounded(surface)
-        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            setMargins(dp(1), 0, dp(1), 0)
-        }
-        
-        addView(TextView(this@MainActivity).apply {
-            text = label.uppercase(Locale.US)
-            textSize = 9f
-            setTextColor(muted)
-            gravity = Gravity.CENTER
-        })
-        addView(TextView(this@MainActivity).apply {
-            text = if (value > 0) value.toString() else "--"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            typeface = interBold
-            gravity = Gravity.CENTER
-            setPadding(0, dp(2), 0, 0)
-        })
     }
 
     private fun readinessCard(): View {
@@ -4391,54 +4296,6 @@ class MainActivity : ComponentActivity() {
                 setMargins(dp(16), dp(16), 0, 0)
             }
         })
-    }
-
-    private fun cameraCoachCard(interviewer: Interviewer) = FrameLayout(this).apply {
-        background = rounded(Color.BLACK)
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(320)).apply {
-            setMargins(0, dp(10), 0, dp(10))
-        }
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            this@MainActivity,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasCameraPermission) {
-            val camera = NativePresenceCameraView(this@MainActivity).apply {
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-                listener = object : NativePresenceCameraView.Listener {
-                    override fun onMetrics(metrics: NativePresenceCameraView.Metrics) {
-                        faceVisibilityState.value = metrics.faceVisibility
-                        eyeContactState.value = metrics.eyeContact
-                        headStabilityState.value = metrics.headStability
-                        postureState.value = metrics.posture
-                        expressionEnergyState.value = metrics.expressionEnergy
-                        faceVisibleState.value = metrics.faceVisible
-                        presenceSamples.add(metrics)
-                    }
-                    override fun onStatus(message: String) {
-                        cameraStatusState.value = message
-                    }
-                    override fun onError(message: String) {
-                        cameraErrorState.value = message
-                    }
-                }
-            }
-            activeCamera = camera
-            addView(camera)
-        } else {
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(22), dp(22), dp(22), dp(22))
-                addView(title("Camera access needed", 22).apply { gravity = Gravity.CENTER })
-                addView(body("Allow camera access to capture presence coaching during your answer.").apply { gravity = Gravity.CENTER })
-                addView(primaryButton("Allow camera") {
-                    startAnswerAfterPermission = true
-                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA), 100)
-                })
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            })
-        }
     }
 
     private fun transcriptPreview() = LinearLayout(this).apply {
@@ -5060,8 +4917,6 @@ class MainActivity : ComponentActivity() {
         stopCoachingAudioFallback()
         activeAvatar?.release()
         activeAvatar = null
-        activeCamera?.stop()
-        activeCamera = null
         activeTranscriber?.stop(appState.language)
         activeTranscriber = null
     }

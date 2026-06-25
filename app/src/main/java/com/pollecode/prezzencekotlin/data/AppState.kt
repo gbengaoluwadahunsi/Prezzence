@@ -20,10 +20,6 @@ class AppState(context: Context) {
         get() = prefs.getBoolean("duixModelsPreloaded", false)
         set(value) = prefs.edit().putBoolean("duixModelsPreloaded", value).apply()
 
-    var cameraCoachEnabled: Boolean
-        get() = prefs.getBoolean("cameraCoachEnabled", true)
-        set(value) = prefs.edit().putBoolean("cameraCoachEnabled", value).apply()
-
     var a11yLargeText: Boolean
         get() = prefs.getBoolean("a11yLargeText", false)
         set(value) = prefs.edit().putBoolean("a11yLargeText", value).apply()
@@ -316,15 +312,6 @@ class AppState(context: Context) {
                 .put("how", ans.how)
                 .put("why", ans.why)
                 .put("coachingMessage", ans.coachingMessage)
-            ans.presenceMetrics?.let { pm ->
-                obj.put("presenceMetrics", JSONObject()
-                    .put("faceVisible", pm.faceVisible)
-                    .put("faceVisibility", pm.faceVisibility)
-                    .put("eyeContact", pm.eyeContact)
-                    .put("headStability", pm.headStability)
-                    .put("posture", pm.posture)
-                    .put("expressionEnergy", pm.expressionEnergy))
-            }
             array.put(obj)
         }
         prefs.edit().putString("sessionAnswers_$sessionId", array.toString()).apply()
@@ -376,17 +363,6 @@ class AppState(context: Context) {
             val array = JSONArray(raw)
             (0 until array.length()).map { index ->
                 val item = array.getJSONObject(index)
-                val pmObj = item.optJSONObject("presenceMetrics")
-                val pm = pmObj?.let {
-                    PresenceMetrics(
-                        faceVisible = it.optBoolean("faceVisible", false),
-                        faceVisibility = it.optInt("faceVisibility", 0),
-                        eyeContact = it.optInt("eyeContact", 0),
-                        headStability = it.optInt("headStability", 0),
-                        posture = it.optInt("posture", 0),
-                        expressionEnergy = it.optInt("expressionEnergy", 0),
-                    )
-                }
                 val storedTranscript = SessionScoring.normalizeStoredTranscript(item.optString("transcript", ""))
                 AnswerResult(
                     transcript = storedTranscript,
@@ -397,7 +373,6 @@ class AppState(context: Context) {
                     how = item.optString("how", ""),
                     why = item.optString("why", ""),
                     coachingMessage = item.optString("coachingMessage", ""),
-                    presenceMetrics = pm,
                 )
             }
         }.getOrDefault(emptyList())
