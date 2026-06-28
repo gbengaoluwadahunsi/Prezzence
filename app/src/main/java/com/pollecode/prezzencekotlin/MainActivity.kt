@@ -3767,6 +3767,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun stripStarLabelsForSpeech(text: String): String {
+        val starLabelPattern = Regex(
+            "^\\s*(Situation|Task|Action|Result|Why this worked|Why this works|Why it works|Why it matters)\\s*:\\s*",
+            RegexOption.IGNORE_CASE
+        )
+        return text.lines()
+            .map { line -> line.replace(starLabelPattern, "") }
+            .joinToString("\n")
+            .trim()
+    }
+
     private fun playCoachingAudio(improvedAnswer: String) {
         val modelAnswer = improvedAnswer.trim()
         if (modelAnswer.isBlank()) {
@@ -3776,9 +3787,10 @@ class MainActivity : ComponentActivity() {
         scope.launch {
             try {
                 val currentInterviewer = appState.interviewerFor(appState.currentQuestion())
+                val spokenText = stripStarLabelsForSpeech(modelAnswer)
                 val backendSpeech = backend.synthesizeSpeechUrl(
                     bearerToken = appState.authToken.ifBlank { null },
-                    text = modelAnswer,
+                    text = spokenText,
                     language = appState.language,
                     personality = currentInterviewer.id,
                 )
