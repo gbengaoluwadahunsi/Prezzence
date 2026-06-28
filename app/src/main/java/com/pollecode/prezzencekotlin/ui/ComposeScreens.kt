@@ -3049,7 +3049,7 @@ fun PrezzenceInterviewRoomScreen(
                     .fillMaxSize()
                     .background(Brush.verticalGradient(listOf(Accent.copy(alpha = 0.05f), Color.Transparent))),
             )
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().navigationBarsPadding()) {
                 InterviewHeader(currentStep, totalSteps, onExit)
                 BoxWithConstraints(
                     modifier = Modifier
@@ -3069,10 +3069,7 @@ fun PrezzenceInterviewRoomScreen(
                                     when {
                                         processing -> Modifier.height(if (compactHeight) 240.dp else 280.dp)
                                         answering -> Modifier.weight(1f).heightIn(min = stageMinHeight, max = stageMaxHeight)
-                                        else -> Modifier
-                                            .weight(1f, fill = true)
-                                            .fillMaxWidth()
-                                            .heightIn(min = stageMinHeight, max = stageMaxHeight)
+                                        else -> Modifier.aspectRatio(4f / 5f)
                                     },
                                 )
                                 .clip(RoundedCornerShape(stageRadius))
@@ -3534,7 +3531,7 @@ fun PrezzenceModelAnswerOverlay(
                             .border(1.dp, Color(0xFF00D68F).copy(alpha = 0.28f), RoundedCornerShape(14.dp))
                             .padding(14.dp),
                     ) {
-                        Text(modelAnswer, color = Color(0xFF7EE7C4), fontSize = 14.sp, lineHeight = 21.sp)
+                        Text(highlightStarLabels(modelAnswer), color = Color(0xFF7EE7C4), fontSize = 14.sp, lineHeight = 21.sp)
                     }
                     Spacer(Modifier.height(10.dp))
                     Box(
@@ -3576,6 +3573,112 @@ fun PrezzenceModelAnswerOverlay(
                 ) {
                     Text(continueLabel, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+            }
+        }
+    }
+}
+
+private val STAR_LABEL_REGEX = Regex(
+    "(?im)(?:^|\\n)\\s*(situation|task|action|result|why this worked|why this works|why it works|why this matters)\\s*:",
+)
+
+private fun highlightStarLabels(text: String) = buildAnnotatedString {
+    append(text)
+    val labelStyle = SpanStyle(color = Color(0xFFFFD166), fontWeight = FontWeight.Black)
+    STAR_LABEL_REGEX.findAll(text).forEach { match ->
+        val group = match.groups[1] ?: return@forEach
+        addStyle(labelStyle, group.range.first, match.range.last + 1)
+    }
+}
+
+@Composable
+fun PrezzenceLearnTopicOverlay(
+    title: String,
+    lesson: String,
+    loading: Boolean,
+    onClose: () -> Unit,
+    onSearchWeb: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.74f)),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(Color(0xFF12121D))
+                .border(1.dp, Accent.copy(alpha = 0.30f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("LEARN MORE", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .a11yIconButton("Close")
+                        .clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Canvas(Modifier.size(13.dp)) {
+                        val c = TextPrimary
+                        drawLine(c, Offset(size.width * 0.10f, size.height * 0.10f), Offset(size.width * 0.90f, size.height * 0.90f), strokeWidth = 2.4f, cap = StrokeCap.Round)
+                        drawLine(c, Offset(size.width * 0.90f, size.height * 0.10f), Offset(size.width * 0.10f, size.height * 0.90f), strokeWidth = 2.4f, cap = StrokeCap.Round)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                title.ifBlank { "How to approach this question" },
+                color = TextPrimary,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 25.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+            ) {
+                if (loading) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 24.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        Text("Preparing a quick lesson...", color = TextSecondary, fontSize = 14.sp)
+                    }
+                } else {
+                    Text(lesson, color = Color(0xFFD7DBEC), fontSize = 15.sp, lineHeight = 23.sp)
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = 16.dp)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(23.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .a11yIconButton("Search the web")
+                    .clickable(onClick = onSearchWeb),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Search the web", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

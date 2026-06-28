@@ -351,6 +351,19 @@ async def coaching_model_answer(
     }
 
 
+@router.post("/coaching/learn-topic", status_code=200)
+async def coaching_learn_topic(
+    payload: dict,
+    current_user: dict = Depends(rate_limited("model_answer")),
+):
+    """Return a short, focused lesson teaching the skill/topic behind a question."""
+    question_text = str(payload.get("question_text") or "").strip()
+    role_title = str(payload.get("role_title") or "").strip()
+    if not question_text:
+        raise HTTPException(status_code=400, detail="question_text is required")
+    return gemini.build_topic_lesson(question_text, role_title=role_title)
+
+
 @router.post("/{session_id}/answers", status_code=200)
 async def submit_answer(
     session_id: str, 

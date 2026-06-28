@@ -92,6 +92,7 @@ import com.pollecode.prezzencekotlin.ui.SessionReportAnswerItem
 import com.pollecode.prezzencekotlin.ui.SessionHistoryItem
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionHistoryScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceAnswerResultOverlay
+import com.pollecode.prezzencekotlin.ui.PrezzenceLearnTopicOverlay
 import com.pollecode.prezzencekotlin.ui.PrezzenceModelAnswerOverlay
 import com.pollecode.prezzencekotlin.ui.PrezzenceInterviewPausedOverlay
 import com.pollecode.prezzencekotlin.data.NotificationPreferences
@@ -162,6 +163,10 @@ class MainActivity : ComponentActivity() {
     private var teachingOverlay: FrameLayout? = null
     private val answerReviewVisibleState = androidx.compose.runtime.mutableStateOf(false)
     private val modelAnswerVisibleState = androidx.compose.runtime.mutableStateOf(false)
+    private val learnTopicVisibleState = androidx.compose.runtime.mutableStateOf(false)
+    private val learnTopicLoadingState = androidx.compose.runtime.mutableStateOf(false)
+    private val learnTopicTitleState = androidx.compose.runtime.mutableStateOf("")
+    private val learnTopicBodyState = androidx.compose.runtime.mutableStateOf("")
     private val interviewPausedState = androidx.compose.runtime.mutableStateOf(false)
     private var confirmOverlay: FrameLayout? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
@@ -3217,6 +3222,10 @@ class MainActivity : ComponentActivity() {
             val recordingDuration by recordingDurationState
             val answerReviewVisible by answerReviewVisibleState
             val modelAnswerVisible by modelAnswerVisibleState
+            val learnTopicVisible by learnTopicVisibleState
+            val learnTopicLoading by learnTopicLoadingState
+            val learnTopicTitle by learnTopicTitleState
+            val learnTopicBody by learnTopicBodyState
             val interviewPaused by interviewPausedState
             val avatarReady by avatarReadyState
             val interviewerSpeaking by interviewerSpeakingState
@@ -3242,7 +3251,7 @@ class MainActivity : ComponentActivity() {
                     },
                     questionText = currentQuestion.text,
                     learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
-                    onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                    onLearnMore = { openLearnTopic(currentQuestion) },
                     answering = answeringNow,
                     processing = processingNow,
                     processingStage = stage,
@@ -3296,7 +3305,7 @@ class MainActivity : ComponentActivity() {
                         displayTranscript = SessionScoring.formatTranscriptForDisplay(reviewResult.transcript),
                         hasModelAnswer = reviewResult.improvedAnswer.isNotBlank(),
                         continueLabel = continueLabel,
-                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                        onLearnMore = { openLearnTopic(currentQuestion) },
                         onTryAgain = { handleAnswerTryAgain() },
                         onContinue = {
                             resumeInterviewRoomSpeech()
@@ -3314,13 +3323,26 @@ class MainActivity : ComponentActivity() {
                         learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
                         continueLabel = continueLabel,
                         onBack = { dismissTeachingOverlay() },
-                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
+                        onLearnMore = { openLearnTopic(currentQuestion) },
                         onPlayAgain = { playCoachingAudio(reviewResult.improvedAnswer.trim()) },
                         onTryAgain = { handleAnswerTryAgain() },
                         onContinue = {
                             resumeInterviewRoomSpeech()
                             dismissResultOverlay()
                             advanceAfterAnswerReview()
+                        },
+                    )
+                }
+
+                if (learnTopicVisible) {
+                    PrezzenceLearnTopicOverlay(
+                        title = learnTopicTitle,
+                        lesson = learnTopicBody,
+                        loading = learnTopicLoading,
+                        onClose = { dismissLearnTopic() },
+                        onSearchWeb = {
+                            dismissLearnTopic()
+                            openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl())
                         },
                     )
                 }
@@ -3374,6 +3396,47 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun openLearnTopic(question: com.pollecode.prezzencekotlin.data.InterviewQuestion) {
+        learnTopicTitleState.value = question.resolvedLearnMoreTopic()
+        learnTopicBodyState.value = ""
+        learnTopicLoadingState.value = true
+        learnTopicVisibleState.value = true
+        scope.launch {
+            val lesson = if (appState.authToken.isNotBlank()) {
+                runCatching {
+                    backend.fetchTopicLesson(
+                        bearerToken = appState.authToken,
+                        questionText = question.text,
+                        roleTitle = appState.selectedRole,
+                        refreshToken = appState.authRefreshToken,
+                        onTokenRefreshed = { refreshed ->
+                            appState.authToken = refreshed.accessToken
+                            appState.authRefreshToken = refreshed.refreshToken
+                        },
+                    )
+                }.getOrNull()
+            } else null
+            if (lesson != null && lesson.lesson.isNotBlank()) {
+                if (lesson.topic.isNotBlank()) learnTopicTitleState.value = lesson.topic
+                learnTopicBodyState.value = lesson.lesson
+            } else {
+                learnTopicBodyState.value = localTopicLesson()
+            }
+            learnTopicLoadingState.value = false
+        }
+    }
+
+    private fun dismissLearnTopic() {
+        learnTopicVisibleState.value = false
+    }
+
+    private fun localTopicLesson(): String =
+        "- This question checks how you think and act in real situations, not memorised theory.\n" +
+        "- Use the STAR method: set the Situation and Task, focus on your Action, end with the Result.\n" +
+        "- Be specific: name the context, what you decided, and a measurable outcome.\n" +
+        "- Show ownership (say 'I'), good judgement, and what you learned.\n" +
+        "- Keep it to 45-90 seconds and tie it back to the role you want."
 
     private fun replayCurrentQuestion() {
         val avatar = activeAvatar ?: return

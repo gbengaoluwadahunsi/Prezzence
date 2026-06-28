@@ -34,10 +34,13 @@ data class InterviewQuestion(
         learnMoreTopic.ifBlank { matchedResource()?.topic ?: shortQuestionTopic() }
 
     fun resolvedLearnMoreUrl(): String {
-        if (learnMoreUrl.isNotBlank()) return learnMoreUrl
-        matchedResource()?.let { return it.url }
-        val subject = text.trim().ifBlank { role.trim() }.ifBlank { "behavioral interview questions" }
-        val query = java.net.URLEncoder.encode(subject.take(140), Charsets.UTF_8.name())
+        // Always send users to a live web search for the topic. Hardcoded article URLs
+        // go stale and 404, so we build a reliable query from the question's topic.
+        val subject = resolvedLearnMoreTopic().trim()
+            .ifBlank { text.trim() }
+            .ifBlank { role.trim() }
+            .ifBlank { "behavioral interview questions" }
+        val query = java.net.URLEncoder.encode("$subject interview answer tips".take(140), Charsets.UTF_8.name())
         return "https://www.google.com/search?q=$query"
     }
 

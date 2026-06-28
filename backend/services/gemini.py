@@ -1021,6 +1021,64 @@ class GeminiService:
 
         return ""
 
+    def build_topic_lesson(self, question_text: str, role_title: str = "") -> dict:
+        """Generate a short, practical lesson explaining the skill/topic behind a
+        question and how to approach it. Returns {"topic": str, "lesson": str}."""
+        question = (question_text or "").strip()
+        role = (role_title or "").strip() or "this role"
+        if not question:
+            return {"topic": "Interview preparation", "lesson": self._fallback_topic_lesson()}
+
+        prompt = (
+            "You are an expert interview coach. A candidate wants to understand the SKILL or TOPIC "
+            "behind this interview question so they can answer it well. Do NOT answer the question "
+            "for them — teach them how to approach it.\n\n"
+            f"Role: {role}\n"
+            f"Question: {question}\n\n"
+            "FORMAT (plain text, no markdown headers):\n"
+            "- First line: a short topic title, max 6 words.\n"
+            "- Then 4-5 concise bullet points, each starting with '- ', covering: what the "
+            "interviewer is really assessing, the key concept or skill, and 2-3 concrete tips to "
+            "demonstrate it well.\n"
+            "- Keep the whole thing under 160 words. No preamble, no closing remarks."
+        )
+
+        text = ""
+        try:
+            if self.scoring_provider == "groq" and self.groq_api_key:
+                text = self._sync_groq_model_answer(prompt)
+            elif self.api_key:
+                text = self._sync_gemini_model_answer(prompt)
+        except Exception as e:
+            print(f"[Topic Lesson] Generation failed: {e}")
+            text = ""
+
+        text = (text or "").strip()
+        topic = ""
+        lesson = text
+        if text:
+            parts = text.split("\n", 1)
+            first = parts[0].strip().strip("#*").strip()
+            if 0 < len(first) <= 60 and not first.startswith("-"):
+                topic = first
+                lesson = parts[1].strip() if len(parts) > 1 else ""
+
+        if not lesson:
+            lesson = self._fallback_topic_lesson()
+        if not topic:
+            topic = "How to approach this question"
+        return {"topic": topic, "lesson": lesson}
+
+    @staticmethod
+    def _fallback_topic_lesson() -> str:
+        return (
+            "- This question checks how you think and act in real situations, not memorised theory.\n"
+            "- Use the STAR method: set the Situation and Task, focus on your Action, end with the Result.\n"
+            "- Be specific: name the context, what you decided, and a measurable outcome.\n"
+            "- Show ownership (say 'I'), good judgement, and what you learned.\n"
+            "- Keep it to 45-90 seconds and tie it back to the role you want."
+        )
+
     def _sync_groq_model_answer(self, prompt: str) -> str:
         try:
             response = httpx.post(

@@ -750,6 +750,45 @@ class PrezzenceBackendClient {
         }.getOrNull()
     }
 
+    suspend fun fetchTopicLesson(
+        bearerToken: String,
+        questionText: String,
+        roleTitle: String = "",
+        refreshToken: String? = null,
+        onTokenRefreshed: ((AuthSession) -> Unit)? = null,
+    ): TopicLesson? = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank() || questionText.isBlank()) return@withContext null
+        suspend fun doFetch(token: String): TopicLesson? {
+            val body = JSONObject()
+                .put("question_text", questionText)
+                .put("role_title", roleTitle)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/api/sessions/coaching/learn-topic")
+                .header("Authorization", "Bearer $token")
+                .post(body)
+                .build()
+            return client.newCall(request).execute().use { response ->
+                if (response.code == 401) return@use null
+                if (!response.isSuccessful) return@use null
+                val root = JSONObject(response.body?.string().orEmpty())
+                TopicLesson(
+                    topic = root.optString("topic", ""),
+                    lesson = root.optString("lesson", ""),
+                ).takeIf { it.lesson.isNotBlank() }
+            }
+        }
+        runCatching {
+            doFetch(bearerToken) ?: run {
+                if (refreshToken.isNullOrBlank()) return@runCatching null
+                val refreshed = refreshSession(refreshToken) ?: return@runCatching null
+                onTokenRefreshed?.invoke(refreshed)
+                doFetch(refreshed.accessToken)
+            }
+        }.getOrNull()
+    }
+
     suspend fun scoreWithBackend(
         bearerToken: String?,
         sessionId: String,
@@ -1016,6 +1055,11 @@ data class BackendScoreResult(
     val answer: AnswerResult? = null,
     val failureCode: Int? = null,
     val failureMessage: String? = null,
+)
+
+data class TopicLesson(
+    val topic: String,
+    val lesson: String,
 )
 
 data class UserProgressSnapshot(
