@@ -71,7 +71,6 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private var preparingModelName: String? = null
     private var duixInitReady = false
     private var currentModelName: String = "Sofia"
-    private var currentSpeechId = 0
     private var currentSpeechSource: String? = null
     private var playToken = AtomicInteger(0)
     private val duixSampleRate = 16_000
@@ -275,9 +274,12 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     }
 
     private fun preparePlayableWav(uri: String, source: String): String {
-        val id = ++currentSpeechId
+        // Key the cache file on the audio URL (unique per synthesis) so a new
+        // answer's audio can never collide with a stale cached file. Using a
+        // resettable counter caused old clips (e.g. question 1) to be replayed.
+        val key = audioCacheKey(uri)
         val extension = uri.substringBefore("?").substringAfterLast(".", "audio").take(8)
-        val input = File(cacheRoot, "speech-$id-input.$extension")
+        val input = File(cacheRoot, "speech-$key-input.$extension")
         if (uri.startsWith("http://") || uri.startsWith("https://")) {
             val request = Request.Builder().url(uri).build()
             client.newCall(request).execute().use { response ->
@@ -296,14 +298,22 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 File(uri.removePrefix("file://")).copyTo(input, overwrite = true)
             }
         }
-        val wav = ensureDuixWav(input, id, source)
+        val wav = ensureDuixWav(input, key, source)
         if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Prepared WAV source=$source inputExt=$extension bytes=${wav.length()}")
         return wav.absolutePath
     }
 
-    private fun ensureDuixWav(input: File, id: Int, source: String): File {
+    private fun audioCacheKey(uri: String): String {
+        val base = uri.substringBefore("?")
+        return runCatching {
+            val digest = java.security.MessageDigest.getInstance("SHA-1").digest(base.toByteArray())
+            digest.joinToString("") { "%02x".format(it) }.take(20)
+        }.getOrElse { (base.hashCode().toLong() and 0xffffffffL).toString(16) }
+    }
+
+    private fun ensureDuixWav(input: File, key: String, source: String): File {
         if (input.extension.equals("wav", ignoreCase = true) && isDuixCompatibleWav(input)) return input
-        val output = File(cacheRoot, "speech-$id-$source.wav")
+        val output = File(cacheRoot, "speech-$key-$source.wav")
         if (output.exists() && output.length() > 44) return output
         decodeTo16kMonoWav(input, output)
         input.delete()

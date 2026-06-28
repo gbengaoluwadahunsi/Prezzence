@@ -244,6 +244,7 @@ fun PrezzenceSettingsScreen(
     showDeviceQa: Boolean = false,
     onBack: () -> Unit,
     onInterviewerSetup: () -> Unit,
+    onBrowseQuestions: () -> Unit,
     onLanguage: () -> Unit,
     onAccount: () -> Unit,
     onSubscription: () -> Unit,
@@ -268,6 +269,8 @@ fun PrezzenceSettingsScreen(
             SettingsGroupCard {
                 SettingsNavRow("Start new practice", "Choose a track, role, and interviewer style", onInterviewerSetup)
                 SettingsDivider()
+                SettingsNavRow("Browse questions", "Preview practice questions by role", onBrowseQuestions)
+                SettingsDivider()
                 SettingsNavRow("App language", "Current: ${language.uppercase()}", onLanguage)
             }
             Spacer(Modifier.height(12.dp))
@@ -288,7 +291,7 @@ fun PrezzenceSettingsScreen(
             SettingsSectionLabel("TOOLS")
             SettingsGroupCard {
                 buildList {
-                    if (showDeviceQa) add(SettingsNavItem("Device QA", "Mic, backend, camera, and Duix checks", onDeviceQa))
+                    if (showDeviceQa) add(SettingsNavItem("Device QA", "Mic, backend, and Duix checks", onDeviceQa))
                     add(SettingsNavItem("Accessibility", "Text size, contrast, and motion", onAccessibility))
                     add(SettingsNavItem("App Settings", "Wi-Fi only downloads", onAppSettings))
                     add(SettingsNavItem("Resume / CV profile", "Tune questions with your resume", onResumeProfile))
@@ -705,7 +708,6 @@ fun PrezzenceDeviceQaScreen(
     val pendingChecks = listOf(
         "Microphone PCM capture",
         "Backend transcription API reachability",
-        "CameraX provider open",
         "Duix model endpoint reachability",
     )
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(background = PrezzenceColors.Background)) {
@@ -720,7 +722,7 @@ fun PrezzenceDeviceQaScreen(
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Allow mic/camera", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Allow microphone", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Bold)
                 }
                 Box(
                     Modifier

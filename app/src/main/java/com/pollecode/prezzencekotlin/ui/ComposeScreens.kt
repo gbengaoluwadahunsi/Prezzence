@@ -3460,6 +3460,9 @@ fun PrezzenceModelAnswerOverlay(
     onPlayAgain: () -> Unit,
     onTryAgain: () -> Unit,
     onContinue: () -> Unit,
+    coachingWhat: String = "",
+    coachingHow: String = "",
+    coachingWhy: String = "",
 ) {
     val scoredWell = score >= 70
     Box(
@@ -3546,6 +3549,24 @@ fun PrezzenceModelAnswerOverlay(
                         Text("Play again", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                if (coachingWhat.isNotBlank() || coachingHow.isNotBlank() || coachingWhy.isNotBlank()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("WHY THIS WORKS", color = Color(0xFFFFD166), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CoachingBreakdownRow("WHAT TO INCLUDE", coachingWhat)
+                        CoachingBreakdownRow("HOW TO STRUCTURE IT", coachingHow)
+                        CoachingBreakdownRow("WHY IT LANDS", coachingWhy)
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -3575,6 +3596,16 @@ fun PrezzenceModelAnswerOverlay(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CoachingBreakdownRow(label: String, body: String) {
+    if (body.isBlank()) return
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(3.dp))
+        Text(body.trim(), color = Color(0xFFD7DBEC), fontSize = 13.sp, lineHeight = 19.sp)
     }
 }
 

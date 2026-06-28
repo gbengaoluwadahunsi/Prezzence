@@ -215,9 +215,15 @@ fun PrezzenceSessionErrorScreen(
 }
 
 @Composable
-fun PrezzenceSessionInterruptedScreen(onResume: () -> Unit) {
+fun PrezzenceSessionInterruptedScreen(awayMinutes: Int = 0, onResume: () -> Unit) {
+    val subtitle = when {
+        awayMinutes >= 60 -> "You were away for a while. Pick up where you left off."
+        awayMinutes > 1 -> "You were away for $awayMinutes minutes."
+        awayMinutes == 1 -> "You were away for a minute."
+        else -> "You stepped away from your session."
+    }
     MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(background = PrezzenceColors.Background)) {
-        FlowShell(title = "Session paused.", subtitle = "You were away for 12 minutes.", onBack = onResume) {
+        FlowShell(title = "Session paused.", subtitle = subtitle, onBack = onResume) {
             PrezzencePrimaryButton("Resume Practice", onClick = onResume)
         }
     }

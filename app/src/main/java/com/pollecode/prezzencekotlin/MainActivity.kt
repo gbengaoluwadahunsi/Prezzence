@@ -118,6 +118,8 @@ import com.pollecode.prezzencekotlin.ui.PrezzenceSimpleMessageScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceAuthCallbackScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceNetworkErrorScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionErrorScreen
+import com.pollecode.prezzencekotlin.ui.PrezzenceQuestionsPickerScreen
+import com.pollecode.prezzencekotlin.ui.QuestionPickerItem
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionInterruptedScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionSaveErrorScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceNotFoundScreen
@@ -159,6 +161,9 @@ class MainActivity : ComponentActivity() {
 
     private var activeAvatar: NativeDuixAvatarView? = null
     private var coachingMediaPlayer: MediaPlayer? = null
+    private var interviewBackgroundedAt: Long = 0L
+    private val INTERVIEW_AWAY_THRESHOLD_MS = 120_000L
+    private val questionPickerRoleState = androidx.compose.runtime.mutableStateOf("")
     private var resultOverlay: FrameLayout? = null
     private var teachingOverlay: FrameLayout? = null
     private val answerReviewVisibleState = androidx.compose.runtime.mutableStateOf(false)
@@ -292,6 +297,32 @@ class MainActivity : ComponentActivity() {
         handleAuthCallback(intent.data)
     }
 
+    override fun onStop() {
+        super.onStop()
+        interviewBackgroundedAt = if (isInterviewInProgress()) System.currentTimeMillis() else 0L
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val backgroundedAt = interviewBackgroundedAt
+        interviewBackgroundedAt = 0L
+        if (backgroundedAt > 0L && isInterviewInProgress()) {
+            val awayMs = System.currentTimeMillis() - backgroundedAt
+            if (awayMs >= INTERVIEW_AWAY_THRESHOLD_MS) {
+                pauseInterview()
+                showSessionInterrupted(awayMinutes = (awayMs / 60_000L).toInt())
+            }
+        }
+    }
+
+    private fun isInterviewInProgress(): Boolean {
+        val questions = appState.questions()
+        return isInterviewRoomVisible() &&
+            appState.activeSessionId.isNotBlank() &&
+            questions.isNotEmpty() &&
+            appState.currentQuestionIndex < questions.size
+    }
+
     override fun onDestroy() {
         releaseNativeSurfaces()
         if (::billingManager.isInitialized) billingManager.endConnection()
@@ -382,7 +413,10 @@ class MainActivity : ComponentActivity() {
         if (uri.scheme != "prezzence") return false
         val isAuthCallback = uri.host == "auth" && (uri.path.orEmpty().contains("callback") || uri.path.orEmpty().contains("reset-password"))
         val isVerify = uri.host == "verify" || uri.toString().contains("verify")
-        if (!isAuthCallback && !isVerify) return false
+        if (!isAuthCallback && !isVerify) {
+            showNotFound()
+            return true
+        }
 
         val params = authParams(uri)
         val error = params["error_description"] ?: params["error"] ?: params["error_code"]
@@ -403,9 +437,8 @@ class MainActivity : ComponentActivity() {
             return true
         }
         val refreshToken = params["refresh_token"].orEmpty()
-        val alreadySignedIn = appState.authToken.isNotBlank()
-        if (!alreadySignedIn) {
-            showSignIn(loading = true)
+        if (!isVerify) {
+            showAuthCallback()
         }
         scope.launch {
             completeOAuthCallback(authCode, accessToken, refreshToken, isVerify)
@@ -1385,6 +1418,7 @@ class MainActivity : ComponentActivity() {
                     showDeviceQa = BuildConfig.DEBUG,
                     onBack = { showHome() },
                     onInterviewerSetup = { showOnboardingType() },
+                    onBrowseQuestions = { showQuestionsPicker() },
                     onLanguage = { showLanguage() },
                     onAccount = { showAccount() },
                     onSubscription = { showPaywall() },
@@ -1398,6 +1432,33 @@ class MainActivity : ComponentActivity() {
                     onHelp = { showHelp() },
                     onSignOut = { appState.signOut(); showLanding() },
                     onSignIn = { showSignIn() },
+                )
+            }
+        })
+    }
+
+    private fun showQuestionsPicker() {
+        if (questionPickerRoleState.value.isBlank()) {
+            questionPickerRoleState.value = appState.selectedRole.ifBlank { PrezzenceDefaults.roles.first() }
+        }
+        setScreen(ComposeView(this).apply {
+            setContent {
+                val role by questionPickerRoleState
+                val items = androidx.compose.runtime.remember(role) {
+                    PrezzenceDefaults.questionsFor(role).mapIndexed { index, question ->
+                        QuestionPickerItem(index = index, role = role, text = question.text)
+                    }
+                }
+                PrezzenceQuestionsPickerScreen(
+                    roles = PrezzenceDefaults.roles,
+                    selectedRole = role,
+                    questions = items,
+                    onBack = { showSettings() },
+                    onRoleSelected = { questionPickerRoleState.value = it },
+                    onQuestionSelected = {
+                        appState.selectedRole = role
+                        showOnboardingType()
+                    },
                 )
             }
         })
@@ -1601,14 +1662,19 @@ class MainActivity : ComponentActivity() {
 
     private fun isInterviewRoomVisible(): Boolean = interviewComposeView?.parent == root
 
-    private fun showSessionInterrupted() {
+    private fun showSessionInterrupted(awayMinutes: Int = 0) {
         setScreen(ComposeView(this).apply {
-            setContent { PrezzenceSessionInterruptedScreen(onResume = { showHome() }) }
+            setContent {
+                PrezzenceSessionInterruptedScreen(
+                    awayMinutes = awayMinutes,
+                    onResume = { resumeActiveSession() },
+                )
+            }
         })
     }
-    private fun showSessionSaveError() {
+    private fun showSessionSaveError(onRetry: () -> Unit = { showHome() }) {
         setScreen(ComposeView(this).apply {
-            setContent { PrezzenceSessionSaveErrorScreen(onRetry = { showHome() }) }
+            setContent { PrezzenceSessionSaveErrorScreen(onRetry = onRetry) }
         })
     }
     private fun showNotFound(returnTo: () -> Unit = { showHome() }) {
@@ -2604,7 +2670,12 @@ class MainActivity : ComponentActivity() {
     private fun purchaseSubscription() {
         scope.launch {
             val state = billingManager.purchase(this@MainActivity)
-            showBillingToast(state, silent = false)
+            showBillingToast(state, silent = true)
+            if (state.entitled) {
+                showPaymentSuccess()
+            } else if (state.status.isNotBlank()) {
+                showAppToast(state.status, ToastKind.INFO)
+            }
         }
     }
 
@@ -2651,7 +2722,7 @@ class MainActivity : ComponentActivity() {
                     onRequestPermissions = {
                         ActivityCompat.requestPermissions(
                             this@MainActivity,
-                            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA),
+                            arrayOf(Manifest.permission.RECORD_AUDIO),
                             200,
                         )
                     },
@@ -3322,6 +3393,9 @@ class MainActivity : ComponentActivity() {
                         modelAnswer = reviewResult.improvedAnswer.trim(),
                         learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
                         continueLabel = continueLabel,
+                        coachingWhat = reviewResult.what,
+                        coachingHow = reviewResult.how,
+                        coachingWhy = reviewResult.why,
                         onBack = { dismissTeachingOverlay() },
                         onLearnMore = { openLearnTopic(currentQuestion) },
                         onPlayAgain = { playCoachingAudio(reviewResult.improvedAnswer.trim()) },
@@ -4091,6 +4165,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun retryCompleteSession(sessionId: String) {
+        scope.launch {
+            val saved = backend.completeSession(appState.authToken, sessionId)
+            refreshRemoteHistory()
+            if (saved) {
+                showSessionReport(sessionId)
+            } else {
+                showSessionSaveError(onRetry = { retryCompleteSession(sessionId) })
+            }
+        }
+    }
+
     private fun advanceAfterAnswerReview() {
         dismissResultOverlay()
         resumeInterviewRoomSpeech()
@@ -4102,11 +4188,14 @@ class MainActivity : ComponentActivity() {
             appState.finalizeSessionForId(sessionId, answersSnapshot)
             sessionAnswers.clear()
             scope.launch {
-                if (appState.authToken.isNotBlank() && !sessionId.startsWith("session-")) {
-                    backend.completeSession(appState.authToken, sessionId)
-                }
+                val needsRemoteSave = appState.authToken.isNotBlank() && !sessionId.startsWith("session-")
+                val saved = if (needsRemoteSave) backend.completeSession(appState.authToken, sessionId) else true
                 refreshRemoteHistory()
-                showSessionReport(sessionId)
+                if (saved) {
+                    showSessionReport(sessionId)
+                } else {
+                    showSessionSaveError(onRetry = { retryCompleteSession(sessionId) })
+                }
             }
         } else {
             scope.launch { prepareCurrentQuestionSpeech() }
