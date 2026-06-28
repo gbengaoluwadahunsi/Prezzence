@@ -187,8 +187,17 @@ class AppState(context: Context) {
         set(value) = prefs.edit().putInt("lastAnsweredQuestionIndex", value).apply()
 
     fun setGeneratedQuestions(questions: List<InterviewQuestion>) {
+        // Drop blank and duplicate questions (case-insensitive) so the same
+        // prompt can never appear twice in a session. A duplicate question made
+        // the interview show "the last question again" before reaching the
+        // summary, forcing the user to tap Finish a second time.
+        val seenText = HashSet<String>()
+        val uniqueQuestions = questions.filter { question ->
+            val key = question.text.trim().lowercase(Locale.US)
+            key.isNotBlank() && seenText.add(key)
+        }
         val array = JSONArray()
-        questions.forEach { question ->
+        uniqueQuestions.forEach { question ->
             array.put(JSONObject()
                 .put("id", question.id)
                 .put("text", question.text)

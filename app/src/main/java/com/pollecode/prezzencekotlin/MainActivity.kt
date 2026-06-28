@@ -3305,7 +3305,7 @@ class MainActivity : ComponentActivity() {
             val reviewResult = currentAnswerResult
             val nextStep = appState.currentQuestionIndex + 1
             val totalQs = appState.questions().size
-            val continueLabel = if (nextStep >= totalQs) "Finish session" else "Continue ${nextStep + 1}/$totalQs"
+            val continueLabel = if (nextStep >= totalQs) "See your results" else "Continue ${nextStep + 1}/$totalQs"
 
             Box(Modifier.fillMaxSize()) {
                 PrezzenceInterviewRoomScreen(
@@ -4199,15 +4199,19 @@ class MainActivity : ComponentActivity() {
         if (done) {
             appState.finalizeSessionForId(sessionId, answersSnapshot)
             sessionAnswers.clear()
+            // Show the summary/scoring page immediately from local data. Don't
+            // gate it behind the network save, otherwise the interview room
+            // stays visible (showing a question again) until the call returns.
+            showSessionReport(sessionId)
             scope.launch {
                 val needsRemoteSave = appState.authToken.isNotBlank() && !sessionId.startsWith("session-")
-                val saved = if (needsRemoteSave) backend.completeSession(appState.authToken, sessionId) else true
-                refreshRemoteHistory()
-                if (saved) {
-                    showSessionReport(sessionId)
-                } else {
-                    showSessionSaveError(onRetry = { retryCompleteSession(sessionId) })
+                if (needsRemoteSave) {
+                    val saved = backend.completeSession(appState.authToken, sessionId)
+                    if (!saved) {
+                        showSessionSaveError(onRetry = { retryCompleteSession(sessionId) })
+                    }
                 }
+                refreshRemoteHistory()
             }
         } else {
             scope.launch { prepareCurrentQuestionSpeech() }

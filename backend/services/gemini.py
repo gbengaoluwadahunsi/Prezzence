@@ -368,9 +368,13 @@ class GeminiService:
             ],
         }
         base_questions = templates_by_lang.get((language or "en").lower(), templates_by_lang["en"])
+        # Never repeat a template: cap at the number of unique templates so the
+        # fallback set can't contain duplicate questions (which made the client
+        # show "the last question again" before the summary).
+        effective_count = min(question_count, len(base_questions))
         questions = []
-        for index in range(question_count):
-            interviewer_name, question_type, text = base_questions[index % len(base_questions)]
+        for index in range(effective_count):
+            interviewer_name, question_type, text = base_questions[index]
             questions.append({
                 "number": index + 1,
                 "text": text,
