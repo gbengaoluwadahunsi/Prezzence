@@ -3157,9 +3157,6 @@ fun PrezzenceInterviewRoomScreen(
                                 factory = { createAvatarView() },
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            if (!avatarReady && !answering) {
-                                InterviewSetupOverlay(interviewerName, interviewerTitle)
-                            }
                         }
                     }
 
@@ -3811,79 +3808,6 @@ private fun RecorderBar(recordingDuration: Int = 0, isRecording: Boolean = false
                         .background(if (isRecording) Color(0xFF00D68F) else Accent),
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun InterviewSetupOverlay(name: String, title: String) {
-    val imageRes = when (name.lowercase()) {
-        "maya" -> R.drawable.interviewer_maya
-        "jonas" -> R.drawable.interviewer_jonas
-        "sophia", "amina" -> R.drawable.interviewer_sophia
-        else -> R.drawable.interviewer_sophia
-    }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF0A0A12), Color(0xFF101019), Color(0xFF0A0A12)),
-                ),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(108.dp),
-                    color = Accent,
-                    strokeWidth = 3.dp,
-                )
-                Box(
-                    Modifier
-                        .size(84.dp)
-                        .clip(CircleShape)
-                        .border(2.dp, Accent.copy(alpha = 0.45f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        painter = painterResource(imageRes),
-                        contentDescription = name,
-                        contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopCenter,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    )
-                }
-            }
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Setting up your interviewer",
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                if (title.isNotBlank()) "$name · $title" else name,
-                color = Accent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Preparing the video stage. This only takes a moment.",
-                color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 32.dp),
-            )
         }
     }
 }
