@@ -92,7 +92,6 @@ import com.pollecode.prezzencekotlin.ui.SessionReportAnswerItem
 import com.pollecode.prezzencekotlin.ui.SessionHistoryItem
 import com.pollecode.prezzencekotlin.ui.PrezzenceSessionHistoryScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceAnswerResultOverlay
-import com.pollecode.prezzencekotlin.ui.PrezzenceLearnTopicOverlay
 import com.pollecode.prezzencekotlin.ui.PrezzenceModelAnswerOverlay
 import com.pollecode.prezzencekotlin.ui.PrezzenceInterviewPausedOverlay
 import com.pollecode.prezzencekotlin.data.NotificationPreferences
@@ -168,10 +167,6 @@ class MainActivity : ComponentActivity() {
     private var teachingOverlay: FrameLayout? = null
     private val answerReviewVisibleState = androidx.compose.runtime.mutableStateOf(false)
     private val modelAnswerVisibleState = androidx.compose.runtime.mutableStateOf(false)
-    private val learnTopicVisibleState = androidx.compose.runtime.mutableStateOf(false)
-    private val learnTopicLoadingState = androidx.compose.runtime.mutableStateOf(false)
-    private val learnTopicTitleState = androidx.compose.runtime.mutableStateOf("")
-    private val learnTopicBodyState = androidx.compose.runtime.mutableStateOf("")
     private val interviewPausedState = androidx.compose.runtime.mutableStateOf(false)
     private var confirmOverlay: FrameLayout? = null
     private var activeTranscriber: NativeSpeechTranscriber? = null
@@ -532,11 +527,21 @@ class MainActivity : ComponentActivity() {
 
     private var suppressInterviewSpeech = false
 
+    // Bumped every time coaching (model answer) audio must be cancelled. A pending
+    // synth/playback coroutine compares against this and aborts, so a half-played
+    // model answer can never resume on the next question's avatar after Continue.
+    private var coachingPlayToken = 0
+
+    private fun stopCoachingAudio() {
+        coachingPlayToken += 1
+        activeAvatar?.stopSpeaking()
+        stopCoachingAudioFallback()
+    }
+
     private fun muteInterviewRoomSpeech() {
         speechGenerationToken += 1
         suppressInterviewSpeech = true
-        activeAvatar?.stopSpeaking()
-        stopCoachingAudioFallback()
+        stopCoachingAudio()
         interviewerSpeakingState.value = false
     }
 
@@ -545,8 +550,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dismissTeachingOverlay() {
-        activeAvatar?.stopSpeaking()
-        stopCoachingAudioFallback()
+        stopCoachingAudio()
         modelAnswerVisibleState.value = false
         teachingOverlay?.let { runCatching { root.removeView(it) } }
         teachingOverlay = null
@@ -895,6 +899,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showOnboardingType() {
+        // Start the one-time avatar download as soon as onboarding begins so the
+        // ~133MB engine is downloading while the user fills out the setup steps.
+        startAvatarPrefetch()
         setScreen(ComposeView(this).apply {
             setContent {
                 PrezzenceOnboardingTypeScreen(
@@ -1255,6 +1262,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Starts the heavy first-time avatar download (~133MB shared base engine + the
+     * default avatar) in a low-priority background thread so it is finished before
+     * the user ever reaches the interview room. The base engine is shared by every
+     * avatar, so once it's cached, other interviewers download quickly on demand.
+     * Idempotent and self-healing: safe to call from multiple entry points, only
+     * runs once per process, skips anything already cached, and retries next launch
+     * if a previous attempt failed (e.g. no network).
+     */
+    private fun startAvatarPrefetch() {
+        if (NativeDuixAvatarView.isModelCached(this, "Sofia")) return
+        appState.duixModelsPreloaded = true
+        NativeDuixAvatarView.downloadAuthToken = appState.authToken.takeIf { it.isNotBlank() }
+        try {
+            NativeDuixAvatarView.preloadModelFiles(this@MainActivity, listOf("Sofia"))
+        } catch (_: Exception) {
+        }
+    }
+
     private fun showHome(tab: PrezzenceTab = PrezzenceTab.HOME, skipDataRefresh: Boolean = false) {
         activeTab = tab
         homeTabState.value = tab
@@ -1265,16 +1291,7 @@ class MainActivity : ComponentActivity() {
             scope.launch { refreshServerEntitlement() }
         }
 
-        if (!appState.duixModelsPreloaded) {
-            appState.duixModelsPreloaded = true
-            scope.launch {
-                try {
-                    val preloadNames = listOf("Sofia", "Lily", "Oliver")
-                    com.pollecode.prezzencekotlin.nativebridge.NativeDuixAvatarView.preloadModelFiles(this@MainActivity, preloadNames)
-                } catch (_: Exception) {
-                }
-            }
-        }
+        startAvatarPrefetch()
 
         val alreadyOnHome = homeComposeView?.parent == root
         ensureHomeShell()
@@ -2948,6 +2965,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showEnteringRoom(preparing: Boolean = true, setupStatus: String = "Preparing your questions and interview room.") {
+        // Ensure the avatar engine is downloading (no-op if already started/cached).
+        startAvatarPrefetch()
         if (!appState.hasPremiumAccess() && sessionHistoryItems().size >= PrezzenceDefaults.FREE_SESSION_LIMIT) {
             showAppToast(
                 "Free plan includes ${PrezzenceDefaults.FREE_SESSION_LIMIT} practice sessions. Upgrade to Pro for unlimited practice.",
@@ -3293,10 +3312,6 @@ class MainActivity : ComponentActivity() {
             val recordingDuration by recordingDurationState
             val answerReviewVisible by answerReviewVisibleState
             val modelAnswerVisible by modelAnswerVisibleState
-            val learnTopicVisible by learnTopicVisibleState
-            val learnTopicLoading by learnTopicLoadingState
-            val learnTopicTitle by learnTopicTitleState
-            val learnTopicBody by learnTopicBodyState
             val interviewPaused by interviewPausedState
             val avatarReady by avatarReadyState
             val interviewerSpeaking by interviewerSpeakingState
@@ -3322,7 +3337,7 @@ class MainActivity : ComponentActivity() {
                     },
                     questionText = currentQuestion.text,
                     learnMoreTopic = currentQuestion.resolvedLearnMoreTopic(),
-                    onLearnMore = { openLearnTopic(currentQuestion) },
+                    onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
                     answering = answeringNow,
                     processing = processingNow,
                     processingStage = stage,
@@ -3376,7 +3391,7 @@ class MainActivity : ComponentActivity() {
                         displayTranscript = SessionScoring.formatTranscriptForDisplay(reviewResult.transcript),
                         hasModelAnswer = reviewResult.improvedAnswer.isNotBlank(),
                         continueLabel = continueLabel,
-                        onLearnMore = { openLearnTopic(currentQuestion) },
+                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
                         onTryAgain = { handleAnswerTryAgain() },
                         onContinue = {
                             resumeInterviewRoomSpeech()
@@ -3397,26 +3412,13 @@ class MainActivity : ComponentActivity() {
                         coachingHow = reviewResult.how,
                         coachingWhy = reviewResult.why,
                         onBack = { dismissTeachingOverlay() },
-                        onLearnMore = { openLearnTopic(currentQuestion) },
+                        onLearnMore = { openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl()) },
                         onPlayAgain = { playCoachingAudio(reviewResult.improvedAnswer.trim()) },
                         onTryAgain = { handleAnswerTryAgain() },
                         onContinue = {
                             resumeInterviewRoomSpeech()
                             dismissResultOverlay()
                             advanceAfterAnswerReview()
-                        },
-                    )
-                }
-
-                if (learnTopicVisible) {
-                    PrezzenceLearnTopicOverlay(
-                        title = learnTopicTitle,
-                        lesson = learnTopicBody,
-                        loading = learnTopicLoading,
-                        onClose = { dismissLearnTopic() },
-                        onSearchWeb = {
-                            dismissLearnTopic()
-                            openLearnMoreUrl(currentQuestion.resolvedLearnMoreUrl())
                         },
                     )
                 }
@@ -3466,51 +3468,13 @@ class MainActivity : ComponentActivity() {
         if (modelAnswer.isNotBlank()) {
             scope.launch {
                 delay(400)
+                // If the user already tapped Continue (overlay dismissed), don't
+                // start the model answer audio over the next question.
+                if (!modelAnswerVisibleState.value) return@launch
                 playCoachingAudio(modelAnswer)
             }
         }
     }
-
-    private fun openLearnTopic(question: com.pollecode.prezzencekotlin.data.InterviewQuestion) {
-        learnTopicTitleState.value = question.resolvedLearnMoreTopic()
-        learnTopicBodyState.value = ""
-        learnTopicLoadingState.value = true
-        learnTopicVisibleState.value = true
-        scope.launch {
-            val lesson = if (appState.authToken.isNotBlank()) {
-                runCatching {
-                    backend.fetchTopicLesson(
-                        bearerToken = appState.authToken,
-                        questionText = question.text,
-                        roleTitle = appState.selectedRole,
-                        refreshToken = appState.authRefreshToken,
-                        onTokenRefreshed = { refreshed ->
-                            appState.authToken = refreshed.accessToken
-                            appState.authRefreshToken = refreshed.refreshToken
-                        },
-                    )
-                }.getOrNull()
-            } else null
-            if (lesson != null && lesson.lesson.isNotBlank()) {
-                if (lesson.topic.isNotBlank()) learnTopicTitleState.value = lesson.topic
-                learnTopicBodyState.value = lesson.lesson
-            } else {
-                learnTopicBodyState.value = localTopicLesson()
-            }
-            learnTopicLoadingState.value = false
-        }
-    }
-
-    private fun dismissLearnTopic() {
-        learnTopicVisibleState.value = false
-    }
-
-    private fun localTopicLesson(): String =
-        "- This question checks how you think and act in real situations, not memorised theory.\n" +
-        "- Use the STAR method: set the Situation and Task, focus on your Action, end with the Result.\n" +
-        "- Be specific: name the context, what you decided, and a measurable outcome.\n" +
-        "- Show ownership (say 'I'), good judgement, and what you learned.\n" +
-        "- Keep it to 45-90 seconds and tie it back to the role you want."
 
     private fun replayCurrentQuestion() {
         val avatar = activeAvatar ?: return
@@ -3784,6 +3748,10 @@ class MainActivity : ComponentActivity() {
             showAppToast("No model answer is available yet.", ToastKind.WARNING)
             return
         }
+        // Start a fresh playback generation. If the user taps Continue (which calls
+        // stopCoachingAudio) before this finishes, the token won't match and we abort
+        // instead of speaking the model answer over the next question.
+        val token = ++coachingPlayToken
         scope.launch {
             try {
                 val currentInterviewer = appState.interviewerFor(appState.currentQuestion())
@@ -3794,12 +3762,15 @@ class MainActivity : ComponentActivity() {
                     language = appState.language,
                     personality = currentInterviewer.id,
                 )
+                if (token != coachingPlayToken) return@launch
                 if (backendSpeech.isNullOrBlank()) {
                     showAppToast("Could not generate coaching audio.", ToastKind.WARNING)
                     return@launch
                 }
                 val avatar = waitForActiveAvatar()
+                if (token != coachingPlayToken) return@launch
                 root.post {
+                    if (token != coachingPlayToken) return@post
                     if (avatar != null) {
                         avatar.speakAudioUri(backendSpeech, "coaching")
                     } else {

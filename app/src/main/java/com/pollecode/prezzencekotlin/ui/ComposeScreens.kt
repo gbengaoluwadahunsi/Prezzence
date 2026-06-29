@@ -3250,6 +3250,33 @@ fun PrezzenceInterviewRoomScreen(
 
 // ─── Interview overlays (answer review, model answer, pause) ─────────────────
 
+/**
+ * A clear, tappable "Learn more" button that opens a web page teaching the topic.
+ */
+@Composable
+private fun LearnMoreButton(topic: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Accent.copy(alpha = 0.16f))
+            .border(1.dp, Accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .a11yIconButton("Learn more about ${topic.ifBlank { "this topic" }} online")
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Click here to learn more  ↗",
+            color = Accent,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
 @Composable
 fun PrezzenceInterviewPausedOverlay(
     onResume: () -> Unit,
@@ -3364,13 +3391,7 @@ fun PrezzenceAnswerResultOverlay(
                     Spacer(Modifier.height(4.dp))
                     Text(questionText, color = TextPrimary.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 19.sp)
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Learn more: ${learnMoreTopic.ifBlank { "this topic" }}",
-                        color = Accent,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.a11yIconButton("Learn more about this question").clickable(onClick = onLearnMore),
-                    )
+                    LearnMoreButton(topic = learnMoreTopic, onClick = onLearnMore)
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -3511,17 +3532,7 @@ fun PrezzenceModelAnswerOverlay(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Learn more: ${learnMoreTopic.ifBlank { "this topic" }}",
-                    color = Accent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .a11yIconButton("Learn more about this question")
-                        .clickable(onClick = onLearnMore),
-                    textAlign = TextAlign.Center,
-                )
+                LearnMoreButton(topic = learnMoreTopic, onClick = onLearnMore)
                 if (modelAnswer.isNotBlank()) {
                     Spacer(Modifier.height(14.dp))
                     Text("MODEL ANSWER (STAR)", color = Color(0xFFFFD166), fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -3619,99 +3630,6 @@ private fun highlightStarLabels(text: String) = buildAnnotatedString {
     STAR_LABEL_REGEX.findAll(text).forEach { match ->
         val group = match.groups[1] ?: return@forEach
         addStyle(labelStyle, group.range.first, match.range.last + 1)
-    }
-}
-
-@Composable
-fun PrezzenceLearnTopicOverlay(
-    title: String,
-    lesson: String,
-    loading: Boolean,
-    onClose: () -> Unit,
-    onSearchWeb: () -> Unit,
-) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.74f)),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.88f)
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .background(Color(0xFF12121D))
-                .border(1.dp, Accent.copy(alpha = 0.30f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("LEARN MORE", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                Box(
-                    Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.06f))
-                        .a11yIconButton("Close")
-                        .clickable(onClick = onClose),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Canvas(Modifier.size(13.dp)) {
-                        val c = TextPrimary
-                        drawLine(c, Offset(size.width * 0.10f, size.height * 0.10f), Offset(size.width * 0.90f, size.height * 0.90f), strokeWidth = 2.4f, cap = StrokeCap.Round)
-                        drawLine(c, Offset(size.width * 0.90f, size.height * 0.10f), Offset(size.width * 0.10f, size.height * 0.90f), strokeWidth = 2.4f, cap = StrokeCap.Round)
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                title.ifBlank { "How to approach this question" },
-                color = TextPrimary,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 25.sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp),
-            ) {
-                if (loading) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 24.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                        Text("Preparing a quick lesson...", color = TextSecondary, fontSize = 14.sp)
-                    }
-                } else {
-                    Text(lesson, color = Color(0xFFD7DBEC), fontSize = 15.sp, lineHeight = 23.sp)
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp)
-                    .padding(bottom = 16.dp)
-                    .height(46.dp)
-                    .clip(RoundedCornerShape(23.dp))
-                    .background(Color.White.copy(alpha = 0.10f))
-                    .a11yIconButton("Search the web")
-                    .clickable(onClick = onSearchWeb),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Search the web", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-        }
     }
 }
 

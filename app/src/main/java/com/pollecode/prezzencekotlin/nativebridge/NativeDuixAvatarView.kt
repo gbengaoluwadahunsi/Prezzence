@@ -561,16 +561,13 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
     private fun showOverlay(progress: Int) {
         mainHandler.post {
             val existing = findViewWithTag<LinearLayout>("duixOverlay")
-            val messageText = "Setting up 3D neural engine for first-time use. This takes a moment..."
+            val messageText = "One-time setup. Your 3D interviewer is downloading now — future interviews start instantly."
             val progressText = "$progress%"
             val phaseMessage = when (progress) {
-                in 0..15 -> "Initializing neural rendering pipeline..."
-                in 16..35 -> "Downloading 3D geometry & textures..."
-                in 36..55 -> "Extracting mesh structures & textures..."
-                in 56..75 -> "Decompressing skeletal rig & blendshapes..."
-                in 76..90 -> "Compiling shader graphic engines..."
-                in 91..99 -> "Calibrating real-time audio sync..."
-                else -> "Initializing 3D neural avatar..."
+                in 0..4 -> "Preparing one-time setup..."
+                in 5..92 -> "Downloading interviewer engine..."
+                in 93..99 -> "Installing & extracting..."
+                else -> "Finalizing your interviewer..."
             }
 
             if (existing == null) {
@@ -679,6 +676,14 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         @Volatile
         var downloadAuthToken: String? = null
 
+        @Volatile
+        private var prefetchStarted = false
+
+        // Per-model locks so a background prefetch and an interview-time load can
+        // never download/unzip the same files at once (which would corrupt them).
+        private val modelLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+        private fun lockFor(name: String): Any = modelLocks.getOrPut(name) { Any() }
+
         fun isModelCached(context: Context, name: String): Boolean {
             val modelName = normalizeModelNameStatic(name)
             val root = modelRootFor(context)
@@ -686,9 +691,39 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                 avatarModelLooksReadyStatic(File(root, modelName))
         }
 
+        /**
+         * Downloads the shared base engine (~133MB) plus the given avatar(s) in a
+         * low-priority background thread so the heavy first-time setup is finished
+         * before the user ever reaches the interview room. Safe to call repeatedly;
+         * it only runs once and skips anything already cached.
+         */
         fun preloadModelFiles(context: Context, names: List<String>) {
-            // Models are bundled in APK or already cached - no download needed
-            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Models loaded from APK/cache")
+            if (prefetchStarted) return
+            prefetchStarted = true
+            val appContext = context.applicationContext
+            val toFetch = names.ifEmpty { listOf("Sofia") }
+            Thread({
+                val prefetchClient = OkHttpClient.Builder()
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(600, TimeUnit.SECONDS)
+                    .writeTimeout(60, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(true)
+                    .build()
+                for (name in toFetch) {
+                    try {
+                        if (!isModelCached(appContext, name)) {
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Prefetching avatar model '$name' in background")
+                            ensureModelFilesAvailable(appContext, name, prefetchClient, null)
+                            if (BuildConfig.DEBUG) Log.i("PrezzenceDuix", "Prefetch complete for '$name'")
+                        }
+                    } catch (e: Exception) {
+                        Log.w("PrezzenceDuix", "Background prefetch failed for '$name': ${e.message}")
+                    }
+                }
+            }, "duix-prefetch").apply {
+                isDaemon = true
+                priority = Thread.MIN_PRIORITY
+            }.start()
         }
         
         fun clearModelCache(context: Context) {
@@ -716,15 +751,25 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
             val needsAvatar = !avatarModelLooksReadyStatic(modelDir)
             
             if (needsBase) {
-                downloadAndUnzipStatic(client, root, BASE_MODEL_NAME, baseDir) { p ->
-                    if (needsAvatar) onProgress?.invoke((p * 0.6).toInt())
-                    else onProgress?.invoke(p)
+                // Re-check inside the lock: another thread (e.g. the background
+                // prefetch) may have just finished downloading the base engine.
+                synchronized(lockFor(BASE_MODEL_NAME)) {
+                    if (!baseConfigLooksReadyStatic(baseDir)) {
+                        downloadAndUnzipStatic(client, root, BASE_MODEL_NAME, baseDir) { p ->
+                            if (needsAvatar) onProgress?.invoke((p * 0.6).toInt())
+                            else onProgress?.invoke(p)
+                        }
+                    }
                 }
             }
             if (needsAvatar) {
-                downloadAndUnzipStatic(client, root, normalized, modelDir) { p ->
-                    if (needsBase) onProgress?.invoke(60 + (p * 0.4).toInt())
-                    else onProgress?.invoke(p)
+                synchronized(lockFor(normalized)) {
+                    if (!avatarModelLooksReadyStatic(modelDir)) {
+                        downloadAndUnzipStatic(client, root, normalized, modelDir) { p ->
+                            if (needsBase) onProgress?.invoke(60 + (p * 0.4).toInt())
+                            else onProgress?.invoke(p)
+                        }
+                    }
                 }
             }
             
