@@ -15,10 +15,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
-import android.content.res.ColorStateList
 import ai.guiji.duix.sdk.client.Constant
 import ai.guiji.duix.sdk.client.DUIX
 import ai.guiji.duix.sdk.client.render.DUIXRenderer
@@ -562,16 +560,9 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
         mainHandler.post {
             val existing = findViewWithTag<LinearLayout>("duixOverlay")
             val messageText = "One-time setup. Your 3D interviewer is downloading now — future interviews start instantly."
-            val progressText = "$progress%"
-            val phaseMessage = when (progress) {
-                in 0..4 -> "Preparing one-time setup..."
-                in 5..92 -> "Downloading interviewer engine..."
-                in 93..99 -> "Installing & extracting..."
-                else -> "Finalizing your interviewer..."
-            }
+            val statusMessage = if (progress >= 100) "Download done ✓" else "Downloading started…"
 
             if (existing == null) {
-                val accentColor = Color.rgb(108, 99, 255)
                 val cyberCyan = Color.rgb(26, 216, 166)
                 addView(LinearLayout(context).apply {
                     tag = "duixOverlay"
@@ -602,36 +593,14 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                         })
                     }
 
-                    // Progress Bar
-                    addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
-                        tag = "progressBar"
-                        max = 100
-                        setProgress(progress)
-                        progressTintList = ColorStateList.valueOf(accentColor)
-                        progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(30, 29, 48))
-                        layoutParams = LinearLayout.LayoutParams(dp(200), dp(6)).apply {
-                            bottomMargin = dp(8)
-                        }
-                    })
-
-                    // Progress Percentage Text
+                    // Status text (no percentage / no progress bar — text only)
                     addView(TextView(context).apply {
-                        tag = "progressPercentage"
-                        this.text = progressText
+                        tag = "statusText"
+                        this.text = statusMessage
                         gravity = Gravity.CENTER
-                        textSize = 20f
-                        setTextColor(Color.WHITE)
-                        typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    })
-
-                    // Compilation Phase Message (Tech-Cyan)
-                    addView(TextView(context).apply {
-                        tag = "compilationPhase"
-                        this.text = phaseMessage
-                        gravity = Gravity.CENTER
-                        textSize = 12f
+                        textSize = 18f
                         setTextColor(cyberCyan)
-                        typeface = android.graphics.Typeface.MONOSPACE
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
                         layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                             topMargin = dp(8)
                         }
@@ -651,14 +620,10 @@ class NativeDuixAvatarView(context: Context) : FrameLayout(context) {
                     })
                 })
             } else {
-                val progressBar = existing.findViewWithTag<ProgressBar>("progressBar")
-                val progressTextView = existing.findViewWithTag<TextView>("progressPercentage")
-                val phaseTextView = existing.findViewWithTag<TextView>("compilationPhase")
+                val statusTextView = existing.findViewWithTag<TextView>("statusText")
                 val disclaimerTextView = existing.findViewWithTag<TextView>("disclaimerText")
 
-                progressBar?.progress = progress
-                progressTextView?.text = progressText
-                phaseTextView?.text = phaseMessage
+                statusTextView?.text = statusMessage
                 disclaimerTextView?.text = messageText
             }
         }

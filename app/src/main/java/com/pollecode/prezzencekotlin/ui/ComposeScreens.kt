@@ -4542,6 +4542,9 @@ private fun SessionTrendChart(
     val minBarHeight = 32.dp
     val maxBarHeight = 80.dp
     val chartHeight = 118.dp
+    // Tighten spacing when there are many sessions so columns stay wide enough
+    // for the value + axis labels to render on a single line (no character wrap).
+    val barSpacing = if (scores.size >= 6) 6.dp else 12.dp
 
     Column(
         modifier
@@ -4569,7 +4572,7 @@ private fun SessionTrendChart(
                     .fillMaxWidth()
                     .height(chartHeight - 26.dp)
                     .align(Alignment.TopCenter),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(barSpacing),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 scores.forEach { score ->
@@ -4581,27 +4584,20 @@ private fun SessionTrendChart(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom,
                     ) {
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(
-                                    if (isPeak) Accent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f),
-                                )
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                        ) {
-                            Text(
-                                "$score%",
-                                color = if (isPeak) TextPrimary else TextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
+                        Text(
+                            "$score%",
+                            color = if (isPeak) TextPrimary else TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                         Spacer(Modifier.height(8.dp))
                         Box(
                             Modifier
-                                .widthIn(min = 20.dp, max = 44.dp)
-                                .fillMaxWidth(0.62f)
+                                .widthIn(min = 14.dp, max = 44.dp)
+                                .fillMaxWidth(0.72f)
                                 .height(barHeight)
                                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 6.dp, bottomEnd = 6.dp))
                                 .background(
@@ -4619,14 +4615,16 @@ private fun SessionTrendChart(
                 Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(barSpacing),
             ) {
                 scores.forEachIndexed { index, _ ->
+                    // Only anchor the first and latest columns; labelling every
+                    // middle bar "Mid" is noise and forces character wrapping.
                     val label = when {
                         scores.size == 1 -> "Latest"
                         index == 0 -> "First"
                         index == scores.lastIndex -> "Latest"
-                        else -> "Mid"
+                        else -> ""
                     }
                     Text(
                         label,
@@ -4635,6 +4633,8 @@ private fun SessionTrendChart(
                         color = TextSecondary.copy(alpha = 0.85f),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }

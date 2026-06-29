@@ -278,7 +278,12 @@ class MainActivity : ComponentActivity() {
             if (entitled) syncPlayPurchase(purchaseToken, orderId)
         }
         setContentView(root)
-        
+
+        // Start the one-time avatar download immediately on launch (earliest point)
+        // so it finishes while the user signs in / onboards, well before the first
+        // question. Idempotent and self-healing; no-op if already cached.
+        startAvatarPrefetch()
+
         if (!handleAuthCallback(intent?.data)) showSplash()
     }
 
