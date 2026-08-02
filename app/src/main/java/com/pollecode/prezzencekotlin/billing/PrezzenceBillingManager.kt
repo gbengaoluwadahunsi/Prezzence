@@ -7,6 +7,7 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -20,10 +21,11 @@ import kotlin.coroutines.resume
 
 class PrezzenceBillingManager(
     context: Context,
-    private val onEntitlementChanged: (entitled: Boolean, status: String, purchaseToken: String?, orderId: String?) -> Unit,
+    private val onEntitlementChanged: (entitled: Boolean, status: String, purchaseToken: String?, orderId: String?, productId: String?) -> Unit,
 ) : PurchasesUpdatedListener {
     private val appContext = context.applicationContext
     private var productDetails: ProductDetails? = null
+    private var weekPassDetails: ProductDetails? = null
 
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
@@ -32,18 +34,32 @@ class PrezzenceBillingManager(
 
     val productId: String = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
 
+    // One-time "interview week" pass. Sold as a consumable so it can be purchased
+    // again for a future interview; the 7-day entitlement window is enforced server-side.
+    val weekPassProductId: String = BuildConfig.PREZZENCE_WEEK_PASS_PRODUCT_ID
+
     suspend fun refresh(): BillingUiState = withContext(Dispatchers.IO) {
         val connected = connect()
         if (!connected) return@withContext BillingUiState(false, false, productId, "Google Play Billing is unavailable on this device.")
         productDetails = querySubscriptionProduct()
+        weekPassDetails = queryWeekPassProduct()
         val entitled = queryActiveSubscription()
         val status = when {
             entitled.first -> "Active subscription restored from Google Play."
             productDetails == null -> "Subscription product '$productId' was not found in Google Play Console."
             else -> "Subscription is available."
         }
-        onEntitlementChanged(entitled.first, status, entitled.second, entitled.third)
-        BillingUiState(true, entitled.first, productId, status, productDetails?.displayPrice(), entitled.second, entitled.third)
+        onEntitlementChanged(entitled.first, status, entitled.second, entitled.third, productId)
+        BillingUiState(
+            connected = true,
+            entitled = entitled.first,
+            productId = productId,
+            status = status,
+            price = productDetails?.displayPrice(),
+            purchaseToken = entitled.second,
+            orderId = entitled.third,
+            weekPassPrice = weekPassDetails?.oneTimeDisplayPrice(),
+        )
     }
 
     suspend fun purchase(activity: Activity): BillingUiState {
@@ -65,31 +81,44 @@ class PrezzenceBillingManager(
             )
             .build()
         val result = billingClient.launchBillingFlow(activity, params)
-        return BillingUiState(true, false, productId, billingMessage(result))
+        return BillingUiState(true, false, productId, billingMessage(result), weekPassPrice = weekPassDetails?.oneTimeDisplayPrice())
+    }
+
+    suspend fun purchaseWeekPass(activity: Activity): BillingUiState {
+        val connected = connect()
+        if (!connected) return BillingUiState(false, false, weekPassProductId, "Google Play Billing is unavailable on this device.")
+        val details = weekPassDetails ?: queryWeekPassProduct()?.also { weekPassDetails = it }
+        if (details == null) return BillingUiState(true, false, weekPassProductId, "Pass '$weekPassProductId' was not found in Google Play Console.")
+
+        val params = BillingFlowParams.newBuilder()
+            .setProductDetailsParamsList(
+                listOf(
+                    BillingFlowParams.ProductDetailsParams.newBuilder()
+                        .setProductDetails(details)
+                        .build()
+                )
+            )
+            .build()
+        val result = billingClient.launchBillingFlow(activity, params)
+        return BillingUiState(true, false, weekPassProductId, billingMessage(result), price = details.oneTimeDisplayPrice())
     }
 
     suspend fun restore(): BillingUiState = refresh()
 
     override fun onPurchasesUpdated(billingResult: BillingResult, purchases: MutableList<Purchase>?) {
-        when (billingResult.responseCode) {
-            BillingClient.BillingResponseCode.OK -> {
-                purchases?.forEach { purchase ->
-                    if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
-                        acknowledgeIfNeeded(purchase)
-                        onEntitlementChanged(true, "Subscription active.", purchase.purchaseToken, purchase.orderId)
-                    }
-                }
-            }
-            BillingClient.BillingResponseCode.USER_CANCELED -> Unit
-            else -> {
-                if (!purchases.isNullOrEmpty()) {
-                    purchases.forEach { purchase ->
-                        if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
-                            acknowledgeIfNeeded(purchase)
-                            onEntitlementChanged(true, "Subscription active.", purchase.purchaseToken, purchase.orderId)
-                        }
-                    }
-                }
+        val handled = billingResult.responseCode == BillingClient.BillingResponseCode.OK ||
+            !purchases.isNullOrEmpty()
+        if (!handled) return
+        purchases?.forEach { purchase ->
+            if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return@forEach
+            val isWeekPass = purchase.products.contains(weekPassProductId)
+            if (isWeekPass) {
+                // Consumable: do NOT acknowledge here. The server verifies the token, grants the
+                // 7-day window, then we consume it (see consumePurchaseToken) so it can be rebought.
+                onEntitlementChanged(true, "Interview pass active.", purchase.purchaseToken, purchase.orderId, weekPassProductId)
+            } else {
+                acknowledgeIfNeeded(purchase)
+                onEntitlementChanged(true, "Subscription active.", purchase.purchaseToken, purchase.orderId, productId)
             }
         }
     }
@@ -125,6 +154,19 @@ class PrezzenceBillingManager(
         }
     }
 
+    private suspend fun queryWeekPassProduct(): ProductDetails? = suspendCancellableCoroutine { cont ->
+        val product = QueryProductDetailsParams.Product.newBuilder()
+            .setProductId(weekPassProductId)
+            .setProductType(BillingClient.ProductType.INAPP)
+            .build()
+        val params = QueryProductDetailsParams.newBuilder()
+            .setProductList(listOf(product))
+            .build()
+        billingClient.queryProductDetailsAsync(params) { result, products ->
+            cont.resume(if (result.responseCode == BillingClient.BillingResponseCode.OK) products.firstOrNull() else null)
+        }
+    }
+
     private suspend fun queryActiveSubscription(): Triple<Boolean, String?, String?> = suspendCancellableCoroutine { cont ->
         val params = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.SUBS)
@@ -139,14 +181,31 @@ class PrezzenceBillingManager(
         }
     }
 
+    /**
+     * Consumes a one-time pass purchase so the user can buy it again for a future interview.
+     * Call this only AFTER the server has verified the token and granted the entitlement —
+     * consuming invalidates the token for further verification.
+     */
+    suspend fun consumePurchaseToken(purchaseToken: String): Boolean = suspendCancellableCoroutine { cont ->
+        if (purchaseToken.isBlank()) {
+            cont.resume(false)
+            return@suspendCancellableCoroutine
+        }
+        val params = ConsumeParams.newBuilder().setPurchaseToken(purchaseToken).build()
+        billingClient.consumeAsync(params) { result, _ ->
+            cont.resume(result.responseCode == BillingClient.BillingResponseCode.OK)
+        }
+    }
+
     private fun acknowledgeIfNeeded(purchase: Purchase) {
         if (purchase.isAcknowledged) return
+        if (purchase.products.contains(weekPassProductId)) return // consumable — handled via consume, not acknowledge
         val params = AcknowledgePurchaseParams.newBuilder()
             .setPurchaseToken(purchase.purchaseToken)
             .build()
         billingClient.acknowledgePurchase(params) { result ->
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                onEntitlementChanged(true, "Subscription acknowledged.", purchase.purchaseToken, purchase.orderId)
+                onEntitlementChanged(true, "Subscription acknowledged.", purchase.purchaseToken, purchase.orderId, productId)
             }
         }
     }
@@ -160,12 +219,16 @@ class PrezzenceBillingManager(
             ?.formattedPrice
     }
 
+    private fun ProductDetails.oneTimeDisplayPrice(): String? {
+        return oneTimePurchaseOfferDetails?.formattedPrice
+    }
+
     private fun billingMessage(result: BillingResult): String {
         return result.debugMessage.ifBlank {
             when (result.responseCode) {
                 BillingClient.BillingResponseCode.OK -> "Billing request completed."
                 BillingClient.BillingResponseCode.USER_CANCELED -> "Purchase canceled."
-                BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> "Subscription already owned."
+                BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> "Already owned."
                 BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE -> "Google Play Billing service is unavailable."
                 else -> "Billing response ${result.responseCode}."
             }
@@ -181,4 +244,5 @@ data class BillingUiState(
     val price: String? = null,
     val purchaseToken: String? = null,
     val orderId: String? = null,
+    val weekPassPrice: String? = null,
 )

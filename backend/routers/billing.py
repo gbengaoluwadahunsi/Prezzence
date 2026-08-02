@@ -4,8 +4,12 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from core.production_config import WEEK_PASS_PRODUCT_ID
 from middleware.auth import get_current_user
-from services.billing_entitlements import sync_verified_google_subscription
+from services.billing_entitlements import (
+    sync_verified_google_product,
+    sync_verified_google_subscription,
+)
 from services.database import neon_db
 from services.google_play_billing import google_play_billing
 
@@ -15,11 +19,29 @@ RTDN_GRANT_TYPES = {1, 2, 4, 7}
 RTDN_REVOKE_TYPES = {3, 5, 12, 13}
 
 
+@router.get("/google/status", status_code=200)
+async def google_billing_status():
+    """Shows whether server-side subscription verification is configured."""
+    from core.production_config import PRODUCTION_PACKAGE, SUBSCRIPTION_PRODUCT_ID
+
+    return {
+        "configured": google_play_billing.configured(),
+        "package_name": google_play_billing.package_name,
+        "expected_package_name": PRODUCTION_PACKAGE,
+        "subscription_product_id": SUBSCRIPTION_PRODUCT_ID,
+        "package_matches_production": google_play_billing.package_name == PRODUCTION_PACKAGE,
+    }
+
+
 class EntitlementSyncRequest(BaseModel):
     purchase_token: str
     product_id: str = "prezzence_pro"
     package_name: str | None = None
     order_id: str | None = None
+    # "subscription" (default) or "product" for the one-time week pass. The
+    # server also infers "product" when product_id matches the week-pass SKU,
+    # so older clients that only send product_id still route correctly.
+    product_type: str | None = None
 
 
 @router.post("/google/sync", status_code=200)
@@ -31,6 +53,16 @@ async def sync_google_subscription(
     product_id = payload.product_id.strip() or "prezzence_pro"
     if len(token) < 8:
         raise HTTPException(status_code=400, detail="Invalid purchase token")
+
+    is_one_time = (payload.product_type or "").strip().lower() == "product" or product_id == WEEK_PASS_PRODUCT_ID
+    if is_one_time:
+        return await sync_verified_google_product(
+            user_id=str(current_user["id"]),
+            product_id=product_id,
+            purchase_token=token,
+            package_name=payload.package_name,
+            order_id=payload.order_id,
+        )
     return await sync_verified_google_subscription(
         user_id=str(current_user["id"]),
         product_id=product_id,

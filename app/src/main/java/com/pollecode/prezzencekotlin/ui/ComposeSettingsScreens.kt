@@ -546,7 +546,7 @@ fun PrezzenceNotificationSettingsScreen(
             Spacer(Modifier.height(12.dp))
             SettingsSectionLabel("ACTIVITY ALERTS")
             SettingsGroupCard {
-                SettingsToggleRow("Practice reminders", "Get reminded before your interview date", reminders) {
+                SettingsToggleRow("Practice reminders", "Nudges to keep your interview prep on track", reminders) {
                     reminders = it; onToggleReminders(it)
                 }
                 SettingsDivider()

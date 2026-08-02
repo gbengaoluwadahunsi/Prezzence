@@ -37,6 +37,9 @@ class SessionCreateRequest(BaseModel):
     enable_web_research: bool = False
     include_technical: bool = True
     language: str = "en"
+    # How soon the real interview is: "today" | "this_week" | "this_month" | "exploring".
+    # Drives client-side paywall urgency and reminders; optional for backward compatibility.
+    interview_when: Optional[str] = None
 
 class Question(BaseModel):
     number: int

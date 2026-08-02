@@ -1,3 +1,10 @@
+# Stray dev media at repo root (keep legit assets under marketing/ or res/)
+/mockvideo.mp4
+/*.mp4
+
+# Firebase config + any accidental download duplicates ("google-services (1).json")
+app/google-services*.json
+
 backend/.env
 frontend/.env
 frontend/.expo/

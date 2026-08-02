@@ -7,29 +7,16 @@ from services.database import neon_db
 from services.resume_parser import build_resume_profile, extract_resume_text
 from middleware.auth import get_current_user
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
-from services.billing_entitlements import sync_verified_google_subscription
 from services.entitlements import has_unlimited_access
+from services.supabase import db as supabase_auth
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 PROGRESS_QUERY_TIMEOUT_SECONDS = float(os.getenv("PROGRESS_QUERY_TIMEOUT_SECONDS", "12"))
 
 
-class PracticeGoalRequest(BaseModel):
-    daily_minutes: int = 10
-    interview_date: date | None = None
-    target_role: str | None = None
-
-
 class ResumeTextRequest(BaseModel):
     text: str
     file_name: str | None = "Pasted resume"
-
-
-class EntitlementSyncRequest(BaseModel):
-    purchase_token: str
-    product_id: str = "prezzence_pro"
-    package_name: str | None = None
-    order_id: str | None = None
 
 
 class NotificationPreferencesRequest(BaseModel):
@@ -109,25 +96,6 @@ async def get_entitlement(current_user: dict = Depends(get_current_user)):
         "beta_unlock_all_features": unlock_all,
         "admin_access": admin_access,
     }
-
-
-@router.post("/me/entitlement/sync", status_code=200)
-async def sync_entitlement(
-    payload: EntitlementSyncRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    """Verify and record a Google Play subscription for server-side premium checks."""
-    token = payload.purchase_token.strip()
-    product_id = payload.product_id.strip() or "prezzence_pro"
-    if len(token) < 8:
-        raise HTTPException(status_code=400, detail="Invalid purchase token")
-    return await sync_verified_google_subscription(
-        user_id=str(current_user["id"]),
-        product_id=product_id,
-        purchase_token=token,
-        package_name=payload.package_name,
-        order_id=payload.order_id,
-    )
 
 
 @router.get("/{user_id}/progress", status_code=200)
@@ -284,34 +252,6 @@ def _role_question_bank():
         {"role": "Law", "questions": ["Describe a case or argument where your reasoning changed the outcome.", "How do you manage client risk under ambiguity?"]},
         {"role": "Sales", "questions": ["Tell me about a deal you rescued.", "How do you qualify a prospect and handle objections?"]},
     ]
-
-
-@router.get("/me/stats")
-async def get_my_stats(user: dict = Depends(get_current_user)):
-    progress = await neon_db.get_user_progress(str(user["id"]))
-    if not progress:
-        return {"avg_score": 0, "sessions": 0, "practice_hours": 0}
-    return {
-        "avg_score": progress["avg_score"],
-        "sessions": progress["sessions_count"],
-        "practice_hours": round(progress["answers_count"] * 2 / 60, 1),
-    }
-
-
-@router.get("/me/saved-answers")
-async def get_saved_answers(user: dict = Depends(get_current_user)):
-    rows = await neon_db.get_saved_answers(str(user["id"]))
-    return {"answers": rows}
-
-
-@router.get("/me/practice-goal")
-async def get_practice_goal(user: dict = Depends(get_current_user)):
-    return await neon_db.get_practice_goal(str(user["id"]))
-
-
-@router.patch("/me/practice-goal")
-async def update_practice_goal(goal: PracticeGoalRequest, user: dict = Depends(get_current_user)):
-    return await neon_db.update_practice_goal(str(user["id"]), goal.model_dump())
 
 
 @router.get("/me/resume-profile")

@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from middleware.auth import get_current_user
 from services.database import neon_db
+from services.entitlements import has_unlimited_access
 from services.rate_limit import rate_limited, public_rate_limited, rate_limiter, RULES
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
@@ -94,5 +95,29 @@ async def operational_health(current_user: dict = Depends(get_current_user)):
             "ai_calls_24h": metrics.get("estimated_ai_calls", 0),
             "tts_chars_24h": metrics.get("estimated_tts_chars", 0),
             "note": "Use provider dashboards for exact Groq/Gemini billing; this endpoint tracks app-side usage volume.",
+        },
+    }
+
+
+@router.get("/urgency-conversion", status_code=200)
+async def urgency_conversion(window_days: int = 90, current_user: dict = Depends(get_current_user)):
+    """Admin-only: is Prezzence a painkiller? Conversion to premium by interview-urgency bucket.
+
+    If 'today'/'this_week' users convert far above 'exploring', the acute-moment offer is working.
+    """
+    if not has_unlimited_access(current_user.get("email")):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    window = max(1, min(int(window_days or 90), 365))
+    buckets = await neon_db.get_urgency_conversion(window_days=window)
+    urgent = [b for b in buckets if b["bucket"] in ("today", "this_week")]
+    urgent_users = sum(b["users"] for b in urgent)
+    urgent_premium = sum(b["premium_users"] for b in urgent)
+    return {
+        "window_days": window,
+        "buckets": buckets,
+        "urgent_summary": {
+            "users": urgent_users,
+            "premium_users": urgent_premium,
+            "conversion_rate": round(urgent_premium / urgent_users, 4) if urgent_users else 0.0,
         },
     }

@@ -2319,8 +2319,10 @@ fun PrezzenceOnboardingRoleScreen(
     previewGender: String,
     includeTechnical: Boolean,
     enableWebResearch: Boolean,
+    interviewWhen: String,
     onBack: () -> Unit,
     onRoleChange: (String) -> Unit,
+    onInterviewWhenChange: (String) -> Unit,
     onIndustryChange: (String) -> Unit,
     onSeniorityChange: (String) -> Unit,
     onInterviewModeChange: (String) -> Unit,
@@ -2335,7 +2337,21 @@ fun PrezzenceOnboardingRoleScreen(
     onContinue: () -> Unit,
 ) {
     val setup = remember(track) { onboardingSetupForTrack(track) }
+    val interviewWhenOptions = listOf("Today", "This week", "This month", "Just practicing")
+    fun whenCodeToLabel(code: String): String = when (code) {
+        "today" -> "Today"
+        "this_week" -> "This week"
+        "this_month" -> "This month"
+        else -> "Just practicing"
+    }
+    fun whenLabelToCode(label: String): String = when (label) {
+        "Today" -> "today"
+        "This week" -> "this_week"
+        "This month" -> "this_month"
+        else -> "exploring"
+    }
     var roleValue by remember { mutableStateOf(role) }
+    var interviewWhenLabel by remember { mutableStateOf(whenCodeToLabel(interviewWhen)) }
     var industryValue by remember { mutableStateOf(industry) }
     var seniorityValue by remember { mutableStateOf(seniority) }
     var interviewModeValue by remember { mutableStateOf(interviewMode) }
@@ -2351,6 +2367,11 @@ fun PrezzenceOnboardingRoleScreen(
     fun updateRole(value: String) {
         roleValue = value
         onRoleChange(value)
+    }
+
+    fun updateInterviewWhen(label: String) {
+        interviewWhenLabel = label
+        onInterviewWhenChange(whenLabelToCode(label))
     }
 
     fun updateIndustry(value: String) {
@@ -2425,6 +2446,15 @@ fun PrezzenceOnboardingRoleScreen(
                     Spacer(Modifier.height(32.dp))
 
                     OnboardingField(setup.primaryLabel, roleValue, setup.primaryPlaceholder, ::updateRole)
+                    Spacer(Modifier.height(24.dp))
+                    OnboardingSegment("WHEN'S YOUR INTERVIEW?", interviewWhenOptions, interviewWhenLabel, ::updateInterviewWhen)
+                    Text(
+                        "We tailor how hard we push you to your timeline.",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                    )
                     Spacer(Modifier.height(24.dp))
                     OnboardingField(setup.secondaryLabel, industryValue, setup.secondaryPlaceholder, ::updateIndustry)
                     Spacer(Modifier.height(24.dp))
@@ -4865,6 +4895,7 @@ data class SessionReportAnswerItem(
     val score: Int,
     val feedback: String,
     val transcript: String,
+    val question: String = "",
 )
 
 @Composable

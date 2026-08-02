@@ -15,6 +15,7 @@ import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -69,6 +70,7 @@ import com.pollecode.prezzencekotlin.nativebridge.NativeSpeechTranscriber
 import com.pollecode.prezzencekotlin.nativebridge.SpeechCaptureResult
 import com.pollecode.prezzencekotlin.qa.DeviceQaResult
 import com.pollecode.prezzencekotlin.qa.DeviceQaRunner
+import com.pollecode.prezzencekotlin.integrity.IntegrityChecker
 import com.pollecode.prezzencekotlin.ui.PrezzenceEnteringRoomScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceHomeScreen
 import com.pollecode.prezzencekotlin.ui.PrezzenceInterviewRoomScreen
@@ -141,6 +143,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var appState: AppState
 
     private val backend = PrezzenceBackendClient()
+    private val integrityChecker by lazy { IntegrityChecker(this, BuildConfig.PLAY_CLOUD_PROJECT_NUMBER) }
+    @Volatile private var integrityChecked = false
     private val bg = Color.rgb(10, 10, 15)
     private val surface = Color.rgb(18, 18, 26)
     private val panel = Color.rgb(28, 28, 46)
@@ -157,6 +161,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var billingManager: PrezzenceBillingManager
     private var subscriptionDisplayPrice: String? = null
     private val subscriptionPriceState = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val weekPassPriceState = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     private var activeAvatar: NativeDuixAvatarView? = null
     private var coachingMediaPlayer: MediaPlayer? = null
@@ -271,11 +276,11 @@ class MainActivity : ComponentActivity() {
         onboardingInterviewerStyle = appState.interviewerStyle
         onboardingPreviewGender = appState.previewGender
         updateDuixDownloadAuth()
-        billingManager = PrezzenceBillingManager(this) { entitled, status, purchaseToken, orderId ->
+        billingManager = PrezzenceBillingManager(this) { entitled, status, purchaseToken, orderId, productId ->
             appState.subscriptionEntitled = entitled
             appState.subscriptionStatus = status
-            appState.subscriptionProductId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
-            if (entitled) syncPlayPurchase(purchaseToken, orderId)
+            appState.subscriptionProductId = productId ?: BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
+            if (entitled) syncPlayPurchase(purchaseToken, orderId, productId)
         }
         setContentView(root)
 
@@ -368,6 +373,26 @@ class MainActivity : ComponentActivity() {
         }
         appState.subscriptionEntitled = entitled
         updateDuixDownloadAuth()
+        runIntegrityCheckOnce()
+    }
+
+    /**
+     * Fires a one-time, advisory Play Integrity attestation in the background. Never blocks
+     * the user: any failure is swallowed and the verdict is only recorded server-side.
+     */
+    private fun runIntegrityCheckOnce() {
+        if (integrityChecked || appState.authToken.isBlank()) return
+        integrityChecked = true
+        scope.launch {
+            val token = runCatching {
+                integrityChecker.requestToken("integrity:${System.currentTimeMillis()}")
+            }.getOrNull()
+            if (token.isNullOrBlank()) return@launch
+            val trusted = backend.verifyIntegrity(appState.authToken, token, action = "session_start")
+            if (BuildConfig.DEBUG) {
+                Log.i("PrezzenceIntegrity", "Play Integrity verdict trusted=$trusted")
+            }
+        }
     }
 
     private fun currentNotificationPreferences(): NotificationPreferences = NotificationPreferences(
@@ -982,8 +1007,10 @@ class MainActivity : ComponentActivity() {
                     previewGender = onboardingPreviewGender,
                     includeTechnical = onboardingIncludeTechnical || onboardingTrack.equals("technical", ignoreCase = true),
                     enableWebResearch = onboardingEnableWebResearch,
+                    interviewWhen = appState.interviewWhen,
                     onBack = { showOnboardingType() },
                     onRoleChange = { role -> appState.selectedRole = role },
+                    onInterviewWhenChange = { value -> appState.interviewWhen = value },
                     onIndustryChange = { industry -> onboardingIndustry = industry },
                     onSeniorityChange = { seniority -> onboardingSeniority = seniority },
                     onInterviewModeChange = { mode ->
@@ -1058,7 +1085,29 @@ class MainActivity : ComponentActivity() {
         }
         appState.onboardingComplete = true
         appState.activeSessionId = ""
+        applyPracticeReminders()
         showEnteringRoom()
+    }
+
+    /** Schedule or cancel the pre-interview practice nudge based on the toggle + interview timeline. */
+    private fun applyPracticeReminders() {
+        if (appState.practiceRemindersEnabled) {
+            maybeRequestNotificationPermission()
+            com.pollecode.prezzencekotlin.notifications.ReminderScheduler.schedule(this, appState.interviewWhen)
+        } else {
+            com.pollecode.prezzencekotlin.notifications.ReminderScheduler.cancel(this)
+        }
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
     }
 
     private fun refreshHomeData(tab: PrezzenceTab) {
@@ -1764,6 +1813,7 @@ class MainActivity : ComponentActivity() {
                                 updateNotificationPreference {
                                     appState.practiceRemindersEnabled = enabled
                                 }
+                                applyPracticeReminders()
                             },
                             onToggleAchievements = { enabled ->
                                 updateNotificationPreference {
@@ -2208,6 +2258,7 @@ class MainActivity : ComponentActivity() {
 
     private fun buildSessionReportAnswers(sessionId: String, total: Int): List<SessionReportAnswerItem> {
         val saved = appState.getSessionAnswers(sessionId)
+        val sessionQuestions = appState.questionsForSession(sessionId)
         val questionCount = total.coerceAtLeast(saved.size).coerceAtLeast(1)
         return (0 until questionCount).map { index ->
             val answer = saved.getOrNull(index)
@@ -2222,6 +2273,7 @@ class MainActivity : ComponentActivity() {
                 score = storedScore,
                 feedback = if (storedScore > 0) answer?.feedback.orEmpty() else "",
                 transcript = displayTranscript,
+                question = sessionQuestions.getOrNull(index)?.text.orEmpty(),
             )
         }
     }
@@ -2437,74 +2489,198 @@ class MainActivity : ComponentActivity() {
     private fun writeSessionReportPdf(bundle: SessionReportBundle, sessionId: String): java.io.File {
         val session = bundle.session
         val document = android.graphics.pdf.PdfDocument()
+
+        val accent = Color.rgb(0x6C, 0x63, 0xFF)
+        val ink = Color.rgb(0x10, 0x18, 0x28)
+        val bodyColor = Color.rgb(0x47, 0x50, 0x67)
+        val muted = Color.rgb(0x98, 0xA2, 0xB3)
+        val track = Color.rgb(0xEC, 0xEE, 0xF3)
+        val cardBg = Color.rgb(0xF7, 0xF8, 0xFC)
+        val borderColor = Color.rgb(0xE4, 0xE7, 0xEC)
+        val scoreColor = when {
+            !bundle.hasSignal -> Color.rgb(0x9A, 0xA0, 0xB3)
+            bundle.displayScore >= 75 -> Color.rgb(0x00, 0xB5, 0x74)
+            bundle.displayScore >= 55 -> Color.rgb(0xD9, 0x97, 0x00)
+            else -> Color.rgb(0xE5, 0x48, 0x4D)
+        }
+
+        fun paint(size: Float, tf: android.graphics.Typeface, c: Int, em: Float = 0f) =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = c
+                textSize = size
+                typeface = tf
+                letterSpacing = em
+            }
+
+        val kickerPaint = paint(9f, interBold, Color.argb(0xCC, 0xFF, 0xFF, 0xFF), 0.18f)
+        val titlePaint = paint(27f, interBlack, Color.WHITE)
+        val headerRolePaint = paint(13f, interSemiBold, Color.WHITE)
+        val headerMetaPaint = paint(10.5f, interMedium, Color.argb(0xCC, 0xFF, 0xFF, 0xFF))
+        val scoreBigPaint = paint(33f, interBlack, Color.WHITE)
+        val scoreUnitPaint = paint(11f, interBold, Color.argb(0xB3, 0xFF, 0xFF, 0xFF))
+        val scoreStatusPaint = paint(8f, interBold, Color.argb(0xE6, 0xFF, 0xFF, 0xFF), 0.14f)
+
+        val sectionTitlePaint = paint(15f, interBold, ink)
+        val sectionHintPaint = paint(10f, interRegular, muted)
+        val bodyPaint = paint(11.5f, interRegular, bodyColor)
+        val captionPaint = paint(9f, interBold, muted, 0.1f)
+        val skillLabelPaint = paint(11f, interSemiBold, ink)
+        val skillValuePaint = paint(11f, interBold, bodyColor)
+        val qLabelPaint = paint(12.5f, interBold, ink)
+        val questionPaint = paint(12f, interSemiBold, ink)
+        val chipTextPaint = paint(9.5f, interBold, Color.WHITE)
+        val tipPaint = paint(11f, interRegular, bodyColor)
+        val footerPaint = paint(8.5f, interRegular, muted)
+
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            color = borderColor
+        }
+
         val writer = SessionPdfWriter(document)
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 36f
-            typeface = interBold
-        }
-        val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.DKGRAY
-            textSize = 22f
-            typeface = interBold
-        }
-        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.DKGRAY
-            textSize = 14f
-        }
-        val scorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(108, 99, 255)
-            textSize = 28f
-            typeface = interBold
+        writer.setFooter("Generated by Prezzence · AI interview coach", footerPaint)
+
+        fun drawHeaderBand() {
+            val canvas = writer.canvas
+            val bandHeight = 156f
+            fillPaint.color = accent
+            canvas.drawRect(0f, 0f, writer.pageWidth.toFloat(), bandHeight, fillPaint)
+
+            val left = writer.contentLeft
+            canvas.drawText("PREZZENCE · AI INTERVIEW COACH", left, 44f, kickerPaint)
+            canvas.drawText("Session Report", left, 80f, titlePaint)
+            val roleText = session.role.ifBlank { "Interview session" }
+            canvas.drawText(writer.ellipsize(roleText, headerRolePaint, 300f), left, 106f, headerRolePaint)
+            val metaText = listOfNotNull(
+                session.date.ifBlank { null },
+                "${session.answered}/${session.total} recorded",
+                "${bundle.substantiveCount} scored",
+            ).joinToString("   ·   ")
+            canvas.drawText(metaText, left, 126f, headerMetaPaint)
+
+            val boxW = 104f
+            val boxH = 92f
+            val boxRight = writer.contentRight
+            val boxLeft = boxRight - boxW
+            val boxTop = 34f
+            fillPaint.color = Color.argb(0x26, 0xFF, 0xFF, 0xFF)
+            canvas.drawRoundRect(boxLeft, boxTop, boxRight, boxTop + boxH, 16f, 16f, fillPaint)
+            val cx = (boxLeft + boxRight) / 2f
+            val scoreText = if (bundle.hasSignal) "${bundle.displayScore}" else "--"
+            scoreBigPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(scoreText, cx, boxTop + 46f, scoreBigPaint)
+            scoreBigPaint.textAlign = Paint.Align.LEFT
+            scoreUnitPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(if (bundle.hasSignal) "OUT OF 100" else "NO DATA", cx, boxTop + 62f, scoreUnitPaint)
+            scoreUnitPaint.textAlign = Paint.Align.LEFT
+            val statusLabel = when {
+                bundle.hasSignal -> "COMPLETED"
+                bundle.recordedCount >= session.total && session.total > 0 -> "LOW SIGNAL"
+                bundle.recordedCount > 0 -> "IN PROGRESS"
+                else -> "NEEDS AUDIO"
+            }
+            scoreStatusPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(statusLabel, cx, boxTop + 80f, scoreStatusPaint)
+            scoreStatusPaint.textAlign = Paint.Align.LEFT
+
+            writer.moveTopTo(bandHeight + 24f)
         }
 
-        writer.drawTextLine("Session Report", titlePaint, 44f)
-        writer.gap(12f)
-        writer.drawTextLine("Role: ${session.role}", headingPaint, 28f)
-        writer.drawTextLine("Date: ${session.date}", bodyPaint)
-        writer.drawTextLine(
-            if (bundle.hasSignal) "Score: ${bundle.displayScore}/100" else "Score: --",
-            scorePaint,
-            32f,
-        )
-        writer.drawTextLine(
-            "Questions: ${session.answered}/${session.total} recorded · ${bundle.substantiveCount} scored",
-            bodyPaint,
-        )
+        fun sectionHeader(title: String, hint: String? = null) {
+            writer.ensureSpace(if (hint != null) 44f else 28f)
+            val canvas = writer.canvas
+            val barTop = writer.y + 1f
+            fillPaint.color = accent
+            canvas.drawRoundRect(writer.contentLeft, barTop, writer.contentLeft + 3.5f, barTop + 15f, 2f, 2f, fillPaint)
+            writer.line(title, sectionTitlePaint, x = writer.contentLeft + 12f, spacingAfter = if (hint != null) 1f else 6f)
+            if (hint != null) writer.line(hint, sectionHintPaint, x = writer.contentLeft + 12f, spacingAfter = 8f)
+        }
 
+        fun drawChip(text: String, bg: Int, baselineRightX: Float, topY: Float): Float {
+            val padH = 8f
+            val textW = chipTextPaint.measureText(text)
+            val chipW = textW + padH * 2
+            val left = baselineRightX - chipW
+            val chipH = 17f
+            fillPaint.color = bg
+            writer.canvas.drawRoundRect(left, topY, baselineRightX, topY + chipH, 8.5f, 8.5f, fillPaint)
+            val fm = chipTextPaint.fontMetrics
+            val baseline = topY + chipH / 2f - (fm.ascent + fm.descent) / 2f
+            writer.canvas.drawText(text, left + padH, baseline, chipTextPaint)
+            return chipW
+        }
+
+        // Header band
+        drawHeaderBand()
+
+        // Strengths and gaps
         if (bundle.skillBreakdown.isNotEmpty()) {
-            writer.drawHeading("Strengths and gaps", headingPaint)
-            writer.drawWrapped(
-                "From ${bundle.substantiveCount} substantive ${if (bundle.substantiveCount == 1) "answer" else "answers"} only.",
-                bodyPaint,
+            sectionHeader(
+                "Strengths and gaps",
+                "Based on ${bundle.substantiveCount} substantive ${if (bundle.substantiveCount == 1) "answer" else "answers"}.",
             )
             bundle.skillBreakdown.forEach { (label, value) ->
-                writer.drawTextLine("$label: $value/100", bodyPaint)
+                writer.ensureSpace(30f)
+                val rowTop = writer.y
+                writer.line(label, skillLabelPaint, spacingAfter = 0f)
+                // value right-aligned on the same line
+                val fm = skillLabelPaint.fontMetrics
+                val baseline = rowTop - fm.top
+                skillValuePaint.textAlign = Paint.Align.RIGHT
+                writer.canvas.drawText("$value/100", writer.contentRight, baseline, skillValuePaint)
+                skillValuePaint.textAlign = Paint.Align.LEFT
+                writer.gap(4f)
+                writer.bar(value / 100f, accent, track)
+                writer.gap(9f)
             }
+            writer.gap(8f)
         }
 
-        writer.drawHeading("Coach summary", headingPaint)
-        writer.drawWrapped(bundle.summary, bodyPaint)
-        bundle.coachingTips.forEach { tip ->
-            writer.drawWrapped("• $tip", bodyPaint)
+        // Coach summary
+        sectionHeader("Coach summary")
+        writer.paragraph(bundle.summary, bodyPaint, spacingAfter = 8f)
+        bundle.coachingTips.take(3).forEach { tip ->
+            writer.ensureSpace(20f)
+            val top = writer.y
+            fillPaint.color = accent
+            writer.canvas.drawCircle(writer.contentLeft + 3f, top + 6f, 2.2f, fillPaint)
+            writer.paragraph(tip, tipPaint, x = writer.contentLeft + 14f, width = writer.contentWidth - 14, spacingAfter = 5f)
         }
+        writer.gap(10f)
 
+        // Question by question
         if (bundle.answers.isNotEmpty()) {
-            writer.drawHeading("Answer details", headingPaint)
+            sectionHeader("Question by question", "Your answers and coach feedback for all ${session.total} questions.")
             bundle.answers.forEach { item ->
-                val scoreLabel = when {
-                    item.score > 0 -> "Score: ${item.score}"
-                    item.transcript.isNotBlank() -> "Low signal"
-                    else -> "No response"
+                writer.ensureSpace(70f)
+                val rowTop = writer.y
+                writer.line("Question ${item.index}", qLabelPaint, spacingAfter = 0f)
+                val scoreChip = when {
+                    item.score > 0 -> "Score ${item.score}" to scoreColorFor(item.score)
+                    item.transcript.isNotBlank() && item.transcript != "No response" -> "Low signal" to Color.rgb(0xD9, 0x97, 0x00)
+                    else -> "No response" to Color.rgb(0x9A, 0xA0, 0xB3)
                 }
-                writer.drawTextLine("Q${item.index} · $scoreLabel", headingPaint, 24f)
-                if (item.transcript.isNotBlank()) {
-                    writer.drawWrapped(item.transcript, bodyPaint)
-                }
+                drawChip(scoreChip.first, scoreChip.second, writer.contentRight, rowTop + 1f)
+                writer.gap(6f)
+
+                val questionText = item.question.ifBlank { "Interview question ${item.index}" }
+                writer.paragraph(questionText, questionPaint, spacingAfter = 8f, lineSpacingMult = 1.3f)
+
+                writer.line("YOUR ANSWER", captionPaint, spacingAfter = 4f)
+                val answerText = if (item.transcript.isBlank() || item.transcript == "No response") {
+                    "No response captured for this question."
+                } else item.transcript
+                writer.paragraph(answerText, bodyPaint, spacingAfter = 8f)
+
                 if (item.feedback.isNotBlank()) {
-                    writer.drawWrapped("Feedback: ${item.feedback}", bodyPaint)
+                    writer.line("COACH FEEDBACK", captionPaint, spacingAfter = 4f)
+                    writer.paragraph(item.feedback, bodyPaint, spacingAfter = 8f)
                 }
-                writer.gap(8f)
+
+                writer.divider(borderColor)
+                writer.gap(12f)
             }
         }
 
@@ -2515,11 +2691,18 @@ class MainActivity : ComponentActivity() {
         return file
     }
 
+    private fun scoreColorFor(score: Int): Int = when {
+        score >= 75 -> Color.rgb(0x00, 0xB5, 0x74)
+        score >= 55 -> Color.rgb(0xD9, 0x97, 0x00)
+        score > 0 -> Color.rgb(0xE5, 0x48, 0x4D)
+        else -> Color.rgb(0x9A, 0xA0, 0xB3)
+    }
+
     private class SessionPdfWriter(
         private val document: android.graphics.pdf.PdfDocument,
-        private val pageWidth: Int = 595,
-        private val pageHeight: Int = 842,
-        private val margin: Float = 40f,
+        val pageWidth: Int = 595,
+        val pageHeight: Int = 842,
+        private val margin: Float = 48f,
     ) {
         private var pageIndex = 0
         private var currentPage: android.graphics.pdf.PdfDocument.Page? = null
@@ -2527,26 +2710,56 @@ class MainActivity : ComponentActivity() {
             private set
         var y: Float = margin
             private set
+        private var footerText: String? = null
+        private var footerPaint: Paint? = null
 
+        val contentLeft: Float get() = margin
+        val contentRight: Float get() = pageWidth - margin
         val contentWidth: Int get() = (pageWidth - 2 * margin).toInt()
-        private val bottomLimit get() = pageHeight - margin
+        private val bottomLimit get() = pageHeight - margin - 16f
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         init {
-            startNewPage()
+            startNewPage(topMargin = margin)
         }
 
-        fun startNewPage() {
-            currentPage?.let { document.finishPage(it) }
+        fun setFooter(text: String, paint: Paint) {
+            footerText = text
+            footerPaint = paint
+        }
+
+        private fun drawFooter() {
+            val text = footerText ?: return
+            val paint = footerPaint ?: return
+            val baseline = pageHeight - margin + 10f
+            canvas.drawText(text, contentLeft, baseline, paint)
+            paint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("Page $pageIndex", contentRight, baseline, paint)
+            paint.textAlign = Paint.Align.LEFT
+        }
+
+        private fun startNewPage(topMargin: Float = margin) {
+            currentPage?.let {
+                drawFooter()
+                document.finishPage(it)
+            }
             pageIndex++
             val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex).create()
             currentPage = document.startPage(pageInfo)
             canvas = currentPage!!.canvas
-            y = margin + 16f
+            y = topMargin
         }
 
         fun finish() {
-            currentPage?.let { document.finishPage(it) }
+            currentPage?.let {
+                drawFooter()
+                document.finishPage(it)
+            }
             currentPage = null
+        }
+
+        fun moveTopTo(value: Float) {
+            y = value
         }
 
         fun ensureSpace(needed: Float) {
@@ -2557,26 +2770,36 @@ class MainActivity : ComponentActivity() {
             y += amount
         }
 
-        fun drawTextLine(text: String, paint: Paint, lineHeight: Float = paint.textSize * 1.4f) {
+        /** Draws a single line, anchoring the glyph top to [y] (no overlap with prior content). */
+        fun line(text: String, paint: Paint, x: Float = contentLeft, spacingAfter: Float = 0f) {
+            val fm = paint.fontMetrics
+            val lineHeight = fm.descent - fm.top
             ensureSpace(lineHeight)
-            canvas.drawText(text, margin, y, paint)
-            y += lineHeight
+            val baseline = y - fm.top
+            canvas.drawText(text, x, baseline, paint)
+            y = baseline + fm.descent + spacingAfter
         }
 
-        fun drawWrapped(text: String, paint: Paint, spacingMultiplier: Float = 1.25f) {
+        fun paragraph(
+            text: String,
+            paint: Paint,
+            x: Float = contentLeft,
+            width: Int = contentWidth,
+            lineSpacingMult: Float = 1.35f,
+            spacingAfter: Float = 0f,
+        ) {
+            if (text.isBlank()) return
             val textPaint = android.text.TextPaint(paint)
             var offset = 0
             while (offset < text.length) {
-                if (y + textPaint.textSize * spacingMultiplier > bottomLimit) {
-                    startNewPage()
-                }
-                val availableHeight = bottomLimit - y
-                val lineHeight = textPaint.textSize * spacingMultiplier
-                val maxLines = (availableHeight / lineHeight).toInt().coerceAtLeast(1)
+                val lineHeight = textPaint.fontSpacing * lineSpacingMult
+                if (y + lineHeight > bottomLimit) startNewPage()
+                val available = bottomLimit - y
+                val maxLines = (available / lineHeight).toInt().coerceAtLeast(1)
                 val layout = android.text.StaticLayout.Builder
-                    .obtain(text, offset, text.length, textPaint, contentWidth)
+                    .obtain(text, offset, text.length, textPaint, width)
                     .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
-                    .setLineSpacing(0f, spacingMultiplier)
+                    .setLineSpacing(0f, lineSpacingMult)
                     .setMaxLines(maxLines)
                     .build()
                 if (layout.lineCount == 0) {
@@ -2584,10 +2807,10 @@ class MainActivity : ComponentActivity() {
                     continue
                 }
                 canvas.save()
-                canvas.translate(margin, y)
+                canvas.translate(x, y)
                 layout.draw(canvas)
                 canvas.restore()
-                y += layout.height + 4f
+                y += layout.height
                 val newOffset = layout.getLineEnd(layout.lineCount - 1)
                 if (newOffset <= offset) {
                     startNewPage()
@@ -2597,12 +2820,38 @@ class MainActivity : ComponentActivity() {
                     while (offset < text.length && text[offset].isWhitespace()) offset++
                 }
             }
+            y += spacingAfter
         }
 
-        fun drawHeading(text: String, paint: Paint) {
-            gap(12f)
-            drawTextLine(text, paint, paint.textSize * 1.35f)
+        fun bar(fraction: Float, fillColor: Int, trackColor: Int, height: Float = 7f) {
+            ensureSpace(height)
+            val left = contentLeft
+            val right = contentRight
+            fillPaint.color = trackColor
+            canvas.drawRoundRect(left, y, right, y + height, height / 2f, height / 2f, fillPaint)
+            val clamped = fraction.coerceIn(0f, 1f)
+            if (clamped > 0f) {
+                fillPaint.color = fillColor
+                val fillRight = left + (right - left) * clamped
+                canvas.drawRoundRect(left, y, fillRight.coerceAtLeast(left + height), y + height, height / 2f, height / 2f, fillPaint)
+            }
+            y += height
         }
+
+        fun divider(color: Int) {
+            ensureSpace(1f)
+            fillPaint.color = color
+            canvas.drawRect(contentLeft, y, contentRight, y + 0.8f, fillPaint)
+            y += 0.8f
+        }
+
+        fun ellipsize(text: String, paint: Paint, maxWidth: Float): String {
+            if (paint.measureText(text) <= maxWidth) return text
+            var end = text.length
+            while (end > 1 && paint.measureText(text.substring(0, end) + "…") > maxWidth) end--
+            return text.substring(0, end).trimEnd() + "…"
+        }
+
     }
 
     private fun showFeedback() {
@@ -2631,16 +2880,24 @@ class MainActivity : ComponentActivity() {
             }
         })
     }
-    private fun syncPlayPurchase(purchaseToken: String?, orderId: String? = null) {
+    private fun syncPlayPurchase(purchaseToken: String?, orderId: String? = null, productId: String? = null) {
         if (purchaseToken.isNullOrBlank() || appState.authToken.isBlank()) return
+        val isWeekPass = productId == billingManager.weekPassProductId
         scope.launch {
-            backend.syncEntitlement(
+            val ok = backend.syncEntitlement(
                 bearerToken = appState.authToken,
                 purchaseToken = purchaseToken,
-                productId = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID,
+                productId = productId ?: BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID,
                 packageName = packageName,
                 orderId = orderId,
+                productType = if (isWeekPass) "product" else null,
             )
+            // The pass is a consumable — once the server has granted the 7-day window,
+            // consume it so the user can buy another pass for their next interview.
+            if (ok && isWeekPass) {
+                billingManager.consumePurchaseToken(purchaseToken)
+                appState.subscriptionEntitled = true
+            }
         }
     }
 
@@ -2648,22 +2905,39 @@ class MainActivity : ComponentActivity() {
         setScreen(ComposeView(this).apply {
             setContent {
                 val price by subscriptionPriceState
+                val weekPassPrice by weekPassPriceState
                 PrezzencePaywallScreen(
                     hasPremium = appState.hasPremiumAccess(),
                     priceLabel = price ?: subscriptionDisplayPrice,
+                    interviewWhen = appState.interviewWhen,
+                    weekPassPriceLabel = weekPassPrice,
                     onBack = { showSettings() },
                     onSubscribe = { purchaseSubscription() },
+                    onWeekPass = { purchaseWeekPass() },
                     onRestore = { restoreSubscription() },
                 )
             }
         })
-        if (subscriptionDisplayPrice == null && subscriptionPriceState.value == null) {
+        if (subscriptionDisplayPrice == null || weekPassPriceState.value == null) {
             scope.launch {
-                val price = billingManager.refresh().price
-                if (!price.isNullOrBlank()) {
-                    subscriptionDisplayPrice = price
-                    subscriptionPriceState.value = price
+                val state = billingManager.refresh()
+                if (!state.price.isNullOrBlank()) {
+                    subscriptionDisplayPrice = state.price
+                    subscriptionPriceState.value = state.price
                 }
+                if (!state.weekPassPrice.isNullOrBlank()) {
+                    weekPassPriceState.value = state.weekPassPrice
+                }
+            }
+        }
+    }
+
+    private fun purchaseWeekPass() {
+        scope.launch {
+            val state = billingManager.purchaseWeekPass(this@MainActivity)
+            showBillingToast(state, silent = true)
+            if (state.status.isNotBlank() && !state.entitled) {
+                showAppToast(state.status, ToastKind.INFO)
             }
         }
     }
@@ -3097,10 +3371,15 @@ class MainActivity : ComponentActivity() {
             return result.copy(improvedAnswer = existing)
         }
 
+        // No canned offline answer — always generate a real, question-specific answer from
+        // the backend AI. Retry a few times so a transient network/AI hiccup doesn't drop it.
+        if (appState.authToken.isBlank()) return result
+
         val interviewer = appState.interviewerFor()
         val coachingTranscript = if (substantive) result.transcript else ""
-        if (appState.authToken.isNotBlank()) {
-            runCatching { ensureActiveBackendSession() }
+        runCatching { ensureActiveBackendSession() }
+
+        repeat(3) { attempt ->
             val fetched = runCatching {
                 backend.fetchModelAnswer(
                     bearerToken = appState.authToken,
@@ -3109,6 +3388,11 @@ class MainActivity : ComponentActivity() {
                     roleTitle = appState.selectedRole,
                     interviewerName = interviewer.name,
                     interviewerTitle = interviewer.title,
+                    refreshToken = appState.authRefreshToken,
+                    onTokenRefreshed = { refreshed ->
+                        appState.authToken = refreshed.accessToken
+                        appState.authRefreshToken = refreshed.refreshToken
+                    },
                 )
             }.getOrNull()
             val fetchedAnswer = fetched?.improvedAnswer?.let {
@@ -3123,41 +3407,10 @@ class MainActivity : ComponentActivity() {
                     coachingMessage = fetched.coachingMessage.ifBlank { result.coachingMessage },
                 )
             }
+            if (attempt < 2) delay(700L * (attempt + 1))
         }
 
-        val fallback = buildLocalModelAnswer(questionText, appState.selectedRole)
-        return result.copy(improvedAnswer = fallback)
-    }
-
-    private fun buildLocalModelAnswer(questionText: String, role: String): String {
-        val q = questionText.trim().lowercase(Locale.US)
-        val r = role.ifBlank { "professional" }
-        if (q.contains("introduce yourself") || q.contains("tell me about yourself") || q.contains("overview of your background")) {
-            return "Situation: I've spent the last several years building my expertise as a $r, " +
-                "working across teams of varying sizes and tackling increasingly complex challenges.\n\n" +
-                "Task: In my most recent role, I was brought on specifically to improve how our team delivered results " +
-                "and to close gaps that were impacting our outcomes.\n\n" +
-                "Action: I took ownership of our core workflow, introduced structured planning sessions, " +
-                "and built relationships with stakeholders to align priorities. " +
-                "I also mentored two junior team members who later took on leadership responsibilities.\n\n" +
-                "Result: Within the first year, our team's output improved by 35% and client satisfaction scores " +
-                "rose from 72% to 91%. I'm now looking for a role where I can bring that same impact at a larger scale.\n\n" +
-                "Why this worked: Leading with concrete results and showing personal ownership demonstrates readiness for the next challenge."
-        }
-        return "Situation: In my role as a $r, I encountered a significant challenge " +
-            "that required both strategic thinking and hands-on execution. The team was facing pressure to deliver " +
-            "and existing approaches were falling short.\n\n" +
-            "Task: I was responsible for diagnosing the root cause, proposing a solution, " +
-            "and driving execution within a tight timeline. Leadership expected measurable improvement.\n\n" +
-            "Action: I started by gathering data from all stakeholders to understand the full picture. " +
-            "Then I designed a new approach, breaking it into phases so we could show early wins. " +
-            "I personally led the first phase, set up weekly check-ins to maintain momentum, " +
-            "and adjusted the plan twice based on feedback from the team.\n\n" +
-            "Result: We completed the initiative two weeks ahead of schedule. " +
-            "The measurable outcome was a 40% improvement in our key metric, and the approach " +
-            "was adopted as the standard process going forward.\n\n" +
-            "Why this worked: Showing that you can diagnose, plan, execute, and adapt under pressure " +
-            "gives the interviewer confidence in your problem-solving ability and leadership."
+        return result
     }
 
     private fun sanitizeModelAnswer(
@@ -3210,6 +3463,7 @@ class MainActivity : ComponentActivity() {
             interviewerStyle = onboardingInterviewerStyle,
             previewGender = onboardingPreviewGender,
             length = onboardingSessionLength,
+            interviewWhen = appState.interviewWhen,
         )
     }
 
@@ -3909,6 +4163,7 @@ class MainActivity : ComponentActivity() {
             if (micGranted) {
                 appState.onboardingComplete = true
                 appState.activeSessionId = ""
+                applyPracticeReminders()
                 showEnteringRoom()
             } else {
                 showMicDenied()

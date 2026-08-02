@@ -89,6 +89,7 @@ class NeonDatabase:
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS question_count INT DEFAULT 0;
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS include_technical BOOLEAN NOT NULL DEFAULT TRUE;
                 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS questions JSONB NOT NULL DEFAULT '[]'::jsonb;
+                ALTER TABLE sessions ADD COLUMN IF NOT EXISTS interview_when VARCHAR(20) DEFAULT 'exploring';
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS improved_answer TEXT;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_structure TEXT;
                 ALTER TABLE answers ADD COLUMN IF NOT EXISTS missing_evidence JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -233,12 +234,12 @@ class NeonDatabase:
             row = await self.pool.fetchrow(
                 """
                 INSERT INTO sessions (
-                    user_id, role_title, industry, seniority, interview_type, 
+                    user_id, role_title, industry, seniority, interview_type,
                     difficulty, length, panel_config, status,
                     company_name, company_website, company_context, language, question_count,
-                    include_technical, questions
+                    include_technical, questions, interview_when
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17)
                 RETURNING id, user_id, role_title, status, created_at
                 """,
                 user_id,
@@ -257,6 +258,7 @@ class NeonDatabase:
                 int(session_data.get("question_count") or 0),
                 bool(session_data.get("include_technical", True)),
                 json.dumps(session_data.get("questions", [])),
+                (session_data.get("interview_when") or "exploring"),
             )
             return dict(row)
         except Exception as e:
@@ -403,6 +405,77 @@ class NeonDatabase:
             user_id, limit
         )
         return [dict(r) for r in rows]
+
+    async def get_urgency_conversion(self, window_days: int = 90) -> List[Dict]:
+        """Painkiller signal: per interview-urgency bucket, how many distinct users practiced
+        and how many of them are currently premium. High conversion among 'today'/'this_week'
+        users means the acute-moment pass is landing.
+        """
+        if not self.pool:
+            return []
+        try:
+            rows = await self.pool.fetch(
+                """
+                WITH bucketed AS (
+                    SELECT DISTINCT
+                        s.user_id,
+                        COALESCE(NULLIF(s.interview_when, ''), 'exploring') AS bucket
+                    FROM sessions s
+                    WHERE s.created_at >= NOW() - make_interval(days => $1)
+                )
+                SELECT
+                    b.bucket,
+                    COUNT(*) AS users,
+                    COUNT(*) FILTER (
+                        WHERE e.is_premium IS TRUE
+                          AND (e.expires_at IS NULL OR e.expires_at > NOW())
+                    ) AS premium_users
+                FROM bucketed b
+                LEFT JOIN user_entitlements e ON e.user_id = b.user_id
+                GROUP BY b.bucket
+                ORDER BY b.bucket
+                """,
+                int(window_days),
+            )
+            results: List[Dict] = []
+            for r in rows:
+                users = int(r["users"] or 0)
+                premium = int(r["premium_users"] or 0)
+                results.append({
+                    "bucket": r["bucket"],
+                    "users": users,
+                    "premium_users": premium,
+                    "conversion_rate": round(premium / users, 4) if users else 0.0,
+                })
+            return results
+        except Exception as exc:
+            print(f"[Neon] Failed to compute urgency conversion: {exc}")
+            return []
+
+    async def count_recent_user_sessions(self, user_id: str, window_days: int = 30) -> int:
+        """Count a user's sessions created within the last `window_days` days.
+
+        Used for the rolling free-tier quota so free sessions refresh over time
+        instead of being a permanent lifetime cap.
+        """
+        if not self.pool:
+            return 0
+        try:
+            val = await self.pool.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM sessions
+                WHERE user_id = $1
+                  AND created_at >= NOW() - make_interval(days => $2)
+                """,
+                user_id,
+                int(window_days),
+            )
+            return int(val or 0)
+        except Exception as exc:
+            print(f"[Neon] Failed to count recent sessions: {exc}")
+            # Fail open to the lifetime count so a transient error never hard-blocks a paying-intent user.
+            return 0
 
     async def delete_user_session(self, user_id: str, session_id: str) -> bool:
         if not self.pool:
@@ -698,83 +771,6 @@ class NeonDatabase:
                 coaching_breakdown = {}
         answer["coaching_breakdown"] = coaching_breakdown if isinstance(coaching_breakdown, dict) else {}
         return answer
-
-    async def get_saved_answers(self, user_id: str, limit: int = 30) -> List[Dict]:
-        if not self.pool:
-            return []
-        rows = await self.pool.fetch(
-            """
-            SELECT
-                a.id,
-                a.question_id,
-                a.transcript,
-                a.score,
-                a.feedback,
-                a.improved_answer,
-                a.answer_structure,
-                a.missing_evidence,
-                a.stronger_phrasing,
-                a.coaching_breakdown,
-                s.role_title,
-                s.industry,
-                s.created_at
-            FROM answers a
-            JOIN sessions s ON a.session_id = s.id
-            WHERE s.user_id = $1 AND COALESCE(a.improved_answer, '') <> ''
-            ORDER BY s.created_at DESC, a.question_id ASC
-            LIMIT $2
-            """,
-            user_id,
-            limit,
-        )
-        return [self._normalize_answer_row(r) for r in rows]
-
-    async def get_practice_goal(self, user_id: str) -> Dict:
-        if not self.pool:
-            return {"daily_minutes": 10, "interview_date": None, "target_role": None}
-        row = await self.pool.fetchrow(
-            "SELECT daily_minutes, interview_date, target_role FROM user_practice_goals WHERE user_id = $1",
-            user_id,
-        )
-        if not row:
-            return {"daily_minutes": 10, "interview_date": None, "target_role": None}
-        return {
-            "daily_minutes": row["daily_minutes"],
-            "interview_date": row["interview_date"].isoformat() if row["interview_date"] else None,
-            "target_role": row["target_role"],
-        }
-
-    async def update_practice_goal(self, user_id: str, goal: dict) -> Dict:
-        if not self.pool:
-            return goal
-        from datetime import date
-        interview_date = goal.get("interview_date")
-        if isinstance(interview_date, str) and interview_date:
-            interview_date = date.fromisoformat(interview_date[:10])
-        elif not interview_date:
-            interview_date = None
-        row = await self.pool.fetchrow(
-            """
-            INSERT INTO user_practice_goals (user_id, daily_minutes, interview_date, target_role)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                daily_minutes = EXCLUDED.daily_minutes,
-                interview_date = EXCLUDED.interview_date,
-                target_role = EXCLUDED.target_role,
-                updated_at = NOW()
-            RETURNING daily_minutes, interview_date, target_role
-            """,
-            user_id,
-            int(goal.get("daily_minutes") or 10),
-            interview_date,
-            goal.get("target_role"),
-        )
-        return {
-            "daily_minutes": row["daily_minutes"],
-            "interview_date": row["interview_date"].isoformat() if row["interview_date"] else None,
-            "target_role": row["target_role"],
-        }
 
     # ─── Progress Aggregation ───────────────────────────────────
 

@@ -76,6 +76,12 @@ class AppState(context: Context) {
         get() = prefs.getString("previewGender", "Female") ?: "Female"
         set(value) = prefs.edit().putString("previewGender", value.ifBlank { "Female" }).apply()
 
+    // How soon the user's real interview is: "today" | "this_week" | "this_month" | "exploring".
+    // Drives paywall urgency (week pass vs. subscription) and reminder framing.
+    var interviewWhen: String
+        get() = prefs.getString("interviewWhen", "this_week") ?: "this_week"
+        set(value) = prefs.edit().putString("interviewWhen", value.ifBlank { "this_week" }).apply()
+
     var language: String
         get() = prefs.getString("language", "en-US") ?: "en-US"
         set(value) = prefs.edit().putString("language", value.ifBlank { "en-US" }).apply()

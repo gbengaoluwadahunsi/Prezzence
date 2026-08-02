@@ -294,11 +294,22 @@ fun PrezzencePaymentSuccessScreen(onGoToProfile: () -> Unit) {
 fun PrezzencePaywallScreen(
     hasPremium: Boolean,
     priceLabel: String?,
+    interviewWhen: String = "exploring",
+    weekPassPriceLabel: String? = null,
     onBack: () -> Unit,
     onSubscribe: () -> Unit,
+    onWeekPass: () -> Unit = {},
     onRestore: () -> Unit,
 ) {
     val displayPrice = priceLabel ?: "…"
+    val weekPassPrice = weekPassPriceLabel ?: "…"
+    val hasWeekPass = weekPassPriceLabel != null
+    val urgent = interviewWhen == "today" || interviewWhen == "this_week"
+    val urgencyHeadline = when (interviewWhen) {
+        "today" -> "Your interview is today"
+        "this_week" -> "Your interview is this week"
+        else -> ""
+    }
     val benefits = listOf(
         "Unlimited interview sessions" to "Practice as much as you need",
         "All 3 AI interviewers" to "Maya, Jonas & Sophia",
@@ -325,6 +336,22 @@ fun PrezzencePaywallScreen(
                     Text("All features are unlocked.", color = PrezzenceColors.TextSecondary, fontSize = 14.sp)
                 }
             } else {
+                if (urgent) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PrezzenceColors.Danger.copy(alpha = 0.12f))
+                            .border(1.dp, PrezzenceColors.Danger.copy(alpha = 0.28f), RoundedCornerShape(20.dp)).padding(18.dp),
+                    ) {
+                        Text("⚡ $urgencyHeadline", color = PrezzenceColors.Danger, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            "Don't walk in underprepared. Unlock unlimited practice and full coaching right now.",
+                            color = PrezzenceColors.TextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(PrezzenceColors.Accent.copy(alpha = 0.10f))
                         .border(1.dp, PrezzenceColors.Accent.copy(alpha = 0.24f), RoundedCornerShape(24.dp)).padding(24.dp),
@@ -356,10 +383,26 @@ fun PrezzencePaywallScreen(
                 )
             }
             Spacer(Modifier.height(16.dp))
-            PrezzencePrimaryButton(
-                if (hasPremium) "Manage Subscription" else "Start Pro - $displayPrice / month",
-                onClick = onSubscribe,
-            )
+            when {
+                hasPremium -> {
+                    PrezzencePrimaryButton("Manage Subscription", onClick = onSubscribe)
+                }
+                // Interview is imminent: lead with the one-time pass — the impulse buy that
+                // matches the deadline — and offer the monthly plan as the alternative.
+                urgent && hasWeekPass -> {
+                    PrezzencePrimaryButton("Unlock everything now — $weekPassPrice (7-day pass)", onClick = onWeekPass)
+                    Spacer(Modifier.height(10.dp))
+                    PrezzenceSecondaryButton("Prefer monthly? Start Pro — $displayPrice / mo", onClick = onSubscribe)
+                }
+                // No imminent deadline: lead with the subscription, offer the pass as a low-commitment option.
+                else -> {
+                    PrezzencePrimaryButton("Start Pro - $displayPrice / month", onClick = onSubscribe)
+                    if (hasWeekPass) {
+                        Spacer(Modifier.height(10.dp))
+                        PrezzenceSecondaryButton("Just one interview? Get a 7-day pass — $weekPassPrice", onClick = onWeekPass)
+                    }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Text(
                 "Restore purchases",
@@ -404,43 +447,3 @@ fun PrezzenceSubscriptionScreen(
     }
 }
 
-@Composable
-fun PrezzenceCoachingFeedbackScreen(
-    question: String,
-    answer: AnswerResult,
-    onContinue: () -> Unit,
-) {
-    val scoreColor = when {
-        answer.score >= 75 -> PrezzenceColors.Success
-        answer.score >= 55 -> Color(0xFFFFB020)
-        else -> PrezzenceColors.Danger
-    }
-    MaterialTheme(colorScheme = androidx.compose.material3.darkColorScheme(background = PrezzenceColors.Background)) {
-        FlowShell(title = "Answer Result", onBack = onContinue) {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${answer.score}", color = scoreColor, fontSize = 56.sp, fontWeight = FontWeight.Black)
-                Text("out of 100", color = PrezzenceColors.TextSecondary, fontSize = 14.sp)
-            }
-            Spacer(Modifier.height(12.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PrezzenceColors.Card).padding(16.dp)) {
-                Text("Question", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
-                Text(question, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp)
-            }
-            Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PrezzenceColors.Card).padding(16.dp)) {
-                Text("Feedback", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
-                Text(answer.feedback, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 8.dp))
-                Spacer(Modifier.height(12.dp))
-                if (answer.improvedAnswer.isNotBlank()) {
-                    Text("Model answer", color = PrezzenceColors.TextPrimary, fontWeight = FontWeight.Black)
-                    Text(answer.improvedAnswer, color = PrezzenceColors.TextSecondary, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
-                }
-                listOf("What" to answer.what, "How" to answer.how, "Why" to answer.why).forEach { (label, value) ->
-                    Text("$label: $value", color = PrezzenceColors.TextPrimary, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            PrezzencePrimaryButton("Continue", onClick = onContinue)
-        }
-    }
-}

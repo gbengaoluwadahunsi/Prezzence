@@ -1001,28 +1001,52 @@ class GeminiService:
             "- Start directly with 'Situation:' — no preamble.\n"
         )
 
-        try:
-            if self.scoring_provider == "groq" and self.groq_api_key:
-                result = self._sync_groq_model_answer(prompt)
-            elif self.api_key:
-                result = self._sync_gemini_model_answer(prompt)
-            else:
-                return ""
-
-            if result:
-                cleaned = result.strip()
-                for prefix in ("Here is", "Here's", "Sure,", "Absolutely.", "Of course."):
-                    if cleaned.startswith(prefix):
-                        idx = cleaned.find("\n")
-                        if idx != -1:
-                            cleaned = cleaned[idx:].strip()
-                        break
-                if len(cleaned) >= 30:
+        # Try the configured provider first, then the other one as a fallback, and
+        # retry the whole sequence so a transient hiccup never forces a canned answer.
+        for call in self._model_answer_providers():
+            for attempt in range(2):
+                try:
+                    cleaned = self._clean_model_answer(call(prompt))
+                except Exception as e:
+                    print(f"[AI ModelAnswer] Generation failed: {e}")
+                    cleaned = ""
+                if cleaned:
                     return cleaned
+                if attempt == 0:
+                    time.sleep(0.5)
 
-        except Exception as e:
-            print(f"[AI ModelAnswer] Generation failed: {e}")
+        return ""
 
+    def _model_answer_providers(self) -> list:
+        """Ordered list of provider call functions, primary first then fallback."""
+        groq_ready = bool(self.groq_api_key)
+        gemini_ready = bool(self.api_key)
+        providers: list = []
+        if self.scoring_provider == "groq" and groq_ready:
+            providers.append(self._sync_groq_model_answer)
+            if gemini_ready:
+                providers.append(self._sync_gemini_model_answer)
+        elif gemini_ready:
+            providers.append(self._sync_gemini_model_answer)
+            if groq_ready:
+                providers.append(self._sync_groq_model_answer)
+        elif groq_ready:
+            providers.append(self._sync_groq_model_answer)
+        return providers
+
+    @staticmethod
+    def _clean_model_answer(result: str) -> str:
+        if not result:
+            return ""
+        cleaned = result.strip()
+        for prefix in ("Here is", "Here's", "Sure,", "Absolutely.", "Of course."):
+            if cleaned.startswith(prefix):
+                idx = cleaned.find("\n")
+                if idx != -1:
+                    cleaned = cleaned[idx:].strip()
+                break
+        if len(cleaned) >= 30:
+            return cleaned
         return ""
 
     def build_topic_lesson(self, question_text: str, role_title: str = "") -> dict:

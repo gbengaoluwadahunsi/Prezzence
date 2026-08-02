@@ -35,6 +35,14 @@
 -keepattributes SourceFile, LineNumberTable
 -keep class com.google.firebase.crashlytics.** { *; }
 
+# Strip verbose/debug/info logging from release builds (keeps warn/error for diagnostics).
+# Prevents user transcripts and other low-level details from reaching logcat in production.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
 # MediaPipe / annotation processor stubs (compile-only, not on device)
 -dontwarn com.google.mediapipe.proto.CalculatorProfileProto$CalculatorProfile
 -dontwarn com.google.mediapipe.proto.GraphTemplateProto$CalculatorGraphTemplate

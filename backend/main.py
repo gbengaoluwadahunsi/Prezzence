@@ -7,7 +7,14 @@ import os
 import time
 import traceback
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
-from routers import analytics, personas, sessions, tts, users, feedback, legal, duix, billing
+from core.production_config import (
+    assetlinks_fingerprints,
+    assetlinks_package_names,
+    is_production,
+    production_status,
+    production_warnings,
+)
+from routers import analytics, personas, sessions, tts, users, feedback, legal, duix, billing, integrity
 from services.database import neon_db
 from services.tts import tts_service
 from core.logging_config import setup_logging, get_logger
@@ -111,10 +118,7 @@ app.include_router(billing.router)
 app.include_router(analytics.router)
 app.include_router(legal.router)
 app.include_router(duix.router)
-
-@app.get("/debug-routes")
-async def debug_routes():
-    return [{"path": route.path, "name": route.name} for route in app.routes]
+app.include_router(integrity.router)
 
 @app.get("/api/version")
 async def api_version():
@@ -131,10 +135,6 @@ async def api_version():
             "tts_synthesis"
         ]
     }
-
-@app.get("/api/test-direct")
-async def test_direct():
-    return {"message": "Direct API route working"}
 
 @app.get("/healthz")
 async def healthz():
@@ -237,22 +237,33 @@ async def auth_verified():
 
 @app.get("/.well-known/assetlinks.json")
 async def android_assetlinks():
+    # Fingerprints must be the Play App Signing SHA-256 (Play Console → App integrity → App signing),
+    # not the upload key. Set ANDROID_APP_SHA256_FINGERPRINTS on Render before production rollout.
+    package_names = assetlinks_package_names()
+    fingerprints = assetlinks_fingerprints()
     return [
         {
             "relation": ["delegate_permission/common.handle_all_urls"],
             "target": {
                 "namespace": "android_app",
-                "package_name": "com.pollecode.prezzencekotlin",
-                "sha256_cert_fingerprints": [
-                    "C2:DC:53:13:EB:38:9D:92:86:D5:A8:5B:C8:CD:62:AA:2E:0E:2B:67:84:BF:90:B6:D8:91:59:A7:07:69:48:B8"
-                ],
+                "package_name": package_name,
+                "sha256_cert_fingerprints": fingerprints,
             },
         }
+        for package_name in package_names
     ]
+
+@app.get("/api/health/production")
+async def production_health():
+    """Non-secret checklist for Render / Play production configuration."""
+    return production_status()
 
 @app.on_event("startup")
 async def startup():
     print(">>> STARTING PREZZENCE API <<<")
+    if is_production():
+        for warning in production_warnings():
+            logger.warning("[Production] %s", warning)
     print(">>> REGISTERED ROUTES:")
     for route in app.routes:
         route_name = getattr(route, 'name', None) or route.__class__.__name__

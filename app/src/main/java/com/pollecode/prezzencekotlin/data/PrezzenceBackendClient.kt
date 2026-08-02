@@ -34,7 +34,7 @@ class PrezzenceBackendClient {
 
     suspend fun health(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val request = Request.Builder().url("$baseUrl/health").get().build()
+            val request = Request.Builder().url("$baseUrl/healthz").get().build()
             client.newCall(request).execute().use { response -> response.isSuccessful }
         }.getOrDefault(false)
     }
@@ -83,7 +83,11 @@ class PrezzenceBackendClient {
         client.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                Log.w("PrezzenceAuth", "PKCE exchange failed (${response.code}) with $codeField: $raw")
+                // Avoid logging the raw token-exchange body (it can carry sensitive auth data).
+                val reason = runCatching {
+                    JSONObject(raw).optString("error_description").ifBlank { JSONObject(raw).optString("error") }
+                }.getOrNull().orEmpty()
+                Log.w("PrezzenceAuth", "PKCE exchange failed (${response.code}) field=$codeField reason=${reason.take(120)}")
                 return@use null
             }
             raw
@@ -284,6 +288,7 @@ class PrezzenceBackendClient {
         interviewerStyle: String = "Balanced",
         previewGender: String = "Female",
         length: String = "standard",
+        interviewWhen: String = "exploring",
     ): BackendSession = withContext(Dispatchers.IO) {
         if (bearerToken.isNullOrBlank()) throw SessionCreateException(SessionErrorReason.AUTH_FAILED, "No auth token available")
         try {
@@ -304,6 +309,7 @@ class PrezzenceBackendClient {
                 .put("enable_web_research", enableWebResearch)
                 .put("include_technical", includeTechnical)
                 .put("language", language)
+                .put("interview_when", interviewWhen.ifBlank { "exploring" })
             if (companyName.isNotBlank()) bodyJson.put("company_name", companyName.trim())
             if (companyWebsite.isNotBlank()) bodyJson.put("company_website", companyWebsite.trim())
             if (companyContext.isNotBlank()) bodyJson.put("company_context", companyContext.trim())
@@ -750,6 +756,34 @@ class PrezzenceBackendClient {
         }.getOrNull()
     }
 
+    /**
+     * Sends a Play Integrity token for server-side verification. Returns the "trusted"
+     * verdict, or null if the call failed. Advisory: callers should not block users on null.
+     */
+    suspend fun verifyIntegrity(
+        bearerToken: String,
+        token: String,
+        action: String = "session_start",
+    ): Boolean? = withContext(Dispatchers.IO) {
+        if (bearerToken.isBlank() || token.isBlank()) return@withContext null
+        runCatching {
+            val body = JSONObject()
+                .put("token", token)
+                .put("action", action)
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/api/integrity/verify")
+                .header("Authorization", "Bearer $bearerToken")
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                JSONObject(response.body?.string().orEmpty()).optBoolean("trusted", true)
+            }
+        }.getOrNull()
+    }
+
     suspend fun fetchTopicLesson(
         bearerToken: String,
         questionText: String,
@@ -998,6 +1032,7 @@ class PrezzenceBackendClient {
         productId: String,
         packageName: String,
         orderId: String? = null,
+        productType: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         if (bearerToken.isBlank() || purchaseToken.isBlank()) return@withContext false
         runCatching {
@@ -1005,6 +1040,7 @@ class PrezzenceBackendClient {
                 .put("purchase_token", purchaseToken)
                 .put("product_id", productId)
                 .put("package_name", packageName)
+            if (!productType.isNullOrBlank()) body.put("product_type", productType)
             if (!orderId.isNullOrBlank()) body.put("order_id", orderId)
             val request = Request.Builder()
                 .url("$baseUrl/api/billing/google/sync")

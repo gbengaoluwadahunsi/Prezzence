@@ -27,6 +27,8 @@ def releaseStorePassword = envOrProp('PREZZENCE_UPLOAD_STORE_PASSWORD', '')
 def releaseKeyAlias = envOrProp('PREZZENCE_UPLOAD_KEY_ALIAS', '')
 def releaseKeyPassword = envOrProp('PREZZENCE_UPLOAD_KEY_PASSWORD', '')
 def prezzenceSubscriptionProductId = envOrProp('PREZZENCE_SUBSCRIPTION_PRODUCT_ID', 'prezzence_pro')
+def prezzenceWeekPassProductId = envOrProp('PREZZENCE_WEEK_PASS_PRODUCT_ID', 'prezzence_week')
+def playCloudProjectNumber = envOrProp('PREZZENCE_PLAY_CLOUD_PROJECT_NUMBER', '730307820828')
 def duixModelBaseUrl = envOrProp('DUIX_MODEL_BASE_URL', '')
 def releaseStorePath = releaseStoreFile ? rootProject.file(releaseStoreFile) : null
 
@@ -48,8 +50,10 @@ android {
         buildConfigField 'String', 'PREZZENCE_SUPABASE_URL', "\"${escapeBuildConfig(supabaseUrl)}\""
         buildConfigField 'String', 'PREZZENCE_SUPABASE_ANON_KEY', "\"${escapeBuildConfig(supabaseAnonKey)}\""
         buildConfigField 'String', 'PREZZENCE_SUBSCRIPTION_PRODUCT_ID', '"' + escapeBuildConfig(prezzenceSubscriptionProductId) + '"'
+        buildConfigField 'String', 'PREZZENCE_WEEK_PASS_PRODUCT_ID', '"' + escapeBuildConfig(prezzenceWeekPassProductId) + '"'
         buildConfigField 'String', 'PREZZENCE_VERSION_NAME', "\"${prezzenceVersionName}\""
         buildConfigField 'String', 'DEBUG_DUIX_MODEL_BASE_URL', "\"${escapeBuildConfig(duixModelBaseUrl)}\""
+        buildConfigField 'long', 'PLAY_CLOUD_PROJECT_NUMBER', "${playCloudProjectNumber}L"
     }
 
     signingConfigs {
@@ -121,9 +125,11 @@ dependencies {
     implementation 'androidx.compose.ui:ui-tooling-preview'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.work:work-runtime-ktx:2.9.1'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.android.billingclient:billing:7.1.1'
+    implementation 'com.google.android.play:integrity:1.4.0'
     // Firebase Crashlytics
     implementation platform('com.google.firebase:firebase-bom:33.7.0')
     implementation 'com.google.firebase:firebase-crashlytics-ktx'

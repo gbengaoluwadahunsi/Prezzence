@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from models.schemas import SessionCreateRequest, SessionCreateResponse, Question, SessionPanelMember, AnswerSubmitRequest
 from services.database import neon_db
 from services.gemini import gemini
@@ -21,7 +21,7 @@ SESSION_DB_TIMEOUT_SECONDS = float(os.getenv("SESSION_DB_TIMEOUT_SECONDS", "8"))
 SESSION_META_TIMEOUT_SECONDS = float(os.getenv("SESSION_META_TIMEOUT_SECONDS", "4"))
 SESSION_ANALYTICS_TIMEOUT_SECONDS = float(os.getenv("SESSION_ANALYTICS_TIMEOUT_SECONDS", "2"))
 SESSION_WEB_RESEARCH_TIMEOUT_SECONDS = float(os.getenv("SESSION_WEB_RESEARCH_TIMEOUT_SECONDS", "6"))
-from core.feature_flags import BETA_UNLOCK_ALL_FEATURES, FREE_SESSION_LIMIT
+from core.feature_flags import BETA_UNLOCK_ALL_FEATURES, FREE_SESSION_LIMIT, FREE_SESSION_WINDOW_DAYS
 from services.entitlements import has_unlimited_access
 
 DEFAULT_PERSONAS = {
@@ -386,45 +386,6 @@ async def submit_answer(
     )
 
 
-@router.post("/{session_id}/answers/upload", status_code=200)
-async def submit_answer_upload(
-    session_id: str,
-    question_id: int = Form(...),
-    question_text: str = Form(...),
-    audio_duration_seconds: int | None = Form(None),
-    transcript: str | None = Form(None),
-    transcript_source: str | None = Form(None),
-    audio: UploadFile = File(...),
-    current_user: dict = Depends(rate_limited("answer_analysis"))
-):
-    """
-    Handles recorded answer uploads without forcing the phone to base64-encode the file first.
-    """
-    read_started_at = time.perf_counter()
-    audio_bytes = await audio.read()
-    audio_read_ms = round((time.perf_counter() - read_started_at) * 1000)
-    audio_mime_type = audio.content_type or "audio/m4a"
-    encode_started_at = time.perf_counter()
-    audio_base64 = f"data:{audio_mime_type};base64,{base64.b64encode(audio_bytes).decode('ascii')}"
-    audio_encode_ms = round((time.perf_counter() - encode_started_at) * 1000)
-    return await _submit_answer_payload(
-        session_id,
-        current_user,
-        question_id=question_id,
-        question_text=question_text,
-        audio_base64=audio_base64,
-        transcript=transcript,
-        transcript_source=transcript_source,
-        audio_mime_type=audio_mime_type,
-        audio_duration_seconds=audio_duration_seconds,
-        initial_timings_ms={
-            "audio_read": audio_read_ms,
-            "audio_encode": audio_encode_ms,
-            "audio_bytes": len(audio_bytes),
-        },
-    )
-
-
 @router.post("/create", response_model=SessionCreateResponse, status_code=201)
 async def create_new_session(request: SessionCreateRequest, current_user: dict = Depends(rate_limited("session_create"))):
     """
@@ -447,16 +408,16 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
             is_premium = True
 
         if not is_premium and FREE_SESSION_LIMIT > 0:
-            existing_sessions = await asyncio.wait_for(
-                neon_db.get_user_sessions(str(current_user["id"]), limit=FREE_SESSION_LIMIT + 1),
+            recent_sessions = await asyncio.wait_for(
+                neon_db.count_recent_user_sessions(str(current_user["id"]), FREE_SESSION_WINDOW_DAYS),
                 timeout=SESSION_META_TIMEOUT_SECONDS,
             )
-            if len(existing_sessions) >= FREE_SESSION_LIMIT:
+            if recent_sessions >= FREE_SESSION_LIMIT:
                 raise HTTPException(
                     status_code=402,
                     detail={
                         "code": "premium_required",
-                        "message": f"Free plan includes {FREE_SESSION_LIMIT} practice sessions. Upgrade for unlimited sessions."
+                        "message": f"Free plan includes {FREE_SESSION_LIMIT} practice sessions every {FREE_SESSION_WINDOW_DAYS} days. Upgrade for unlimited sessions."
                     }
                 )
         if interview_type in PREMIUM_INTERVIEW_TYPES or request.enable_web_research:
@@ -627,6 +588,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
             "language": request.language,
             "question_count": len(generated.get("questions", [])),
             "questions": generated.get("questions", []),
+            "interview_when": (request.interview_when or "exploring").strip().lower(),
             "status": "in_progress"
         }
         
@@ -676,11 +638,11 @@ async def get_session_detail(session_id: str, current_user: dict = Depends(get_c
         detail = await neon_db.get_session_detail(session_id)
         if not detail:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Security check: ensure session belongs to user
         if detail["user_id"] != str(current_user["id"]):
             raise HTTPException(status_code=403, detail="Forbidden")
-            
+
         return detail
     except HTTPException:
         raise
