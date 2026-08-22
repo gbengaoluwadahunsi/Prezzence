@@ -9,7 +9,9 @@ from middleware.auth import get_current_user
 from core.feature_flags import BETA_UNLOCK_ALL_FEATURES
 from services.entitlements import has_unlimited_access
 from services.supabase import db as supabase_auth
+from core.logging_config import get_logger
 
+logger = get_logger("users")
 router = APIRouter(prefix="/api/users", tags=["Users"])
 PROGRESS_QUERY_TIMEOUT_SECONDS = float(os.getenv("PROGRESS_QUERY_TIMEOUT_SECONDS", "12"))
 
@@ -113,10 +115,10 @@ async def get_user_progress(user_id: str, language: str = "en", current_user: di
             timeout=PROGRESS_QUERY_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        print(f"[Progress] Timed out after {PROGRESS_QUERY_TIMEOUT_SECONDS}s for user={user_id}")
+        logger.warning("[Progress] Timed out after %.1fs for user=%s", PROGRESS_QUERY_TIMEOUT_SECONDS, user_id)
         progress = None
     except Exception as e:
-        print(f"[Progress] Failed for user={user_id}: {e}")
+        logger.error("[Progress] Failed for user=%s: %s", user_id, e)
         progress = None
 
     if progress:
@@ -284,7 +286,7 @@ async def upload_resume_profile(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        print(f"[Resume] Upload failed: {exc}")
+        logger.error("[Resume] Upload failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Unable to process resume")
 
 
@@ -300,7 +302,7 @@ async def save_resume_text(request: ResumeTextRequest, user: dict = Depends(get_
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        print(f"[Resume] Text save failed: {exc}")
+        logger.error("[Resume] Text save failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Unable to save resume profile")
 
 
@@ -316,7 +318,7 @@ async def get_notification_preferences(user: dict = Depends(get_current_user)):
         prefs = await neon_db.get_notification_preferences(str(user["id"]))
         return {"preferences": prefs}
     except Exception as exc:
-        print(f"[Notifications] Preference fetch failed: {exc}")
+        logger.error("[Notifications] Preference fetch failed: %s", exc)
         raise HTTPException(status_code=500, detail="Unable to load notification preferences")
 
 
@@ -332,7 +334,7 @@ async def update_notification_preferences(
         )
         return {"preferences": saved}
     except Exception as exc:
-        print(f"[Notifications] Preference update failed: {exc}")
+        logger.error("[Notifications] Preference update failed: %s", exc)
         raise HTTPException(status_code=500, detail="Unable to save notification preferences")
 
 
@@ -341,20 +343,20 @@ async def get_notifications(user: dict = Depends(get_current_user)):
     try:
         return await neon_db.get_user_notifications(str(user["id"]))
     except Exception as e:
-        print(f"Error getting notifications: {e}")
+        logger.error("[Notifications] Error getting notifications: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-
-
+ 
+ 
 @router.post("/me/notifications/{notification_id}/read")
 async def mark_notification_read(notification_id: str, user: dict = Depends(get_current_user)):
     try:
         await neon_db.mark_notification_read(notification_id, str(user["id"]))
         return {"status": "success"}
     except Exception as e:
-        print(f"Error marking notification read: {e}")
+        logger.error("[Notifications] Error marking notification read: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-
-
+ 
+ 
 @router.delete("/me/notifications/{notification_id}")
 async def delete_notification(notification_id: str, user: dict = Depends(get_current_user)):
     try:
@@ -365,7 +367,7 @@ async def delete_notification(notification_id: str, user: dict = Depends(get_cur
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting notification: {e}")
+        logger.error("[Notifications] Error deleting notification: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -379,7 +381,7 @@ async def delete_my_account(user: dict = Depends(get_current_user)):
     try:
         deleted_data = await neon_db.delete_user_data(user_id)
     except Exception as e:
-        print(f"Error deleting app data for user {user_id}: {e}")
+        logger.error("Error deleting app data for user %s: %s", user_id, e)
         raise HTTPException(status_code=500, detail="Unable to delete account data")
 
     auth_deleted = False
@@ -388,7 +390,7 @@ async def delete_my_account(user: dict = Depends(get_current_user)):
         auth_deleted = supabase_auth.delete_auth_user(user_id)
     except Exception as e:
         auth_warning = str(e)
-        print(f"Warning: app data deleted but Supabase Auth user deletion failed for {user_id}: {e}")
+        logger.warning("App data deleted but Supabase Auth user deletion failed for %s: %s", user_id, e)
 
     return {
         "status": "deleted",

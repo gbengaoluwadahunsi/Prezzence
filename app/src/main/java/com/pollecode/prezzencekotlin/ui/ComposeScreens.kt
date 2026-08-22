@@ -87,15 +87,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import com.pollecode.prezzencekotlin.R
-private val Bg = Color(0xFF0A0A0F)
-private val Surface = Color(0xFF12121A)
-private val Card = Color(0xFF1C1C2E)
-private val Accent = Color(0xFF6C63FF)
-private val Cyan = Color(0xFF24C8F2)
-private val Mint = Color(0xFF19D5B2)
-private val TextPrimary = Color.White
-private val TextSecondary = Color(0xFF8A8A9A)
-private val Border = Color(0xFF2A2A3E)
+private val Bg = PrezzenceColors.Background
+private val Surface = PrezzenceColors.Surface
+private val Card = PrezzenceColors.Card
+private val Accent = PrezzenceColors.Accent
+private val Cyan = PrezzenceColors.AccentAlt
+private val Mint = PrezzenceColors.Success
+private val TextPrimary = PrezzenceColors.TextPrimary
+private val TextSecondary = PrezzenceColors.TextSecondary
+private val Border = PrezzenceColors.Border
 
 // Inter font family for consistent cross-device typography
 private val InterFont = FontFamily(
@@ -159,11 +159,11 @@ fun PrezzenceLandingScreen(
                     BrandRow(compactText = true)
                     Spacer(Modifier.height(if (compactHeight) sz(36) else sz(48)))
                     Text(
-                        text = "V 1.0 \u00B7 SEASON ONE",
+                        text = "AI INTERVIEW COACH",
                         color = Color(0xFF675EFB),
-                        fontSize = fs(16),
-                        letterSpacing = (5.2f * scale).sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = fs(14),
+                        letterSpacing = (4.0f * scale).sp,
+                        fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(sz(30)))
                     Text(
@@ -802,15 +802,34 @@ fun PrezzenceHomeScreen(
                 modifier = Modifier.fillMaxWidth().height(80.dp).padding(horizontal = 20.dp),
             ) {
                 BrandRow(compactText = true)
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Card.copy(alpha = 0.6f))
-                        .a11yIconButton("Notifications")
-                        .clickable(onClick = onNotifications),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (completedSessions > 0) {
+                        val streakCount = maxOf(1, completedSessions)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color(0xFFFFB020).copy(alpha = 0.14f))
+                                .border(1.dp, Color(0xFFFFB020).copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                "🔥 $streakCount ${if (streakCount == 1) "Day" else "Days"}",
+                                color = Color(0xFFFFB020),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Card.copy(alpha = 0.6f))
+                            .a11yIconButton("Notifications")
+                            .clickable(onClick = onNotifications),
+                        contentAlignment = Alignment.Center,
+                    ) {
                     // Bell icon via canvas
                     Canvas(Modifier.size(22.dp)) {
                         val c = Accent
@@ -941,65 +960,120 @@ fun PrezzenceHomeScreen(
                 }
             }
 
-            // Readiness card
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 24.dp)
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(Card.copy(alpha = 0.4f))
-                    .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(32.dp))
-            ) {
-                Box(Modifier.matchParentSize().clip(RoundedCornerShape(32.dp)).background(
-                    Brush.verticalGradient(listOf(Accent.copy(alpha = 0.08f), Color.Transparent))
-                ))
-                Column(Modifier.padding(24.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        Column {
-                            Text("CURRENT READINESS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-                            Spacer(Modifier.height(6.dp))
-                            Text(readinessLabel, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        }
-                        Text("$score%", color = TextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Black)
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    // Progress bar
-                    Box(
-                        Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
-                            .background(Color.White.copy(alpha = 0.05f))
-                    ) {
-                        if (score > 0) {
+            // Readiness card / Onboarding Hero
+            if (completedSessions == 0) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 24.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF6C63FF).copy(alpha = 0.22f),
+                                    Color(0xFF19D5B2).copy(alpha = 0.12f),
+                                    Card.copy(alpha = 0.8f),
+                                )
+                            )
+                        )
+                        .border(1.dp, Accent.copy(alpha = 0.35f), RoundedCornerShape(32.dp))
+                ) {
+                    Column(Modifier.padding(24.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                Modifier
-                                    .fillMaxWidth(score / 100f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Accent)
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Accent.copy(alpha = 0.20f))
+                                    .border(1.5.dp, Mint, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CheckIcon(Modifier.size(20.dp), Mint)
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("WELCOME TO PREZZENCE", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+                                Spacer(Modifier.height(2.dp))
+                                Text("Capture Your Baseline", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Your first practice session takes about 10 minutes. Answer voice-led questions to establish your baseline interview readiness score and personalized coaching tips.",
+                            color = TextSecondary, fontSize = 14.sp, lineHeight = 21.sp,
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.06f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text("⏱ ~10 mins", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(12.dp))
+                            Text("• Voice-led scoring", color = TextSecondary, fontSize = 12.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text("• Full feedback", color = TextSecondary, fontSize = 12.sp)
+                        }
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 24.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Card.copy(alpha = 0.4f))
+                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(32.dp))
+                ) {
+                    Box(Modifier.matchParentSize().clip(RoundedCornerShape(32.dp)).background(
+                        Brush.verticalGradient(listOf(Accent.copy(alpha = 0.08f), Color.Transparent))
+                    ))
+                    Column(Modifier.padding(24.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            Column {
+                                Text("CURRENT READINESS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                                Spacer(Modifier.height(6.dp))
+                                Text(readinessLabel, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("$score%", color = TextPrimary, fontSize = 32.sp, fontWeight = FontWeight.Black)
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        // Progress bar
+                        Box(
+                            Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                        ) {
+                            if (score > 0) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(score / 100f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Accent)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                if (improvementDelta > 0) "+$improvementDelta since first session"
+                                else if (improvementDelta < 0) "$improvementDelta since first session"
+                                else "Baseline captured",
+                                color = Accent, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
                             )
                         }
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Spacer(Modifier.height(12.dp))
                         Text(
-                            if (completedSessions == 0) "Baseline in progress"
-                            else if (improvementDelta > 0) "+$improvementDelta since first session"
-                            else if (improvementDelta < 0) "$improvementDelta since first session"
-                            else "Baseline captured",
-                            color = Accent, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                            homeCoachingTip.ifBlank { "Keep practicing to improve your interview signal." },
+                            color = TextSecondary, fontSize = 13.sp, lineHeight = 20.sp,
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        homeCoachingTip.ifBlank {
-                            if (score == 0) "Complete one interview with clear audio to unlock personalized coaching."
-                            else "Keep practicing to improve your interview signal."
-                        },
-                        color = TextSecondary, fontSize = 13.sp, lineHeight = 20.sp,
-                    )
                 }
             }
 
@@ -3378,6 +3452,13 @@ fun PrezzenceAnswerResultOverlay(
     onContinue: () -> Unit,
     onOpenModelAnswer: () -> Unit,
 ) {
+    var animTarget by remember { mutableStateOf(0) }
+    LaunchedEffect(score) { animTarget = score }
+    val animatedScore by animateFloatAsState(
+        targetValue = animTarget.toFloat(),
+        animationSpec = tween(durationMillis = 750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+    )
+
     Box(
         Modifier
             .fillMaxSize()
@@ -3434,7 +3515,7 @@ fun PrezzenceAnswerResultOverlay(
                             .padding(vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text("$score", color = Accent, fontSize = 42.sp, fontWeight = FontWeight.Black)
+                        Text("${animatedScore.toInt()}", color = Accent, fontSize = 42.sp, fontWeight = FontWeight.Black)
                         Text("SCORE /100", color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Black)
                     }
                     Spacer(Modifier.width(14.dp))
@@ -5173,6 +5254,26 @@ fun PrezzenceSessionReportScreen(
                 }
             }
 
+            Spacer(Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Accent, Color(0xFF8E7DFF))
+                        )
+                    )
+                    .clickable(onClick = onShareScore)
+                    .padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Share Result Card 📤", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            }
+
             Spacer(Modifier.height(8.dp))
 
             Row(
@@ -5863,6 +5964,166 @@ private fun TabIcon(tab: PrezzenceTab, active: Boolean) {
                 // Person icon
                 drawCircle(color, size.minDimension * 0.20f, center = Offset(size.width * 0.50f, size.height * 0.34f), style = if (active) androidx.compose.ui.graphics.drawscope.Fill else s)
                 drawArc(color, 195f, 150f, false, Offset(size.width * 0.16f, size.height * 0.52f), Size(size.width * 0.68f, size.height * 0.44f), style = s)
+            }
+        }
+    }
+}
+
+@Composable
+fun PrezzenceFirstSessionCelebrationScreen(
+    score: Int,
+    roleTitle: String,
+    onViewReport: () -> Unit,
+    onGoHome: () -> Unit,
+) {
+    var animScoreTarget by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { animScoreTarget = score }
+    val animatedScore by animateFloatAsState(
+        targetValue = animScoreTarget.toFloat(),
+        animationSpec = tween(durationMillis = 1000, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+    )
+
+    PrezzenceTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Bg)
+        ) {
+            // Background Radial Glows
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Accent.copy(alpha = 0.28f), Mint.copy(alpha = 0.08f), Color.Transparent),
+                            center = Offset(400f, 300f),
+                            radius = 900f,
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.height(24.dp))
+                    // Trophy / Star Badge
+                    Box(
+                        modifier = Modifier
+                            .size(110.dp)
+                            .clip(CircleShape)
+                            .background(Accent.copy(alpha = 0.15f))
+                            .border(2.dp, Mint, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Canvas(Modifier.size(54.dp)) {
+                            val c = Mint
+                            drawCircle(c, radius = size.minDimension * 0.44f, style = Stroke(width = 3.5f))
+                            drawLine(c, Offset(size.width * 0.30f, size.height * 0.50f), Offset(size.width * 0.45f, size.height * 0.65f), strokeWidth = 3.5f, cap = StrokeCap.Round)
+                            drawLine(c, Offset(size.width * 0.45f, size.height * 0.65f), Offset(size.width * 0.72f, size.height * 0.35f), strokeWidth = 3.5f, cap = StrokeCap.Round)
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Mint.copy(alpha = 0.14f))
+                            .border(1.dp, Mint.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            "FIRST MILESTONE UNLOCKED 🎉",
+                            color = Mint,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp,
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        text = "First Session Complete!",
+                        color = TextPrimary,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        text = "You've captured your baseline readiness score for $roleTitle.",
+                        color = TextSecondary,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    Spacer(Modifier.height(32.dp))
+
+                    // Score Card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(Card)
+                            .border(1.dp, Accent.copy(alpha = 0.3f), RoundedCornerShape(28.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "BASELINE READINESS SCORE",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.5.sp,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "${animatedScore.toInt()}%",
+                                color = Accent,
+                                fontSize = 56.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = when {
+                                    score >= 75 -> "Strong Baseline — Ready to Polish"
+                                    score >= 50 -> "Solid Start — Good Foundation"
+                                    else -> "Baseline Set — Ready to Grow"
+                                },
+                                color = TextPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PrezzencePrimaryButton(
+                        label = "View Session Report",
+                        onClick = onViewReport,
+                    )
+                    PrezzenceSecondaryButton(
+                        label = "Return to Dashboard",
+                        onClick = onGoHome,
+                    )
+                }
             }
         }
     }

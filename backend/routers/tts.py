@@ -3,8 +3,10 @@ from services.tts import tts_service
 from services.database import neon_db
 from services.rate_limit import rate_limited
 from middleware.auth import get_current_user
+from core.logging_config import get_logger
 from pydantic import BaseModel
 
+logger = get_logger("tts")
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
 
 class TTSRequest(BaseModel):
@@ -25,7 +27,7 @@ async def synthesize_text(
             lang=request.lang
         )
     except Exception as exc:
-        print(f"[TTS] Synthesis failed: {exc}")
+        logger.error("[TTS] Synthesis failed: %s", exc)
         await neon_db.track_event({
             "user_id": user_id,
             "name": "api_tts_failed",

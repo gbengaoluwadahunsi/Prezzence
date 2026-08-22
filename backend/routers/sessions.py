@@ -5,6 +5,7 @@ from services.gemini import gemini
 from services.web_research import web_research
 from middleware.auth import get_current_user
 from services.rate_limit import rate_limited
+from core.logging_config import get_logger
 from typing import Dict
 import traceback
 import asyncio
@@ -12,8 +13,8 @@ import os
 import base64
 import time
 
+logger = get_logger("sessions")
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
-print(">>> DEBUG: Sessions Router Loaded with /create and /{session_id}/answers <<<")
 
 PREMIUM_INTERVIEW_TYPES = {"technical", "promotion"}
 QUESTION_GENERATION_TIMEOUT_SECONDS = float(os.getenv("QUESTION_GENERATION_TIMEOUT_SECONDS", "3.5"))
@@ -74,7 +75,7 @@ async def _track_event_background(payload: dict):
     try:
         await asyncio.wait_for(neon_db.track_event(payload), timeout=SESSION_ANALYTICS_TIMEOUT_SECONDS)
     except Exception as e:
-        print(f"[Analytics] Background event skipped: {payload.get('name')} ({e})")
+        logger.warning("[Analytics] Background event skipped: %s (%s)", payload.get('name'), e)
 
 
 def _queue_event(payload: dict):
@@ -402,7 +403,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
                     timeout=SESSION_META_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
-                print("[Sessions] Premium lookup timed out; treating as free for this request.")
+                logger.warning("[Sessions] Premium lookup timed out; treating as free for this request.")
                 is_premium = False
         if BETA_UNLOCK_ALL_FEATURES:
             is_premium = True
@@ -434,7 +435,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
         try:
             personas_data = await asyncio.wait_for(neon_db.get_personas(), timeout=SESSION_META_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            print("[Sessions] Persona lookup timed out; using default personas.")
+            logger.warning("[Sessions] Persona lookup timed out; using default personas.")
             personas_data = []
         persona_map = {**DEFAULT_PERSONAS}
         if personas_data:
@@ -468,9 +469,9 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
                     else resume_context
                 )
         except asyncio.TimeoutError:
-            print("[Sessions] Resume profile lookup timed out; continuing without resume context.")
+            logger.warning("[Sessions] Resume profile lookup timed out; continuing without resume context.")
         except Exception as resume_error:
-            print(f"[Sessions] Resume profile lookup failed: {resume_error}")
+            logger.warning("[Sessions] Resume profile lookup failed: %s", resume_error)
         research = {"enabled": False, "summary": "", "sources": [], "provider": None}
         if request.enable_web_research:
             try:
@@ -491,7 +492,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
                         else research["summary"]
                     )
             except Exception as research_error:
-                print(f"[WebResearch] Company research failed: {research_error}")
+                logger.warning("[WebResearch] Company research failed: %s", research_error)
                 _queue_event({
                     "user_id": str(current_user["id"]),
                     "name": "api_web_research_error",
@@ -521,7 +522,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
                 timeout=QUESTION_GENERATION_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            print(f"[Sessions] Question generation timed out after {QUESTION_GENERATION_TIMEOUT_SECONDS}s; using fallback questions.")
+            logger.warning("[Sessions] Question generation timed out after %.1fs; using fallback questions.", QUESTION_GENERATION_TIMEOUT_SECONDS)
             if request.length == "quick":
                 question_count = 3
             elif request.length == "deep":
@@ -598,7 +599,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
                 timeout=SESSION_DB_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            print(f"[Sessions] Session insert timed out after {SESSION_DB_TIMEOUT_SECONDS}s.")
+            logger.warning("[Sessions] Session insert timed out after %.1fs.", SESSION_DB_TIMEOUT_SECONDS)
             raise HTTPException(status_code=503, detail="Session service is warming up. Please try again.")
         
         return {
@@ -609,8 +610,7 @@ async def create_new_session(request: SessionCreateRequest, current_user: dict =
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Sessions] Error creating session: {e}")
-        traceback.print_exc()
+        logger.error("[Sessions] Error creating session: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -647,7 +647,7 @@ async def get_session_detail(session_id: str, current_user: dict = Depends(get_c
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error getting session detail: {e}")
+        logger.error("[Sessions] Error getting session detail: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
