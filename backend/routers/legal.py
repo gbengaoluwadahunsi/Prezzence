@@ -97,3 +97,28 @@ async def terms_of_service():
         <p>You can delete your account from the app profile area. Some records may be retained where required for legal, fraud-prevention, or security reasons.</p>
         """,
     )
+
+
+@router.get("/delete-account", response_class=HTMLResponse)
+async def delete_account_page():
+    support_email = os.getenv("SUPPORT_EMAIL", "support@prezzence.app")
+    return page(
+        "Account Deletion Request",
+        f"""
+        <h1>Account Deletion Request</h1>
+        <p class="updated">Prezzence Account & Data Deletion Instructions</p>
+        <p>If you wish to delete your Prezzence account and associated data, you can delete your account directly in the app or by email request.</p>
+        
+        <h2>Method 1: In-App Deletion</h2>
+        <ol>
+          <li>Open the Prezzence app on your device.</li>
+          <li>Go to the <strong>Profile</strong> tab.</li>
+          <li>Scroll to the bottom and select <strong>Delete Account</strong>.</li>
+          <li>Confirm deletion. Your account, sessions, scores, and stored data will be removed.</li>
+        </ol>
+
+        <h2>Method 2: Email Deletion Request</h2>
+        <p>Send an email to <a href="mailto:{support_email}">{support_email}</a> with the subject <code>Account Deletion Request</code> from your registered email address. We will process your request within 48 hours.</p>
+        """,
+    )
+
