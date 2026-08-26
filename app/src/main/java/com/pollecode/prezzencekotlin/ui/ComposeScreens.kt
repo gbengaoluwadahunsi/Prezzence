@@ -1198,7 +1198,8 @@ fun PrezzenceHomeScreen(
             }
         }
     }
-}
+} // end PrezzenceTheme
+} // end PrezzenceHomeScreen
 
 @Composable
 private fun PrezzenceTheme(content: @Composable () -> Unit) {
