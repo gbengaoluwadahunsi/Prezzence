@@ -89,6 +89,17 @@ class SupabaseAuthService:
             print(f"[Storage] Failed to create Supabase bucket '{bucket_name}': {exc}")
             return False
 
+    def ping(self) -> bool:
+        """Pings Supabase to prevent project auto-pausing/sleeping."""
+        if not self.client:
+            return False
+        try:
+            self.client.table("profiles").select("id").limit(1).execute()
+            return True
+        except Exception as e:
+            print(f"[Supabase Keepalive] Ping error: {e}")
+            return False
+
 
 # Singleton — used by auth middleware only
 db = SupabaseAuthService()

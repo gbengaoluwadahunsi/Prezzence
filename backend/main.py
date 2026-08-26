@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,7 @@ from core.production_config import (
 )
 from routers import analytics, personas, sessions, tts, users, feedback, legal, duix, billing, integrity
 from services.database import neon_db
+from services.supabase import db as supabase_service
 from services.tts import tts_service
 from core.logging_config import setup_logging, get_logger
 from fastapi.staticfiles import StaticFiles
@@ -258,6 +260,21 @@ async def production_health():
     """Non-secret checklist for Render / Play production configuration."""
     return production_status()
 
+async def keep_supabase_alive():
+    """Background task that pings Supabase every 10 minutes to prevent auto-pausing/sleeping."""
+    while True:
+        try:
+            await asyncio.sleep(600)  # Ping every 10 minutes (600 seconds)
+            if supabase_service.client:
+                success = await asyncio.to_thread(supabase_service.ping)
+                if success:
+                    logger.info("[Supabase Keepalive] Successfully pinged Supabase (Keepalive Active)")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("[Supabase Keepalive] Ping error: %s", e)
+
+
 @app.on_event("startup")
 async def startup():
     print(">>> STARTING PREZZENCE API <<<")
@@ -271,6 +288,8 @@ async def startup():
     print(">>> END REGISTERED ROUTES <<<")
     await neon_db.connect()
     tts_service.ensure_storage_ready()
+    asyncio.create_task(keep_supabase_alive())
+
 
 @app.on_event("shutdown")
 async def shutdown():
