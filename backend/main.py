@@ -260,19 +260,23 @@ async def production_health():
     """Non-secret checklist for Render / Play production configuration."""
     return production_status()
 
-async def keep_supabase_alive():
-    """Background task that pings Supabase every 10 minutes to prevent auto-pausing/sleeping."""
+import httpx
+
+async def keep_server_awake():
+    """Background task that pings Render self-url and Supabase every 5 minutes to prevent auto-pausing/sleeping."""
     while True:
         try:
-            await asyncio.sleep(600)  # Ping every 10 minutes (600 seconds)
+            await asyncio.sleep(300)  # Ping every 5 minutes (300 seconds)
+            async with httpx.AsyncClient() as client:
+                await client.get("https://prezzence-backend.onrender.com/privacy", timeout=10.0)
             if supabase_service.client:
-                success = await asyncio.to_thread(supabase_service.ping)
-                if success:
-                    logger.info("[Supabase Keepalive] Successfully pinged Supabase (Keepalive Active)")
+                await asyncio.to_thread(supabase_service.ping)
+            logger.info("[Server Keepalive] Successfully pinged Render & Supabase")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.warning("[Supabase Keepalive] Ping error: %s", e)
+            logger.warning("[Server Keepalive] Ping error: %s", e)
+
 
 
 @app.on_event("startup")
@@ -288,7 +292,7 @@ async def startup():
     print(">>> END REGISTERED ROUTES <<<")
     await neon_db.connect()
     tts_service.ensure_storage_ready()
-    asyncio.create_task(keep_supabase_alive())
+    asyncio.create_task(keep_server_awake())
 
 
 @app.on_event("shutdown")
