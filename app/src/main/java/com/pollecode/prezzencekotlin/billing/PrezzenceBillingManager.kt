@@ -8,6 +8,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ConsumeParams
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -29,7 +30,7 @@ class PrezzenceBillingManager(
 
     private val billingClient: BillingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
-        .enablePendingPurchases()
+        .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
         .build()
 
     val productId: String = BuildConfig.PREZZENCE_SUBSCRIPTION_PRODUCT_ID
@@ -149,8 +150,9 @@ class PrezzenceBillingManager(
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(listOf(product))
             .build()
-        billingClient.queryProductDetailsAsync(params) { result, products ->
-            cont.resume(if (result.responseCode == BillingClient.BillingResponseCode.OK) products.firstOrNull() else null)
+        billingClient.queryProductDetailsAsync(params) { result, productDetailsResult ->
+            val list = productDetailsResult.productDetailsList
+            cont.resume(if (result.responseCode == BillingClient.BillingResponseCode.OK) list?.firstOrNull() else null)
         }
     }
 
@@ -162,8 +164,9 @@ class PrezzenceBillingManager(
         val params = QueryProductDetailsParams.newBuilder()
             .setProductList(listOf(product))
             .build()
-        billingClient.queryProductDetailsAsync(params) { result, products ->
-            cont.resume(if (result.responseCode == BillingClient.BillingResponseCode.OK) products.firstOrNull() else null)
+        billingClient.queryProductDetailsAsync(params) { result, productDetailsResult ->
+            val list = productDetailsResult.productDetailsList
+            cont.resume(if (result.responseCode == BillingClient.BillingResponseCode.OK) list?.firstOrNull() else null)
         }
     }
 
