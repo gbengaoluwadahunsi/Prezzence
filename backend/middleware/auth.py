@@ -110,6 +110,17 @@ async def _validate_with_supabase_auth(token: str) -> dict:
             token_exp = float(token_payload.get("exp") or 0)
         except Exception:
             token_exp = 0
+
+        # Prune expired cache entries when cache grows to prevent memory leaks
+        if len(TOKEN_VALIDATION_CACHE) > 200:
+            expired_keys = [k for k, v in TOKEN_VALIDATION_CACHE.items() if v.get("expires_at", 0) <= now]
+            for k in expired_keys:
+                TOKEN_VALIDATION_CACHE.pop(k, None)
+            # If still over limit, evict oldest entries
+            if len(TOKEN_VALIDATION_CACHE) > 200:
+                for k in list(TOKEN_VALIDATION_CACHE.keys())[:100]:
+                    TOKEN_VALIDATION_CACHE.pop(k, None)
+
         TOKEN_VALIDATION_CACHE[token] = {
             "payload": payload,
             "expires_at": min(token_exp, now + TOKEN_CACHE_TTL_SECONDS) if token_exp else now + TOKEN_CACHE_TTL_SECONDS,

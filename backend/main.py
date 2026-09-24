@@ -261,21 +261,30 @@ async def production_health():
     return production_status()
 
 import httpx
+import gc
+
+ENABLE_KEEPALIVE = os.getenv("ENABLE_KEEPALIVE", "true").lower() in {"1", "true", "yes", "on"}
 
 async def keep_server_awake():
-    """Background task that pings Render self-url and Supabase every 5 minutes to prevent auto-pausing/sleeping."""
+    """Background task that pings Render self-url and Supabase periodically and runs memory garbage collection."""
+    if not ENABLE_KEEPALIVE:
+        logger.info("[Server Keepalive] Disabled via ENABLE_KEEPALIVE=false")
+        return
+
     while True:
         try:
             await asyncio.sleep(300)  # Ping every 5 minutes (300 seconds)
             async with httpx.AsyncClient() as client:
-                await client.get("https://prezzence-backend.onrender.com/privacy", timeout=10.0)
+                await client.get("https://prezzence-backend.onrender.com/healthz", timeout=10.0)
             if supabase_service.client:
                 await asyncio.to_thread(supabase_service.ping)
-            logger.info("[Server Keepalive] Successfully pinged Render & Supabase")
+            gc.collect()
+            logger.info("[Server Keepalive] Successfully pinged Render & Supabase, memory GC run")
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.warning("[Server Keepalive] Ping error: %s", e)
+            gc.collect()
 
 
 

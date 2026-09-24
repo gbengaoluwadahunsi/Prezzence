@@ -14,8 +14,8 @@ except Exception:
 # Local directory for temporary TTS files
 TEMP_TTS_DIR = "static/tts"
 os.makedirs(TEMP_TTS_DIR, exist_ok=True)
-TTS_MAX_FILE_AGE_SECONDS = int(os.getenv("TTS_MAX_FILE_AGE_SECONDS", "86400"))
-TTS_CLEANUP_INTERVAL_SECONDS = int(os.getenv("TTS_CLEANUP_INTERVAL_SECONDS", "900"))
+TTS_MAX_FILE_AGE_SECONDS = int(os.getenv("TTS_MAX_FILE_AGE_SECONDS", "1800"))
+TTS_CLEANUP_INTERVAL_SECONDS = int(os.getenv("TTS_CLEANUP_INTERVAL_SECONDS", "300"))
 TTS_STORAGE_BUCKET = os.getenv("TTS_STORAGE_BUCKET", "tts")
 TTS_AUDIO_FORMAT = os.getenv("TTS_AUDIO_FORMAT", "mp3").lower()
 
@@ -241,10 +241,15 @@ class TTSService:
 
         self._last_cleanup = now
         cutoff = now - TTS_MAX_FILE_AGE_SECONDS
+        removed_count = 0
         try:
             for entry in os.scandir(TEMP_TTS_DIR):
                 if entry.is_file() and entry.name.endswith((".mp3", ".wav")) and entry.stat().st_mtime < cutoff:
                     os.remove(entry.path)
+                    removed_count += 1
+            if removed_count > 0:
+                import gc
+                gc.collect()
         except Exception as exc:
             print(f"[TTS] Cleanup warning: {exc}")
 

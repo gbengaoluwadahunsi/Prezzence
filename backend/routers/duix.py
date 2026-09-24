@@ -36,6 +36,17 @@ async def download_duix_model(zip_name: str, current_user: dict = Depends(get_cu
     if model_name not in MODEL_NAMES or zip_name != f"{model_name}.zip":
         raise HTTPException(status_code=404, detail="Unknown Duix model")
 
+    # 1. Base model (268MB+) should always redirect to CDN / GitHub Release to prevent server OOM
+    if zip_name == "gj_dh_res.zip":
+        base_config_url = os.getenv("DUIX_BASE_CONFIG_URL", "").strip() or DEFAULT_BASE_CONFIG_URL
+        return RedirectResponse(base_config_url, status_code=307)
+
+    # 2. If an external CDN / storage URL is configured, redirect directly
+    configured_base_url = os.getenv("DUIX_MODEL_BASE_URL", "").strip().rstrip("/")
+    if configured_base_url:
+        return RedirectResponse(f"{configured_base_url}/{zip_name}", status_code=307)
+
+    # 3. Fallback to local static file only if present
     model_path = Path(__file__).resolve().parent.parent / "static" / "duix-models" / zip_name
     if model_path.exists() and model_path.stat().st_size > 0:
         return FileResponse(
@@ -43,14 +54,6 @@ async def download_duix_model(zip_name: str, current_user: dict = Depends(get_cu
             media_type="application/zip",
             filename=zip_name,
         )
-
-    if zip_name == "gj_dh_res.zip":
-        base_config_url = os.getenv("DUIX_BASE_CONFIG_URL", "").strip() or DEFAULT_BASE_CONFIG_URL
-        return RedirectResponse(base_config_url, status_code=307)
-
-    configured_base_url = os.getenv("DUIX_MODEL_BASE_URL", "").strip().rstrip("/")
-    if configured_base_url:
-        return RedirectResponse(f"{configured_base_url}/{zip_name}", status_code=307)
 
     raise HTTPException(status_code=404, detail="Duix model file is not available")
 
